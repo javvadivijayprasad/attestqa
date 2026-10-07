@@ -35,6 +35,16 @@ export class Ledger {
   readonly dir: string;
   readonly file: string;
   private nextEventId = 1;
+  /**
+   * Called after every append, for a live view of the run.
+   *
+   * The ledger stays the record of truth and this changes nothing about it —
+   * but a run that prints only its approvals and its final line leaves the
+   * operator watching a blank terminal for minutes, unable to tell a suite that
+   * passed from one that never started. ("is test executed or not, i dont see
+   * test results" — after a run whose suite went green.)
+   */
+  onAppend?: (event: AnyRunEvent) => void;
 
   constructor(ledgerRoot: string, runId: string = newRunId()) {
     this.runId = runId;
@@ -62,6 +72,12 @@ export class Ledger {
       payload,
     };
     appendFileSync(this.file, JSON.stringify(event) + "\n", "utf8");
+    // Never let a display problem break the run that is being displayed.
+    try {
+      this.onAppend?.(event as AnyRunEvent);
+    } catch {
+      /* ignore */
+    }
     return event;
   }
 

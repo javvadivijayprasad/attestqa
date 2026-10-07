@@ -5,12 +5,25 @@ export interface ApprovalRequest {
   approvalId: string;
   summary: string;
   calls: ProposedCall[];
+  /** Context shown ABOVE the calls — e.g. the final run's still-failing tests. */
+  note?: string;
+  /**
+   * For a test design: which of its items already have tests. Supplied by the
+   * skill, shown beside each item so the reviewer can see what is new.
+   */
+  covered?: Map<string, { scenario: string; how: string }>;
 }
 
 export interface ApprovalResult {
   decision: ApprovalDecision;
   by: string;
   at: string;
+  /**
+   * Why the reviewer said no, in their words. A denial without one tells the
+   * agent that something was wrong and nothing about what, so it guesses —
+   * and a design it cannot correct costs the whole run (20260922T231736Z).
+   */
+  reason?: string;
 }
 
 /** Asks a human. `terminal` and `file` implementations arrive in A3. */

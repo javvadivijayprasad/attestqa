@@ -36,6 +36,7 @@ export {
   renderCycle,
   RUNTIME_SYSTEM,
   DEFAULT_MODEL,
+  DEFAULT_TRANSPORT,
   DEFAULT_PROMPT_VERSION,
 } from "./runtime/anthropic.js";
 export type {
@@ -131,8 +132,8 @@ export {
 } from "./mcp/servers.js";
 export type { PlaywrightServerOptions } from "./mcp/servers.js";
 export { FsTools } from "./mcp/adapters/fs.js";
-export { Bdd2PwTools, parseFeature, renderSpec } from "./mcp/adapters/bdd2pw.js";
-export type { GherkinFeature, GherkinScenario, GherkinStep } from "./mcp/adapters/bdd2pw.js";
+export { Bdd2PwTools } from "./mcp/adapters/bdd2pw.js";
+export type { Bdd2PwOptions } from "./mcp/adapters/bdd2pw.js";
 export { PwTools, summarise } from "./mcp/adapters/pw.js";
 export type { PwOptions, TestRunSummary } from "./mcp/adapters/pw.js";
 export { TcgTools } from "./mcp/adapters/tcg.js";
@@ -143,3 +144,27 @@ export { execFileRunner, splitCommand } from "./mcp/adapters/process.js";
 export type { CommandRunner, CommandResult } from "./mcp/adapters/process.js";
 export { buildReport, renderReportMarkdown } from "./mcp/discover.js";
 export type { DiscoveryReport } from "./mcp/discover.js";
+
+// Failure triage: what kind of red this was. Exported so the VS Code extension
+// and the platform can render verdicts without re-implementing the vocabulary.
+export {
+  CATEGORY_ORDER,
+  CONTAGIOUS,
+  BANKS,
+  isContagious,
+  isTriageCategory,
+  py,
+} from "./triage/patterns.js";
+export type { TriageCategory, TriagePattern } from "./triage/patterns.js";
+export { classifyFailure, triageRun, repairable } from "./triage/classify.js";
+export type { FailureSignal, TriageVerdict, TriageResult } from "./triage/classify.js";
+export { parseFailures, readFailures, reportPath } from "./triage/report.js";
+export type { ParsedFailure } from "./triage/report.js";
+export { runTriage, triageGaps, triageEvents } from "./triage/step.js";
+export { analyzeReport, merge, DEFAULT_SERVICE_TIMEOUT_MS } from "./triage/service.js";
+export type {
+  ServiceOptions,
+  AnalyzedReport,
+  AnalyzedGroup,
+  RetryPlan,
+} from "./triage/service.js";

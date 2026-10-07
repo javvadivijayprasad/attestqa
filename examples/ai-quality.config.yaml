@@ -8,10 +8,33 @@ agent:
     # fixed tool schemas. 400k bought about 30 cycles, which ran out mid-repair
     # with four of five tests already passing; these numbers leave room to
     # finish. Lower them for a cheap smoke run.
-    steps: 60 # AQA_STEP_BUDGET overrides
+    # 60 was not enough once stage 2 was added: the design cycle, the feature
+    # file, the scaffold and the implementation all come out of the same
+    # allowance, and a run ended with the suite never run (20260922T231736Z).
+    steps: 150 # AQA_STEP_BUDGET overrides
     tokens: 1500000 # AQA_TOKEN_BUDGET overrides
+  # Stage 2 — ISTQB test types the test design must cover. The agent submits a
+  # design (one item per test: type, technique, conditions, expected, source)
+  # and a person approves it before any test is written. Remove this line to
+  # turn the design stage off. accessibility needs @axe-core/playwright.
+  test_types: ["functional", "security", "accessibility", "confirmation"]
+  # bdd2pw scaffolds with a deterministic rule table first. A step the rules cannot bind
+  # lands as `// TODO` unless this is set, in which case bdd2pw asks a model — caching the
+  # answer in <repo>/.bdd2pw/llm-cache.sqlite and logging every generated binding to
+  # artefacts/candidate-rules.jsonl for offline review. It reaches the generator ONLY when
+  # AI_GOVERNANCE_URL is also set (the ai-governance sidecar, e.g. http://127.0.0.1:4900):
+  # bdd2pw sanitises each prompt there and fails closed without it. Remove this line to
+  # scaffold rules-only, which is deterministic and leaves unbound steps visible.
+  llm_fallback: anthropic
   scope:
-    work_items: ["1"] # exact ids or ranges: "100-199"
+    # 1 = the story; 29-34 = closed bugs (defect profile); 42 = its epic;
+    # 45-47 = its tasks; 48-50 = the open bugs. Stage-1 context reads are
+    # refused for anything outside this list, and reported as refused.
+    # 1, 43, 44 = the epic's stories; 29-34 = closed bugs (defect profile);
+    # 42 = the epic; 45-47 = tasks; 48-50 = open bugs; 69-82 = the test cases the
+    # runtime created for these stories, plus the bugs it filed (filtered out of
+    # context as agent-written, but readable).
+    work_items: ["1", "29-34", "42-50", "69-82"] # exact ids or ranges: "100-199"
     repos: [] # repo names the agent may write to (none for slice 1)
     # Azure Test Plans the agent may create cases/suites in. Entries are matched
     # against the argument as passed, and the Azure DevOps MCP server uses the

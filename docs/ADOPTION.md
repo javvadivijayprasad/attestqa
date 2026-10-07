@@ -182,6 +182,50 @@ need and classify that one instead.
 
 ---
 
+## What leaves the machine
+
+Worth knowing before someone asks, and worth knowing accurately, because the honest answer is
+"almost nothing" and a vague answer sounds worse than the truth.
+
+**By default, two destinations and no others.**
+
+- **The model provider**, for the agent to work at all. The context it sends is assembled from the
+  ledger each cycle: the story text and acceptance criteria, files the agent read, tool results,
+  and the skill's instructions. That means the contents of any work item and any repository file
+  the agent reads are sent to the model. This is not new with this version and is inherent to
+  running an agent; it is listed here because teams reasonably want it stated in one place.
+- **Azure DevOps**, which is where the work already lives.
+
+Nothing else. The run's ledger, the generated specs, the execution report and the replay are all
+files in the workspace.
+
+**Failure triage runs in-process.** Classifying a failed test is regular-expression matching over
+a local JSON report. No network, no model, no service. This matters more than it sounds: triage
+sees raw application error output, which is the part of a run most likely to contain real data
+from the system under test.
+
+**`DEFECT_ANALYSIS_URL` is the one opt-in.** Setting it sends each failing test's name, error
+message, stack and duration to that service. That is application output and may carry data from
+the system under test — a record id in an assertion message, a customer name in a rendered page
+fragment. Do not point it at a host outside your organisation's boundary without deciding that
+deliberately.
+
+Three properties of that switch, for whoever has to sign it off:
+
+- It is read from the environment and **only** from the environment. No work item, spec, tool
+  result or model output can nominate an endpoint — an agent that could choose where to send
+  failure data is an exfiltration path with a helpful name.
+- It never blocks a run. If the service is down, slow, or answers with something unrecognisable,
+  the built-in rules stand and the run report records that its verdicts did not all come from one
+  classifier.
+- No credentials are sent. If your deployment needs the service authenticated, that is a separate
+  decision and this version does not make it.
+
+**What is still local when it is set:** everything else. Triage sends failures; it does not send
+the ledger, the specs, the story, or the report.
+
+---
+
 ## How this fails in a team
 
 Each of these is recoverable; all are cheaper to avoid.

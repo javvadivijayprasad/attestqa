@@ -3,10 +3,10 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Ledger, LEDGER_FILE, runDir } from "../src/ledger/ledger.js";
-import { TableGate } from "../src/governance/policy.js";
+import { ScopedGate, TableGate } from "../src/governance/policy.js";
 import { ScriptedApprover } from "../src/runtime/approval.js";
 import { SteppingClock } from "../src/runtime/clock.js";
-import { runLoop, type LoopDeps } from "../src/runtime/loop.js";
+import { runLoop, withRuntimeArgs, type LoopDeps } from "../src/runtime/loop.js";
 import { ScriptedModel, type ModelDecision } from "../src/runtime/model.js";
 import { StubTools } from "../src/runtime/tools.js";
 import { ScriptedVerifier } from "../src/verify/scripted.js";
@@ -139,6 +139,8 @@ describe("stop rules", () => {
     expect(kinds(ev)).toEqual([
       "request",
       "plan",
+      // S5: every run records the role its first turn belongs to.
+      "agent",
       "context",
       "inference",
       "policy",
@@ -508,5 +510,248 @@ describe("an operation the environment refuses is closed for the rest of the run
     const d = deps(varied, { tools: t, skill: planSkill(), config: config({ steps: 20 }) });
     await runLoop(d);
     expect(d.ledger.read().filter((e) => e.kind === "call")).toHaveLength(3);
+  });
+});
+
+describe("preflight: reads the RUNTIME makes before the model's first turn", () => {
+  it("runs them through the gate and the ledger, and hands the model the digest", async () => {
+    // Stage 1 was left to the model and the model skipped half of it. Moving it
+    // into the runtime must not move it outside governance: every read is
+    // judged and recorded exactly like a model-proposed call.
+    const seenByModel: string[] = [];
+    const d = deps([goal], {
+      skill: {
+        ...skill(),
+        sourceTools: ["aqa.story_context"],
+        preflight: async (readFn) => {
+          const r = await readFn("s.read", { id: 1 });
+          return {
+            toolName: "aqa.story_context",
+            text: `CONTEXT v=${JSON.stringify(r.result)}`,
+            summary: { storyRead: r.ok ? 1 : 0 },
+          };
+        },
+      },
+      model: {
+        model: "m",
+        promptVersion: "p",
+        plan: async (input) => {
+          seenByModel.push(JSON.stringify(input));
+          return { steps: ["a"], usage: u };
+        },
+        decide: async () => goal,
+      },
+    });
+    await runLoop(d);
+    const events = d.ledger.read();
+    const policy = events.find((e) => e.kind === "policy");
+    expect(policy?.payload).toMatchObject({ toolName: "s.read", decision: "execute" });
+    const calls = events.filter((e) => e.kind === "call").map((e) => (e.payload as { toolName: string }).toolName);
+    // The real read, then the digest recorded as the runtime's own result.
+    expect(calls.slice(0, 2)).toEqual(["read", "story_context"]);
+    // The model saw the digest BEFORE it planned.
+    expect(seenByModel[0]).toContain("CONTEXT v=");
+  });
+
+  it("refuses anything that is not a read the gate would execute", async () => {
+    // Preflight can observe and never act. A skill that tried to write through
+    // it — by mistake or otherwise — gets a refusal in the ledger, not a write.
+    const t = tools();
+    const d = deps([goal], {
+      tools: t,
+      skill: {
+        ...skill(),
+        preflight: async (readFn) => {
+          const r = await readFn("s.write", {});
+          expect(r.ok).toBe(false);
+          return undefined;
+        },
+      },
+    });
+    await runLoop(d);
+    expect(t.calls.map((c) => c.toolName)).not.toContain("s.write");
+    const policy = d.ledger.read().find((e) => e.kind === "policy");
+    expect(policy?.payload).toMatchObject({ toolName: "s.write", decision: "refuse" });
+  });
+});
+
+describe("bug proposals wait for the end of the run", () => {
+  const bugCall = {
+    toolName: "ado.wit_work_item_write",
+    args: { action: "create", workItemType: "Bug", parentId: 1, tags: "agentic-qa", title: "AC-1: broken" },
+  };
+
+  it("holds a mid-run proposal, asks nobody, and drops it when the suite ends green", async () => {
+    const t = tools()
+      .add(
+        { server: "ado", name: "wit_work_item_write", description: "", inputSchema: {}, policyClass: "write_record" },
+        { ok: true, result: { id: 99 }, artefacts: [] },
+      )
+      .add(
+        { server: "pw", name: "run_tests", description: "", inputSchema: {}, policyClass: "write_workspace" },
+        { ok: true, result: { passed: 1, failed: 0, skipped: 0, green: true, tests: [{ title: "AC-1 x", status: "passed" }] }, artefacts: [] },
+      );
+    const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
+    const d = deps(
+      [
+        { calls: [{ toolName: bugCall.toolName, args: bugCall.args }], usage: u },
+        { calls: [{ toolName: "pw.run_tests", args: {} }], usage: u },
+        goal,
+      ],
+      {
+        tools: t,
+        approver,
+        skill: { ...skill(), allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"], workItem: "1" },
+      },
+    );
+    await runLoop(d);
+    // Nobody was asked, and nothing was filed.
+    expect(approver.asked).toHaveLength(0);
+    expect(t.calls.map((c) => c.toolName)).not.toContain("ado.wit_work_item_write");
+  });
+
+  it("asks ONCE at the end, beside the final result, when the test is still failing", async () => {
+    const t = tools()
+      .add(
+        { server: "ado", name: "wit_work_item_write", description: "", inputSchema: {}, policyClass: "write_record" },
+        { ok: true, result: { id: 99 }, artefacts: [] },
+      )
+      .add(
+        { server: "pw", name: "run_tests", description: "", inputSchema: {}, policyClass: "write_workspace" },
+        { ok: true, result: { passed: 0, failed: 1, skipped: 0, green: false, tests: [{ title: "AC-1 signs in", status: "failed" }] }, artefacts: [] },
+      );
+    const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
+    const d = deps(
+      [
+        { calls: [{ toolName: "pw.run_tests", args: {} }], usage: u },
+        { calls: [{ toolName: bugCall.toolName, args: bugCall.args }], usage: u },
+        goal,
+      ],
+      {
+        tools: t,
+        approver,
+        skill: { ...skill(), allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"], workItem: "1" },
+      },
+    );
+    await runLoop(d);
+    expect(approver.asked).toHaveLength(1);
+    expect(approver.asked[0]?.note).toContain("Execution has FINISHED");
+    expect(approver.asked[0]?.note).toContain("AC-1 signs in");
+    expect(t.calls.map((c) => c.toolName)).toContain("ado.wit_work_item_write");
+  });
+});
+
+describe("pinned arguments: the runtime, not the model, chooses the project", () => {
+  it("overrides whatever project the model proposed, before the gate and the ledger", async () => {
+    // Run 20260921T142549Z: four bug creations carried projects the model
+    // invented — "AQA Sandbox", "JuiceShopTest". They failed only because no
+    // such projects existed. The approval prompt never showed the project.
+    const t = new StubTools().add(
+      {
+        server: "ado",
+        name: "wit_work_item",
+        description: "",
+        inputSchema: {},
+        policyClass: "read",
+        pinnedArgs: { project: "agentic-qa-sandbox" },
+      },
+      { ok: true, result: {}, artefacts: [] },
+    );
+    const d = deps(
+      [{ calls: [{ toolName: "ado.wit_work_item", args: { project: "JuiceShopTest", id: 1 } }], usage: u }, goal],
+      { tools: t, skill: { ...skill(), allowedTools: ["ado.wit_work_item"] } },
+    );
+    await runLoop(d);
+    expect(t.calls[0]?.args["project"]).toBe("agentic-qa-sandbox");
+    const recorded = d.ledger.read().find((e) => e.kind === "call")?.payload as { args: Record<string, unknown> };
+    expect(recorded.args["project"]).toBe("agentic-qa-sandbox");
+  });
+
+  it("still lets the model's arguments override a mere default", () => {
+    const tool = {
+      server: "s",
+      name: "x",
+      description: "",
+      inputSchema: {},
+      policyClass: "read" as const,
+      defaultArgs: { top: 10 },
+      pinnedArgs: { project: "p" },
+    };
+    expect(withRuntimeArgs({ toolName: "s.x", args: { top: 50, project: "q" } }, tool).args).toEqual({
+      top: 50,
+      project: "p",
+    });
+  });
+});
+
+describe("the runtime's own end-of-run writes", () => {
+  it("posts the skill's final report once, after everything else, through one approval", async () => {
+    const t = tools().add(
+      { server: "ado", name: "wit_work_item_comment_write", description: "", inputSchema: {}, policyClass: "write_record" },
+      { ok: true, result: { id: 1 }, artefacts: [] },
+    );
+    const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
+    const d = deps([{ calls: [], usage: u, note: "Covered AC-1 to AC-4." }], {
+      tools: t,
+      approver,
+      skill: {
+        ...skill(),
+        allowedTools: ["s.read", "ado.wit_work_item_comment_write"],
+        finalReport: (_events, ctx) => ({
+          toolName: "ado.wit_work_item_comment_write",
+          args: { action: "add", workItemId: 1, text: `report ${ctx.runId} / ${ctx.agentNote ?? ""}` },
+        }),
+      },
+    });
+    await runLoop(d);
+    expect(approver.asked).toHaveLength(1);
+    expect(approver.asked[0]?.note).toContain("The run is over");
+    const posted = t.calls.find((c) => c.toolName === "ado.wit_work_item_comment_write");
+    expect(String(posted?.args["text"])).toContain("Covered AC-1 to AC-4.");
+    // It is the LAST thing before the end event.
+    const kinds = d.ledger.read().map((e) => e.kind);
+    expect(kinds.slice(-3)).toEqual(["call", "observation", "end"]);
+  });
+
+  it("posts nothing when the skill has nothing to report", async () => {
+    const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
+    const d = deps([goal], { approver, skill: { ...skill(), finalReport: () => undefined } });
+    await runLoop(d);
+    expect(approver.asked).toHaveLength(0);
+  });
+});
+
+describe("preflight: reads of items linked to the story", () => {
+  it("allows a linked read the scope would refuse — and only a linked one", async () => {
+    // Test cases get new ids every run; listing each in agent.scope.work_items
+    // by hand does not scale. A read the RUNTIME makes of an item reached
+    // through the in-scope story's own links is allowed. The model's own reads
+    // still obey the scope exactly as written.
+    const t = new StubTools().add(
+      { server: "ado", name: "wit_work_item", description: "", inputSchema: {}, policyClass: "read", scopeArgs: { workItem: "id" } },
+      { ok: true, result: { id: 42 }, artefacts: [] },
+    );
+    const results: boolean[] = [];
+    const d = deps([goal], {
+      tools: t,
+      config: { ...config(), scope: { ...config().scope, work_items: ["1"] } },
+      gate: new ScopedGate(DEFAULT_POLICY, { ...config().scope, work_items: ["1"] }),
+      skill: {
+        ...skill(),
+        allowedTools: ["ado.wit_work_item"],
+        preflight: async (read) => {
+          results.push((await read("ado.wit_work_item", { id: 42 }, { linkedToStory: true })).ok);
+          results.push((await read("ado.wit_work_item", { id: 43 })).ok);
+          return undefined;
+        },
+      },
+    });
+    await runLoop(d);
+    expect(results).toEqual([true, false]);
+    const reasons = d.ledger
+      .read()
+      .filter((e) => e.kind === "policy")
+      .map((e) => String((e.payload as { reason: string }).reason));
+    expect(reasons[0]).toContain("reached from the in-scope story");
   });
 });

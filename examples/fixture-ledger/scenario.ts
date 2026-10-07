@@ -175,10 +175,75 @@ export function fixtureSkill(): Skill {
       "ado.create_test_cases",
       "ado.record_test_run",
     ],
+    // The route, as the runtime records it before the model's first turn. The
+    // fixture is a project with no automation yet, so the path is A (author) and
+    // nothing is denied. Present here so the golden record covers the event a
+    // real run always writes.
+    route: () => ({
+      path: "A",
+      reason: "no feature file for this epic yet (features/epic-42-customer-account-access.feature)",
+      because: {
+        feature: "features/epic-42-customer-account-access.feature",
+        spec: "tests/epic-42-customer-account-access.spec.ts",
+        story: 1,
+        featureExists: false,
+      },
+      deny: [],
+    }),
+    // The role this run's turns belong to. The fixture's suite has one failing
+    // test with an assertion failure and no fallback, so the run stays in the
+    // skill's own role throughout — which is what the loop records on the first
+    // turn of every run.
+    // (A role change is written when `roleFor` returns a different role; the
+    // heal role is exercised in unit tests, where a locator failure can be set
+    // up without a browser.)
     // A6: the story and the file read are primary sources — ordered ahead of
     // the step history and trimmed last by OrderedContextBuilder.
     sourceTools: ["ado.get_work_item", "ado.get_repo_file", "tcg.generate"],
-    verifier: new ScriptedVerifier([{ done: true, gaps: [] }]),
+    // The scenario's suite is 3 passed, 1 failed (S3), so the fixture carries a
+    // triage event. The loop asks for one after EVERY cycle, so the script is
+    // four `undefined`s — nothing has run yet — then one verdict on the cycle
+    // that runs the suite, then silence, which is what an unchanged report
+    // produces in the real thing.
+    //
+    // The verdict is `flake` rather than `real-defect` on purpose. This fixture
+    // is a golden record of a complete successful run, through to Test Plans; a
+    // real-defect verdict would correctly STOP the run at that point and the
+    // fixture would stop covering the events after it. The stop path is
+    // exercised by unit tests, where it belongs.
+    verifier: new ScriptedVerifier(
+      [{ done: true, gaps: [] }],
+      [
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          attempt: 1,
+          // A fixture's report is imaginary, so its fingerprint is a constant.
+          reportFingerprint: "fixture000000000",
+          runLevel: null,
+          verdicts: [
+            {
+              test: "checkout.spec.ts › S3 empty fields are blocked",
+              category: "flake",
+              confidence: 0.333,
+              matchedPatterns: [
+                String.raw`(?i)\bTimeout\s+\d+\s*ms\s+exceeded\b`,
+                String.raw`(?i)\bwaiting for (locator|selector|expect)\b`,
+              ],
+              evidence: "Timeout 5000ms exceeded waiting for locator('#signin')",
+              rationale:
+                "Timing or UI-state instability rather than a product fault. The spec is not " +
+                "to be edited on this verdict — a flaky test rewritten to pass is a test that " +
+                "no longer guards anything. 2 signals in the error point to this category.",
+              triagedBy: "builtin",
+            },
+          ],
+          quarantined: [],
+        },
+      ],
+    ),
   };
 }
 

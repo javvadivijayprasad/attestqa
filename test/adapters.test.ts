@@ -2,82 +2,205 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Bdd2PwTools, parseFeature, renderSpec } from "../src/mcp/adapters/bdd2pw.js";
-import { PwTools, summarise } from "../src/mcp/adapters/pw.js";
+import { Bdd2PwTools, repoForFeature } from "../src/mcp/adapters/bdd2pw.js";
+import { PwTools, summarise, MAX_TESTS_RECORDED, stripAnsi } from "../src/mcp/adapters/pw.js";
 import { TcgTools, type FetchLike } from "../src/mcp/adapters/tcg.js";
 import { SynthdataTools } from "../src/mcp/adapters/synthdata.js";
 import { splitCommand, spawnable, type CommandRunner } from "../src/mcp/adapters/process.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "aqa-ad-"));
 
-const FEATURE = `# login flows
-@auth
-Feature: Login with valid credentials
-
-  Background:
-    Given the application is running
+const FEATURE = `Feature: Login with valid credentials
 
   Scenario: AC-1 valid credentials reach the dashboard
     Given the user is on the login page
     When they submit valid credentials
     Then the dashboard is shown
-
-  Scenario Outline: AC-2 invalid credentials are rejected
-    When they submit "<user>" and "<password>"
-    Then the error "<message>" is shown
-
-    Examples:
-      | user  | password | message           |
-      | alice | wrong    | Invalid password  |
-      |       | secret   | Username required |
 `;
 
-describe("bdd2pw parse", () => {
-  it("reads feature, background, scenarios and expands Scenario Outline rows", () => {
-    const f = parseFeature(FEATURE);
-    expect(f.feature).toBe("Login with valid credentials");
-    expect(f.background).toEqual([{ keyword: "Given", text: "the application is running" }]);
-    expect(f.scenarios).toHaveLength(3);
-    expect(f.scenarios[0]!.tags).toEqual(["@auth"]);
-    expect(f.scenarios[0]!.steps.map((s) => s.keyword)).toEqual(["Given", "When", "Then"]);
-    // one test per Examples row, placeholders substituted
-    expect(f.scenarios[1]!.steps[0]!.text).toBe('they submit "alice" and "wrong"');
-    expect(f.scenarios[2]!.steps[1]!.text).toBe('the error "Username required" is shown');
-  });
+/**
+ * These test the ADAPTER, not bdd2pw.
+ *
+ * The previous version of this file tested `parseFeature` and `renderSpec` —
+ * a Gherkin parser and a code generator that lived inside the adapter. They are
+ * gone: the adapter now runs `@vijaypjavvadi/bdd2pw`, which parses with
+ * `@cucumber/gherkin`, scans the live page for real locators, and emits Page
+ * Objects plus a runnable spec.
+ *
+ * So there is nothing here about Gherkin. What is left is what an adapter is
+ * actually responsible for: naming the tools, validating arguments, refusing
+ * what escapes the workspace, building the right command line, and normalising
+ * the result. Those are translation concerns, and they are the only concerns an
+ * adapter should be able to get wrong.
+ */
+describe("bdd2pw adapter", () => {
+  function runner(result: { code: number; stdout: string; stderr?: string }): {
+    fn: CommandRunner;
+    seen: string[][];
+  } {
+    const seen: string[][] = [];
+    const fn: CommandRunner = async (command, args) => (
+      seen.push([command, ...args]),
+      { code: result.code, stdout: result.stdout, stderr: result.stderr ?? "" }
+    );
+    return { fn, seen };
+  }
 
-  it("survives an empty or comment-only feature file", () => {
-    expect(parseFeature("# nothing here\n").scenarios).toEqual([]);
-    expect(renderSpec(parseFeature(""), "x.feature")).toContain("no scenarios found");
-  });
-});
-
-describe("bdd2pw to_spec", () => {
-  it("writes a spec whose tests are fixme, with one test.step per Gherkin step", async () => {
+  function workspaceWithFeature(): string {
     const ws = tmp();
     mkdirSync(join(ws, "features"));
     writeFileSync(join(ws, "features", "login.feature"), FEATURE);
-    const t = new Bdd2PwTools(ws);
-    const r = await t.call("bdd2pw", "to_spec", { path: "features/login.feature" });
-    expect(r.ok).toBe(true);
-    expect(r.artefacts).toEqual(["tests/login.spec.ts"]);
-    expect(r.result).toMatchObject({ tests: 3, unimplemented: 3 });
-    const spec = readFileSync(join(ws, "tests", "login.spec.ts"), "utf8");
-    expect(spec).toContain('test.describe("Login with valid credentials"');
-    expect(spec).toContain("test.fixme(true,");
-    // background step is prepended to every test
-    expect(spec.match(/Given the application is running/g)).toHaveLength(3);
-    expect(spec).toContain('await test.step("When they submit valid credentials"');
+    return ws;
+  }
+
+  it("offers scaffold and analyze, and scopes both on the url", async () => {
+    // bdd2pw opens the application to find locators, so the gate must check
+    // that url against agent.scope.urls exactly as it does a navigation.
+    const tools = await new Bdd2PwTools(tmp()).listTools();
+    expect(tools.map((t) => t.name).sort()).toEqual(["analyze", "scaffold"]);
+    for (const t of tools) expect(t.scopeArgs).toEqual({ url: "url" });
+    expect(tools.find((t) => t.name === "scaffold")?.policyClass).toBe("write_workspace");
+    expect(tools.find((t) => t.name === "analyze")?.policyClass).toBe("read");
   });
 
-  it("honours --out, refuses escapes and missing files", async () => {
+  it("builds a scaffold command against the workspace as the repo", async () => {
+    const r = runner({ code: 0, stdout: "wrote 1 spec" });
+    const ws = workspaceWithFeature();
+    const t = new Bdd2PwTools(ws, { runner: r.fn });
+    const out = await t.call("bdd2pw", "scaffold", {
+      feature: "features/login.feature",
+      url: "http://localhost:3100/#/login",
+      page: "LoginPage",
+    });
+    expect(out.ok).toBe(true);
+    const cmd = r.seen[0]!;
+    expect(cmd).toContain("bdd2pw");
+    expect(cmd).toContain("scaffold");
+    expect(cmd).toContain("features/login.feature");
+    expect(cmd).toContain("--url");
+    expect(cmd).toContain("--page");
+    // A feature at the workspace root means the workspace IS the Playwright
+    // repo, so the repo argument is "." — as it always was.
+    expect(cmd.slice(cmd.indexOf("--repo"), cmd.indexOf("--repo") + 2)).toEqual(["--repo", "."]);
+  });
+
+  it("roots the repo where the feature lives, not where the process started", async () => {
+    // Run 20260918T221233Z: the feature was at examples/sandbox/features/, the
+    // repo argument was a hard-coded ".", and bdd2pw wrote the spec to the
+    // workspace root two directories away. Nothing failed — the agent went
+    // looking beside its feature file, found a stale spec from an earlier run,
+    // and the no-progress detector stopped it.
+    const r = runner({ code: 0, stdout: "wrote 1 spec" });
     const ws = tmp();
-    writeFileSync(join(ws, "a.feature"), "Feature: A\n  Scenario: s\n    Given x\n");
-    const t = new Bdd2PwTools(ws);
-    const r = await t.call("bdd2pw", "to_spec", { path: "a.feature", out: "e2e/a.spec.ts" });
-    expect(r.artefacts).toEqual(["e2e/a.spec.ts"]);
-    expect((await t.call("bdd2pw", "to_spec", { path: "../x.feature" })).ok).toBe(false);
-    expect((await t.call("bdd2pw", "parse", { path: "nope.feature" })).ok).toBe(false);
-    expect((await t.call("bdd2pw", "to_spec", { path: "a.feature", out: "../x" })).ok).toBe(false);
+    mkdirSync(join(ws, "examples", "sandbox", "features"), { recursive: true });
+    writeFileSync(join(ws, "examples", "sandbox", "features", "login.feature"), FEATURE);
+    const t = new Bdd2PwTools(ws, { runner: r.fn });
+    const out = await t.call("bdd2pw", "scaffold", {
+      feature: "examples/sandbox/features/login.feature",
+      url: "http://localhost:3100/#/login",
+    });
+    expect(out.ok).toBe(true);
+    const cmd = r.seen[0]!;
+    expect(cmd.slice(cmd.indexOf("--repo"), cmd.indexOf("--repo") + 2)).toEqual([
+      "--repo",
+      "examples/sandbox",
+    ]);
+    // And the result SAYS where the files went, so the agent does not guess.
+    expect(out.result).toMatchObject({
+      repo: "examples/sandbox",
+      specDir: join("examples/sandbox", "tests"),
+      pageObjectDir: join("examples/sandbox", "pages"),
+    });
+  });
+
+  it("derives the repo from the feature path alone", () => {
+    expect(repoForFeature("features/login.feature")).toBe(".");
+    expect(repoForFeature("login.feature")).toBe(".");
+    expect(repoForFeature("./features/login.feature")).toBe(".");
+    expect(repoForFeature("examples/sandbox/features/login.feature")).toBe("examples/sandbox");
+    // No `features/` directory: the repo is simply where the file sits.
+    expect(repoForFeature("examples/sandbox/login.feature")).toBe("examples/sandbox");
+    expect(repoForFeature("examples\\sandbox\\features\\login.feature")).toBe("examples/sandbox");
+  });
+
+  it("NEVER passes --llm-skip-governance, whatever the options say", async () => {
+    // bdd2pw sanitises every prompt through the ai-governance sidecar before it
+    // leaves the perimeter, and fails closed if the sidecar is down. That is the
+    // property that makes the LLM path safe to offer at all. A test-only escape
+    // hatch reachable from an agent is not a test-only escape hatch.
+    const r = runner({ code: 0, stdout: "ok" });
+    const ws = workspaceWithFeature();
+    const t = new Bdd2PwTools(ws, {
+      runner: r.fn,
+      llm: "anthropic",
+      governanceUrl: "http://localhost:4900",
+    });
+    await t.call("bdd2pw", "scaffold", { feature: "features/login.feature", url: "http://x/" });
+    expect(r.seen[0]!.join(" ")).not.toContain("skip-governance");
+    expect(r.seen[0]).toContain("--llm");
+    expect(r.seen[0]).toContain("--governance-url");
+  });
+
+  it("does not enable the LLM without a governance endpoint", async () => {
+    // The pair is constructed together so a later edit cannot separate them.
+    const r = runner({ code: 0, stdout: "ok" });
+    const ws = workspaceWithFeature();
+    const t = new Bdd2PwTools(ws, { runner: r.fn, llm: "anthropic" });
+    const out = await t.call("bdd2pw", "scaffold", {
+      feature: "features/login.feature",
+      url: "http://x/",
+    });
+    expect(r.seen[0]!.join(" ")).not.toContain("--llm");
+    // ...and the run says the fallback was unavailable, so a spec left full of
+    // TODOs can say WHY rather than leaving the reader to guess.
+    expect(out.result).toMatchObject({ llmFallback: "disabled" });
+  });
+
+  it("refuses a feature path that escapes the workspace, or does not exist", async () => {
+    const r = runner({ code: 0, stdout: "ok" });
+    const t = new Bdd2PwTools(workspaceWithFeature(), { runner: r.fn });
+    const url = "http://x/";
+    expect((await t.call("bdd2pw", "scaffold", { feature: "../x.feature", url })).ok).toBe(false);
+    expect((await t.call("bdd2pw", "scaffold", { feature: "nope.feature", url })).ok).toBe(false);
+    expect(r.seen).toHaveLength(0);
+  });
+
+  it("requires a url, because a scan is the whole point", async () => {
+    const r = runner({ code: 0, stdout: "ok" });
+    const t = new Bdd2PwTools(workspaceWithFeature(), { runner: r.fn });
+    const out = await t.call("bdd2pw", "scaffold", { feature: "features/login.feature" });
+    expect(out.ok).toBe(false);
+    // Assert on the message a human reads, not on its JSON-escaped form.
+    expect((out.result as { message: string }).message).toContain('requires "url"');
+  });
+
+  it("refuses arguments carrying shell punctuation", async () => {
+    // On Windows the launcher goes through the command interpreter, so an
+    // argument with shell metacharacters is refused rather than escaped.
+    const r = runner({ code: 0, stdout: "ok" });
+    const t = new Bdd2PwTools(workspaceWithFeature(), { runner: r.fn });
+    const bad = await t.call("bdd2pw", "scaffold", {
+      feature: "features/login.feature",
+      url: "http://x/ & calc",
+    });
+    expect(bad.ok).toBe(false);
+    expect(r.seen).toHaveLength(0);
+  });
+
+  it("reports a non-zero exit as a failure, with the output", async () => {
+    const r = runner({ code: 1, stdout: "", stderr: "could not reach http://x/" });
+    const t = new Bdd2PwTools(workspaceWithFeature(), { runner: r.fn });
+    const out = await t.call("bdd2pw", "scaffold", {
+      feature: "features/login.feature",
+      url: "http://x/",
+    });
+    expect(out.ok).toBe(false);
+    expect(JSON.stringify(out.result)).toContain("could not reach");
+  });
+
+  it("refuses an unknown tool name", async () => {
+    const t = new Bdd2PwTools(tmp());
+    expect((await t.call("bdd2pw", "to_spec", { path: "a.feature" })).ok).toBe(false);
   });
 });
 
@@ -113,6 +236,20 @@ describe("pw run_tests", () => {
     const pw = new PwTools(tmp(), { runner: r.fn });
     const out = await pw.call("pw", "run_tests", {});
     expect(out.result).toMatchObject({ skipped: 3, green: false });
+  });
+
+  it("keeps the HEAD of a failure message, without colour codes", async () => {
+    // The tail of a coloured message began "…22m failed" in 20260921T203913Z.
+    const long = "Error: expect(page).toHaveURL(expected) \u001b[31mfailed\u001b[39m\n" + "x".repeat(2000);
+    const suites = [
+      { file: "t.spec.ts", specs: [{ title: "A", ok: false, tests: [{ results: [{ error: { message: long } }] }] }] },
+    ];
+    const r = runner({ code: 1, stdout: report({ expected: 0, unexpected: 1 }, suites) });
+    const out = await new PwTools(tmp(), { runner: r.fn }).call("pw", "run_tests", {});
+    const msg = (out.result as { failures: Array<{ message: string }> }).failures[0]?.message ?? "";
+    expect(msg.startsWith("Error: expect(page).toHaveURL(expected) failed")).toBe(true);
+    expect(msg).not.toContain("\u001b");
+    expect(stripAnsi("\u001b[2m a \u001b[22m")).toBe(" a ");
   });
 
   it("collects failing test titles and messages", async () => {
@@ -295,6 +432,57 @@ describe("pw: unsafe arguments", () => {
   });
 });
 
+describe("summarise: every test, not only the failures", () => {
+  const report = (specs: unknown[]) =>
+    JSON.stringify({
+      stats: { expected: 2, unexpected: 1, skipped: 1, flaky: 0 },
+      suites: [{ file: "tests/login.spec.ts", specs }],
+    });
+
+  it("records title, status and duration for passes as well as failures", () => {
+    // The ledger is what the run report is composed from, so a status this
+    // drops can never reach the story. A green suite reported as "5 passed"
+    // with no names was the visible symptom.
+    const out = summarise(
+      report([
+        { title: "AC-1", ok: true, tests: [{ status: "expected", results: [{ duration: 2400 }] }] },
+        { title: "AC-2", ok: false, tests: [{ status: "unexpected", results: [{ duration: 900, error: { message: "boom" } }] }] },
+        { title: "AC-3", ok: true, tests: [{ status: "skipped", results: [{ duration: 0 }] }] },
+      ]),
+      1,
+    );
+    expect(out?.tests).toEqual([
+      { title: "AC-1", file: "tests/login.spec.ts", status: "passed", durationMs: 2400 },
+      { title: "AC-2", file: "tests/login.spec.ts", status: "failed", durationMs: 900 },
+      { title: "AC-3", file: "tests/login.spec.ts", status: "skipped", durationMs: 0 },
+    ]);
+    // Failures keep their own list, with the message.
+    expect(out?.failures).toHaveLength(1);
+    expect(out?.failures[0]?.message).toContain("boom");
+  });
+
+  it("does not report a skipped spec as passed", () => {
+    // `spec.ok` is true for a skipped spec, so reading ok alone would report a
+    // suite of `fixme` skeletons as passing — the worst summary available.
+    const out = summarise(
+      report([{ title: "todo", ok: true, tests: [{ status: "skipped", results: [] }] }]),
+      0,
+    );
+    expect(out?.tests[0]?.status).toBe("skipped");
+  });
+
+  it("caps the rows and says how many it dropped", () => {
+    const many = Array.from({ length: MAX_TESTS_RECORDED + 12 }, (_, i) => ({
+      title: `t${i}`,
+      ok: true,
+      tests: [{ status: "expected", results: [{ duration: 1 }] }],
+    }));
+    const out = summarise(report(many), 0);
+    expect(out?.tests).toHaveLength(MAX_TESTS_RECORDED);
+    expect(out?.testsOmitted).toBe(12);
+  });
+});
+
 describe("the Playwright report is kept, not just parsed", () => {
   it("writes the reporter's JSON into the workspace and records it as an artefact", async () => {
     const ws = mkdtempSync(join(tmpdir(), "aqa-pwrep-"));
@@ -329,5 +517,87 @@ describe("the Playwright report is kept, not just parsed", () => {
     expect(r.ok).toBe(true);
     expect((r.result as { passed: number }).passed).toBe(1);
     expect(r.artefacts).toEqual([]);
+  });
+});
+
+describe("summarise: a known bug that did not reproduce", () => {
+  it("counts an expected-to-fail test that passed as a finding, not a failure", () => {
+    // Observed in 20260921T192908Z: AC-2b was marked test.fail() for Active
+    // bug #48, and passed. Playwright exits 1 and calls it "unexpected"; the
+    // runtime reported it as a failure and the agent proposed a bug that
+    // "contradicts known Active bug #48". Nothing about the product failed —
+    // the known bug did not reproduce, which is news for a person.
+    const report = JSON.stringify({
+      stats: { expected: 6, unexpected: 1, skipped: 0, flaky: 0 },
+      suites: [
+        {
+          file: "tests/login.spec.ts",
+          specs: [
+            {
+              title: "AC-2b error clears after correcting credentials",
+              ok: false,
+              tests: [
+                {
+                  expectedStatus: "failed",
+                  status: "unexpected",
+                  annotations: [{ type: "fail", description: "Bug #48 Active" }],
+                  results: [{ status: "passed", duration: 3000 }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const out = summarise(report, 1)!;
+    expect(out.failed).toBe(0);
+    expect(out.failures).toEqual([]);
+    expect(out.green).toBe(true);
+    expect(out.unexpectedPasses).toEqual([
+      { title: "AC-2b error clears after correcting credentials", file: "tests/login.spec.ts", note: "Bug #48 Active" },
+    ]);
+    expect(out.tests[0]?.status).toBe("unexpected-pass");
+  });
+});
+
+describe("a failure hands back the page it failed on", () => {
+  const stdout = (stats: Record<string, number>, suites: unknown[]) =>
+    JSON.stringify({ stats, suites });
+
+  it("reads Playwright's error-context attachment into pageAtFailure", async () => {
+    const { mkdtempSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "aqa-ctx-"));
+    const ctx = join(dir, "error-context.md");
+    writeFileSync(
+      ctx,
+      '# Page snapshot\n\n```yaml\n- banner:\n  - menuitem "Logout" [ref=e328]\n```\n\n# Source\n\n  1 | code\n',
+      "utf8",
+    );
+    const out = summarise(
+      stdout({ expected: 0, unexpected: 1 }, [
+        {
+          file: "t.spec.ts",
+          specs: [
+            {
+              title: "logout",
+              ok: false,
+              tests: [
+                {
+                  status: "unexpected",
+                  results: [
+                    { error: { message: "locator timeout" }, attachments: [{ name: "error-context", path: ctx }] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ]),
+      1,
+    )!;
+    expect(out.failures[0]?.pageAtFailure).toContain('menuitem "Logout"');
+    expect(out.failures[0]?.pageAtFailure).not.toContain("# Source");
   });
 });

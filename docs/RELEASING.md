@@ -65,7 +65,7 @@ npm run release:check
   `CHANGELOG.md`, `LICENSE`, `CITATION.cff`, and `examples/fixture-ledger/` (the platform track
   builds against that fixture).
 - **Nothing private is there** — no `.env`, no `.aqa/`, no `node_modules`, no `test/`, no
-  `examples/sandbox/tests/`.
+  `examples/sample-project/tests/`.
 - **Nothing internal is there** — the `docs/HANDOFF_*.md` notes, `docs/tools-observed.*` and the HTML
   diagrams are working material, not documentation. They are excluded by name.
 

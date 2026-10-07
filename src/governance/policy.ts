@@ -89,6 +89,28 @@ export function resolveAction(
       }`,
     };
   }
+  // Arguments this action is confined to. Checked here rather than in the
+  // scope block below because it is a statement about what the TOOL may do at
+  // all, not about where it may do it: `create` is permitted for a Bug and for
+  // nothing else, in every project and every scope.
+  for (const [arg, allowed] of Object.entries(entry.requireArgIn ?? {})) {
+    const value = str(args[arg]);
+    if (value === undefined) {
+      return {
+        ok: false,
+        class: "destructive",
+        reason: `argument "${arg}" is required for action "${action}" of ${tool.server}.${tool.name} (must be one of: ${allowed.join(", ")})`,
+      };
+    }
+    if (!allowed.includes(value)) {
+      return {
+        ok: false,
+        class: "destructive",
+        reason: `action "${action}" of ${tool.server}.${tool.name} is permitted only with ${arg} in {${allowed.join(", ")}}; got "${value}"`,
+      };
+    }
+  }
+
   return {
     ok: true,
     class: entry.policyClass,

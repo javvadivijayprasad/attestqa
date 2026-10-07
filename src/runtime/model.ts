@@ -9,6 +9,19 @@ export interface ProposedCall {
 export interface ModelUsage {
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Prompt-cache accounting (A10, additive and optional). Present only when the
+   * provider reports it, so a ledger from a model that does not cache — and the
+   * golden fixture, whose scripted model reports neither — is unchanged.
+   *
+   * `cacheReadTokens` are input tokens served from cache at a fraction of the
+   * price; `cacheCreationTokens` are the ones that paid a premium to populate
+   * it. Both are recorded because a run's saving is the difference between
+   * them, and a claim about cost should be countable from the ledger rather
+   * than estimated.
+   */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 /**

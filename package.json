@@ -1,6 +1,6 @@
 {
   "name": "@vijaypjavvadi/agentic-qa",
-  "version": "0.1.2",
+  "version": "1.0.0",
   "description": "Standalone agentic QA runtime: a model chooses tools over MCP inside a governance gate; every step is written to a replayable ledger.",
   "license": "MIT",
   "author": "Vijay P. Javvadi <jvijayprasad@gmail.com>",
@@ -48,6 +48,7 @@
     "docs/RELEASING.md",
     "docs/TECHNICAL.md",
     "docs/USAGE.md",
+    "docs/VERSIONS.md",
     "examples/fixture-ledger",
     "README.md",
     "CHANGELOG.md",
@@ -68,6 +69,7 @@
     "release:check": "npm pack --dry-run"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.10.0",
     "@playwright/test": "^1.63.0",
     "@types/node": "^20.14.0",
@@ -82,6 +84,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
+    "@vijaypjavvadi/bdd2pw": "^4.3.2",
     "yaml": "^2.5.0"
   },
   "publishConfig": {

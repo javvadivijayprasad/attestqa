@@ -79,14 +79,75 @@ describe("the run's report is counted, not narrated", () => {
             failed: 1,
             skipped: 0,
             green: false,
-            failures: [{ title: "AC-2", file: "tests/login.spec.ts" }],
+            failures: [
+              {
+                title: "AC-2",
+                file: "tests/login.spec.ts",
+                message: "Error: expect(locator).toBeVisible() failed\nExpected: visible",
+              },
+            ],
           },
         },
       ]),
     );
     const out = await text(t);
     expect(out).toContain("**Suite: NOT green** — 3 passed, 1 failed, 0 skipped.");
-    expect(out).toContain("AC-2 — tests/login.spec.ts");
+    expect(out).toContain("**AC-2** — tests/login.spec.ts");
+    // The failure's own words. Without them the reader has the name of
+    // something that went wrong and no idea what.
+    expect(out).toContain("expect(locator).toBeVisible() failed");
+  });
+
+  it("lists every test, so a GREEN run says WHICH criteria were verified", async () => {
+    // A green suite used to reach the story as "5 passed" and nothing more —
+    // the count without the content. `summarise` kept only the failures, so
+    // the ledger never learned the names of the tests that passed, and the
+    // comment could not report what it did not hold.
+    const t = new SummaryTools(
+      ledgerOf([
+        {
+          tool: "pw.run_tests",
+          result: {
+            passed: 2,
+            failed: 0,
+            skipped: 0,
+            green: true,
+            failures: [],
+            tests: [
+              { title: "AC-1 signs in", file: "tests/login.spec.ts", status: "passed", durationMs: 2400 },
+              { title: "AC-2 wrong password", file: "tests/login.spec.ts", status: "passed", durationMs: 800 },
+            ],
+            testsOmitted: 0,
+          },
+        },
+      ]),
+    );
+    const out = await text(t);
+    expect(out).toContain("| Test | Result | Time |");
+    expect(out).toContain("AC-1 signs in");
+    expect(out).toContain("AC-2 wrong password");
+    expect(out).toContain("2.4 s");
+    expect(out).toContain("800 ms");
+  });
+
+  it("says how many tests it left out rather than truncating in silence", async () => {
+    const t = new SummaryTools(
+      ledgerOf([
+        {
+          tool: "pw.run_tests",
+          result: {
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            green: true,
+            failures: [],
+            tests: [{ title: "one", file: "a.spec.ts", status: "passed", durationMs: 10 }],
+            testsOmitted: 47,
+          },
+        },
+      ]),
+    );
+    expect(await text(t)).toContain("47 more not listed");
   });
 
   it("separates cases created now from cases the story already had", async () => {
@@ -189,5 +250,139 @@ describe("the run's report is counted, not narrated", () => {
   it("refuses a tool it does not own", async () => {
     const t = new SummaryTools(ledgerOf([]));
     expect((await t.call("aqa", "something_else", {})).ok).toBe(false);
+  });
+});
+
+describe("run report: known bugs that did not reproduce", () => {
+  it("says so as a finding, with the bug the test named", async () => {
+    const t = new SummaryTools(
+      ledgerOf([
+        {
+          tool: "pw.run_tests",
+          result: {
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            green: true,
+            failures: [],
+            tests: [{ title: "AC-2b error clears", file: "l.spec.ts", status: "unexpected-pass", durationMs: 3000 }],
+            unexpectedPasses: [{ title: "AC-2b error clears", file: "l.spec.ts", note: "Bug #48 Active" }],
+          },
+        },
+      ]),
+    );
+    const out = await text(t);
+    expect(out).toContain("Known bugs that did NOT reproduce");
+    expect(out).toContain("Bug #48 Active");
+    expect(out).toContain("The bug may be fixed");
+    expect(out).toContain("expected to fail");
+  });
+});
+
+describe("run report: a known bug that passed in an EARLIER run", () => {
+  it("is still reported when the marker was later removed", async () => {
+    // 20260921T203913Z: AC-2b passed as an unexpected pass on the first run,
+    // the agent removed test.fail, and the final run showed an ordinary pass.
+    const t = new SummaryTools(
+      ledgerOf([
+        {
+          tool: "pw.run_tests",
+          result: {
+            passed: 1, failed: 0, skipped: 0, green: true, failures: [],
+            tests: [{ title: "AC-2b error clears", file: "l.spec.ts", status: "unexpected-pass" }],
+            unexpectedPasses: [{ title: "AC-2b error clears", file: "l.spec.ts", note: "Bug #48 Active" }],
+          },
+        },
+        {
+          tool: "pw.run_tests",
+          result: {
+            passed: 1, failed: 0, skipped: 0, green: true, failures: [],
+            tests: [{ title: "AC-2b error clears", file: "l.spec.ts", status: "passed" }],
+            unexpectedPasses: [],
+          },
+        },
+      ]),
+    );
+    const out = await text(t);
+    expect(out).toContain("Known bugs that did NOT reproduce");
+    expect(out).toContain("Bug #48 Active");
+    expect(out).toContain("removed the expected-to-fail marker");
+  });
+});
+
+describe("failureLines", () => {
+  it("drops colour codes and keeps the first line with Expected / Received", async () => {
+    const { failureLines } = await import("../src/mcp/adapters/summary.js");
+    const msg =
+      "Error: expect(page).toHaveURL(expected) \u001b[31mfailed\u001b[39m\n\nExpected pattern: \u001b[32m/\\/#\\/login/\u001b[39m\n" +
+      "Received string:  \u001b[31m\"http://localhost:3100/#/\"\u001b[39m\nTimeout: 10000ms";
+    const out = failureLines(msg);
+    expect(out).not.toContain("\u001b");
+    expect(out).toContain("Error: expect(page).toHaveURL(expected) failed");
+    expect(out).toContain("Expected pattern:");
+    expect(out).toContain('Received string:  "http://localhost:3100/#/"');
+    expect(out).not.toContain("Timeout");
+  });
+});
+
+describe("the headline reads on this story's tests", () => {
+  const MINE = "AC-1 — signs in";
+  const THEIRS = "Story-a — logs out";
+  const SPEC = "tests/epic-42-customer-account-access.spec.ts";
+
+  /** A ledger whose spec tags one test for this story and one for another. */
+  const events = () =>
+    ledgerOf([
+      {
+        tool: "aqa.story_context",
+        result: {
+          kind: "preflight",
+          summary: {},
+          text: "story 1",
+          facts: {
+            acceptanceCriteria: ["AC-1"],
+            bugs: [],
+            tasks: [],
+            story: { id: 1, title: "Login" },
+            epic: { id: 42, title: "Customer account access" },
+          },
+        },
+      },
+      {
+        tool: "fs.read_file",
+        args: { path: SPEC },
+        result: {
+          content: [
+            "// @story:1 @ac:1 @design:D1",
+            `test("${MINE}", async () => {});`,
+            "// @story:44 @design:D9",
+            `test("${THEIRS}", async () => {});`,
+          ].join("\n"),
+        },
+      },
+      {
+        tool: "pw.run_tests",
+        result: {
+          passed: 1,
+          failed: 1,
+          skipped: 0,
+          flaky: 0,
+          green: false,
+          failures: [{ title: THEIRS, file: SPEC, message: "Error: toHaveURL" }],
+          tests: [
+            { title: MINE, status: "passed", duration: 1000 },
+            { title: THEIRS, status: "failed", duration: 1000 },
+          ],
+        },
+      },
+    ]);
+
+  it("calls the story green when only another story's test failed", async () => {
+    const t = new SummaryTools(events(), { workItem: "1" });
+    const out = await text(t);
+    // Before this, the headline said NOT green and the body said the failure
+    // belonged to story #44 — the same report contradicting itself.
+    expect(out).toContain("**Suite: green** for story 1");
+    expect(out).toContain("1 further failure(s) in this epic's spec belong to another story");
   });
 });

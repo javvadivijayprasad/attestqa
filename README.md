@@ -117,7 +117,11 @@ AZURE_DEVOPS_PAT=…            # Work Items (read & write)
 AQA_APP_URL=http://localhost:3000
 AQA_APP_USER=test@example.com  # a disposable account in your test environment
 AQA_APP_PASS=…
+AI_GOVERNANCE_URL=http://127.0.0.1:4900  # optional; needed for bdd2pw's LLM fallback
 ```
+
+One `.env` serves both: the runtime reads `ANTHROPIC_API_KEY` for its own model, and
+bdd2pw inherits the same key when it falls back to a model for an unbound step.
 
 **2. A config**, `ai-quality.config.yaml` — this is where you say what the agent may do and where:
 

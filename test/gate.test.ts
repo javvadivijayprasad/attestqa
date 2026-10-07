@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ScopedGate, TableGate, matchesAny, matchesUrl, raise } from "../src/governance/policy.js";
+import { ScopedGate, TableGate, matchesAny, matchesUrl, raise, resolveAction } from "../src/governance/policy.js";
 import type { ToolDescriptor } from "../src/runtime/tools.js";
 import type { PolicyClass, PolicyDecision, PolicyTable, ScopeConfig } from "../src/types.js";
 import { DEFAULT_POLICY, POLICY_CLASSES } from "../src/types.js";
@@ -414,5 +414,58 @@ describe("ScopedGate: url scope", () => {
 
   it("refuses a navigation with no url rather than guessing", () => {
     expect(judge(scope).decision).toBe("refuse");
+  });
+});
+
+describe("requireArgIn: an action permitted for one argument value and no other", () => {
+  // Bug creation is the case this exists for. `wit_work_item_write#create` is
+  // the job when it makes a Bug from a triaged defect candidate, and is the
+  // agent inventing work nobody asked for when it makes a User Story. Same
+  // tool, same action, one string apart.
+  const tool = {
+    server: "ado",
+    name: "wit_work_item_write",
+    description: "",
+    inputSchema: {},
+    policyClass: "write_record" as const,
+    actionArg: "action",
+    actions: {
+      create: {
+        policyClass: "write_record" as const,
+        requireArgIn: { workItemType: ["Bug"] },
+      },
+    },
+  };
+
+  it("permits the allowed value, still as an ask", () => {
+    const r = resolveAction(tool, { action: "create", workItemType: "Bug" });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.class).toBe("write_record");
+  });
+
+  it("REFUSES a disallowed value rather than asking about it", () => {
+    // Not raised to `ask`: a reviewer asked to approve something the manifest
+    // never meant to permit is being asked the wrong question, and their yes
+    // would be indistinguishable from a yes to the intended case.
+    const r = resolveAction(tool, { action: "create", workItemType: "User Story" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.class).toBe("destructive");
+      expect(r.reason).toMatch(/permitted only with workItemType in \{Bug\}/);
+    }
+  });
+
+  it("refuses when the constrained argument is missing entirely", () => {
+    const r = resolveAction(tool, { action: "create" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.reason).toMatch(/is required for action "create"/);
+  });
+
+  it("still refuses an unlisted action of the same tool", () => {
+    // `update` rewrites fields on an existing work item — an agent that can do
+    // that can change the acceptance criteria it is being measured against.
+    const r = resolveAction(tool, { action: "update", id: 1 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.class).toBe("destructive");
   });
 });

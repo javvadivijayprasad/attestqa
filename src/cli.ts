@@ -15,8 +15,9 @@ import { runLoop } from "./runtime/loop.js";
 import { AnthropicModel } from "./runtime/anthropic.js";
 import { TerminalApprover, FileApprover } from "./runtime/approvers.js";
 import { storyToTestsSkill } from "./skills/story-to-tests.js";
+import { defectProfileSkill } from "./skills/defect-profile.js";
 import { parseWorkItemRef } from "./verify/story-to-tests.js";
-import { EXIT_CODES, type AgentConfig } from "./types.js";
+import { EXIT_CODES, type AgentConfig, type AnyRunEvent } from "./types.js";
 import type { ModelClient } from "./runtime/model.js";
 import { CompositeTools, McpToolClient, type ServerSpec } from "./mcp/client.js";
 import { buildReport, renderReportMarkdown } from "./mcp/discover.js";
@@ -27,7 +28,11 @@ import { Bdd2PwTools } from "./mcp/adapters/bdd2pw.js";
 import { PwTools } from "./mcp/adapters/pw.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
+import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
+import { TestDesignTools } from "./mcp/adapters/test-design.js";
+import type { TestType } from "./design/test-design.js";
+import { DefectProfileTools } from "./mcp/adapters/defect-profile.js";
 import { ScopedGate, matchesAny } from "./governance/policy.js";
 import { mask, scrub } from "./governance/scrub.js";
 import type { ToolClient } from "./runtime/tools.js";
@@ -74,10 +79,13 @@ Usage:
 
   aqa run "<request>" --config <ai-quality.config.yaml> [--ledger .aqa]
           [--approval terminal|file] [--approval-timeout <seconds>]
-          [--work-item <id>] [--dry-run]
+          [--skill story-to-tests|defect-profile] [--work-item <id>] [--dry-run]
           [--servers ...] [--workspace .] [--env .env]
-      Run the agent loop. The work item comes from the request ("AB#1") unless
-      --work-item says otherwise, and must be in agent.scope.work_items.
+      Run the agent loop. For story-to-tests (the default) the work item comes from
+      the request ("AB#1") unless --work-item says otherwise, and must be in
+      agent.scope.work_items. defect-profile takes no work item: it reads the
+      project's closed bugs and writes .aqa-profile/defects.json in the workspace,
+      which story-to-tests then reads to aim its test design.
       --dry-run: load config, connect servers, list tools with their gate class,
       make no model or tool calls, exit 0.
       --approval file: each batch is written to <ledger>/runs/<id>/approvals/<approvalId>.json
@@ -179,6 +187,11 @@ async function buildTooling(
   io: CliIo,
   deps: ToolingDeps,
   scopeUrls: string[] = [],
+  /**
+   * bdd2pw's LLM fallback, from the config. Reaches the generator only paired
+   * with AI_GOVERNANCE_URL — see below.
+   */
+  llmFallback?: AgentConfig["llm_fallback"],
 ): Promise<{
   specs: ServerSpec[];
   tools: ToolClient;
@@ -222,7 +235,28 @@ async function buildTooling(
         const mcp = new McpToolClient(specs, DEFAULT_MANIFEST);
         const clients: ToolClient[] = specs.length > 0 ? [mcp] : [];
         if (wanted.includes("fs")) clients.push(new FsTools(workspace));
-        if (wanted.includes("bdd2pw")) clients.push(new Bdd2PwTools(workspace));
+        if (wanted.includes("bdd2pw")) {
+          // The pair, or neither. bdd2pw will not send a prompt without the
+          // sidecar, and this runtime will not ask it to: a provider set
+          // without AI_GOVERNANCE_URL is a configuration mistake, not a
+          // licence to skip governance, and `--llm-skip-governance` is
+          // unconstructible anywhere in this codebase.
+          const governed = llmFallback !== undefined && env.governanceUrl !== undefined;
+          if (llmFallback && !env.governanceUrl)
+            io.err(
+              "aqa: agent.llm_fallback is set but AI_GOVERNANCE_URL is not — bdd2pw will run " +
+                "rules-only and unbound steps will land as TODO\n",
+            );
+          clients.push(
+            new Bdd2PwTools(
+              workspace,
+              governed && llmFallback && env.governanceUrl
+                ? { llm: llmFallback, governanceUrl: env.governanceUrl }
+                : {},
+            ),
+          );
+          if (governed) io.err(`aqa: bdd2pw LLM fallback ${llmFallback}, governed by the sidecar\n`);
+        }
         if (wanted.includes("pw")) clients.push(new PwTools(workspace));
         if (wanted.includes("tcg") && env.tcgUrl) clients.push(new TcgTools(env.tcgUrl));
         if (wanted.includes("synthdata") && env.synthdataCmd)
@@ -272,7 +306,7 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
   const config = await loadAgentConfig(configPath);
 
   if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
-  const { tools, close } = await buildTooling(args, io, deps, config.scope.urls);
+  const { tools, close } = await buildTooling(args, io, deps, config.scope.urls, config.llm_fallback);
   try {
     const list = await tools.listTools();
     const gate = new ScopedGate(config.policy, config.scope, {
@@ -351,20 +385,48 @@ async function live(
     return 1;
   }
 
-  // The run is scoped to one story. Refuse before spending a token if the
-  // request names a work item the config does not allow.
-  const workItem = flag(args, "--work-item") ?? parseWorkItemRef(request);
-  if (!workItem) {
-    io.err('aqa run: no work item in the request. Write it as "AB#1", or pass --work-item <id>.\n');
+  const skillName = flag(args, "--skill") ?? "story-to-tests";
+  if (skillName !== "story-to-tests" && skillName !== "defect-profile") {
+    io.err(`aqa run: --skill must be "story-to-tests" or "defect-profile"\n`);
     return 1;
   }
-  if (!matchesAny(workItem, config.scope.work_items, env.sandbox)) {
+
+  // defect-profile queries a project's bug history, so the project name is not
+  // optional for it. Checked here, before a token is spent, rather than left to
+  // fail somewhere inside the run.
+  const adoProject = env.azureDevOps?.project;
+  if (skillName === "defect-profile" && !adoProject) {
     io.err(
-      `aqa run: work item ${workItem} is not in agent.scope.work_items (${
-        config.scope.work_items.join(", ") || "empty"
-      }).\n`,
+      "aqa run: --skill defect-profile needs AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PROJECT " +
+        "in the environment or .env.\n",
     );
-    return EXIT_CODES.refused;
+    return 1;
+  }
+
+  // Only story-to-tests is scoped to ONE story. defect-profile reads whatever
+  // bugs the query returns, and each of those reads is scope-checked by the
+  // gate at the point of the call — so requiring a single work item up front
+  // would be a check about the wrong thing.
+  let workItem = "";
+  if (skillName === "story-to-tests") {
+    // Refuse before spending a token if the request names a work item the
+    // config does not allow.
+    const ref = flag(args, "--work-item") ?? parseWorkItemRef(request);
+    if (!ref) {
+      io.err(
+        'aqa run: no work item in the request. Write it as "AB#1", or pass --work-item <id>.\n',
+      );
+      return 1;
+    }
+    if (!matchesAny(ref, config.scope.work_items, env.sandbox)) {
+      io.err(
+        `aqa run: work item ${ref} is not in agent.scope.work_items (${
+          config.scope.work_items.join(", ") || "empty"
+        }).\n`,
+      );
+      return EXIT_CODES.refused;
+    }
+    workItem = ref;
   }
 
   const ledger = new Ledger(flag(args, "--ledger") ?? ".aqa", newRunId());
@@ -393,23 +455,47 @@ async function live(
     tools: mcpTools,
     close,
     workspace,
-  } = await buildTooling(args, io, deps, config.scope.urls);
+  } = await buildTooling(args, io, deps, config.scope.urls, config.llm_fallback);
   try {
     const planName = config.scope.test_plans[0];
     // An account without the Test Plans access level cannot create a plan or a
     // suite; requiring suite membership there fails every run for a reason the
     // agent has no way to act on, so the check becomes a recorded limitation.
     const canCreatePlans = config.capabilities.test_plans;
-    const skill = storyToTestsSkill({
-      workItem,
-      ...(canCreatePlans && planName ? { testPlan: planName } : {}),
-      ...(canCreatePlans ? {} : { requireSuiteMembership: false }),
-    });
+    // Stage 2 — the ISTQB test types a design must cover. Validated by the
+    // config loader; empty means no design stage.
+    const testTypes = (config.test_types ?? []) as TestType[];
+    const skill =
+      skillName === "defect-profile"
+        ? defectProfileSkill({ project: adoProject ?? "" })
+        : storyToTestsSkill({
+            workItem,
+            ...(adoProject ? { project: adoProject } : {}),
+            ...(canCreatePlans && planName ? { testPlan: planName } : {}),
+            ...(canCreatePlans ? {} : { requireSuiteMembership: false }),
+            ...(testTypes.length > 0 ? { testTypes } : {}),
+            // Stage 0: the framework already in this workspace decides where
+            // the scenarios, the spec and the page objects go.
+            workspaceDir: workspace,
+            // Failure triage runs in-process by default and sends nothing
+            // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
+            // value comes from the environment and nowhere else, so that no
+            // work item, spec or tool result can nominate an endpoint.
+            ...(process.env["DEFECT_ANALYSIS_URL"]
+              ? { defectAnalysisUrl: process.env["DEFECT_ANALYSIS_URL"] }
+              : {}),
+          });
     // The run's own report, counted from the ledger rather than written by the
     // model. Composed here because it needs the ledger, which buildTooling does
     // not and should not know about.
+    // The profile reader is available to BOTH skills: one writes the profile,
+    // the other reads it to aim its test design. It only ever reads a file.
+    const profileTools = new DefectProfileTools(workspace);
     const tools = new CompositeTools([
       mcpTools,
+      profileTools,
+      new TestDesignTools(ledger, testTypes, workspace),
+      new HealTools(ledger),
       new SummaryTools(ledger, {
         workItem,
         ...(canCreatePlans
@@ -436,14 +522,30 @@ async function live(
 
     io.err(`aqa run ${ledger.runId}: "${request}"\n`);
     io.err(
-      `aqa: skill ${skill.name}, work item ${workItem}, model ${model.model}, approval ${approvalMode}\n`,
+      `aqa: skill ${skill.name}, ${
+        workItem ? `work item ${workItem}` : `project ${adoProject ?? "?"}`
+      }, model ${model.model}, approval ${approvalMode}\n`,
     );
-    if (!canCreatePlans)
+    if (skillName === "defect-profile")
+      io.err(
+        "aqa: bug reads are scope-checked per work item — ids outside agent.scope.work_items " +
+          "are refused and recorded as out of scope, not classified\n",
+      );
+    if (skillName === "story-to-tests" && !canCreatePlans)
       io.err(
         "aqa: capabilities.test_plans is false — cases will be created and linked, " +
           "but no plan or suite (this account has no Test Plans access level)\n",
       );
     io.err(`aqa: ledger ${ledger.dir}\n`);
+
+    // A live line per interesting event.
+    //
+    // The run used to print its approvals and its final status and nothing
+    // else, so a suite that executed and passed looked exactly like a suite
+    // that never started — for minutes at a time. Everything here is already
+    // in the ledger; this only stops the operator having to read it afterwards
+    // to find out what happened while they were watching.
+    ledger.onAppend = (e) => io.err(liveLine(e));
 
     const result = await runLoop({
       requestText: request,
@@ -457,7 +559,13 @@ async function live(
       workspaceDir: workspace,
     });
 
-    io.out(`\n${result.status}: ${result.summary}\n`);
+    // The agent's own closing words. Shown here, and only here: they are its
+    // account of its work, not a counted result, so they are not posted.
+    io.out(
+      result.status === "done"
+        ? `\ndone — agent's note (its own words, not posted to the story):\n${result.summary}\n`
+        : `\n${result.status}: ${result.summary}\n`,
+    );
     io.out(`  ${result.events} events in ${ledger.dir}\n`);
     io.out(`  replay: aqa replay ${ledger.dir}\n`);
     return result.exitCode;
@@ -504,4 +612,176 @@ if (isEntry) {
       process.exit(1);
     },
   );
+}
+
+/**
+ * One short line for an event worth watching, or "" for the rest.
+ *
+ * Deliberately narrow. A line per tool call would bury the two things an
+ * operator is actually waiting for — did the suite run, and what did triage
+ * make of it — under thirty reads of the same file.
+ */
+function liveLine(e: AnyRunEvent): string {
+  const p = e.payload as unknown as Record<string, unknown>;
+  switch (e.kind) {
+    // A call the RUNTIME decided on, not the model. Ordinary calls stay silent —
+    // thirty reads of one file is not news — but this one is: it is the
+    // difference between a step that cost an inference and a step that did not,
+    // and without the line an operator cannot tell them apart on screen.
+    case "call": {
+      if (p["origin"] !== "runtime") return "";
+      const why = String(p["why"] ?? "").trim();
+      const what = `${String(p["server"] ?? "")}.${String(p["toolName"] ?? "")}`;
+      const name = what === "pw.run_tests" ? "running the suite" : `calling ${what}`;
+      return `aqa: ${name} itself — ${why || "the conditions for it are met"} (no model turn)\n`;
+    }
+    case "observation": {
+      const r = p["result"];
+      if (typeof r !== "object" || r === null) return "";
+      const rec = r as Record<string, unknown>;
+      if (rec["kind"] === "preflight") {
+        // Stage 1: what the runtime read before the model's first turn.
+        const s = (rec["summary"] ?? {}) as Record<string, number>;
+        const n = (k: string) => s[k] ?? 0;
+        // A refusal is reported as a refusal. "0 tasks" and "tasks refused by
+        // scope" are different facts with different fixes, and the first
+        // version of this line printed the second as the first.
+        const epic = n("epicRead") ? "read" : n("epicRefused") ? "REFUSED (scope)" : "none";
+        const tasks = n("tasksRefused")
+          ? `${n("tasksRefused")} task(s) REFUSED (scope)`
+          : `${n("tasksRead")} task(s)`;
+        const bugs = n("openBugsRefused")
+          ? `${n("openBugsRefused")} open bug(s) found but REFUSED (scope)`
+          : `${n("openBugsRead")} open bug(s) (${n("openBugsExcluded")} agent-filed left out)`;
+        const fw =
+          s["frameworkFound"] === undefined
+            ? ""
+            : s["frameworkFound"]
+              ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
+              : "aqa: framework — NONE FOUND; run aqa init-framework first\n";
+        return (
+          fw +
+          `aqa: context — story ${n("storyRead") ? "read" : "NOT READ"}, ` +
+          `${n("existingTestCases")} existing test case(s), epic ${epic}, ` +
+          `${n("siblingsRead")} sibling stor${n("siblingsRead") === 1 ? "y" : "ies"}, ${tasks}, ` +
+          `${n("commentsRead")} comment(s) (${n("commentsExcluded")} run reports left out), ${bugs}\n`
+        );
+      }
+      if (rec["recorded"] === true && typeof rec["items"] === "number") {
+        const already = Array.isArray(rec["alreadyTested"]) ? (rec["alreadyTested"] as string[]).length : 0;
+        const fresh = Array.isArray(rec["newItems"]) ? (rec["newItems"] as string[]).length : undefined;
+        if (already > 0)
+          return (
+            `aqa: test design approved — ${rec["items"]} item(s): ${already} already tested, ` +
+            `${fresh ?? 0} new${fresh === 0 ? " — running the tests that exist" : ""}\n`
+          );
+        return `aqa: test design approved — ${rec["items"]} item(s); tests are written from it\n`;
+      }
+      if (!("passed" in rec) || !("failed" in rec)) return "";
+      const green = rec["green"] === true;
+      return (
+        `aqa: suite ${green ? "green" : "red"} — ${num(rec["passed"])} passed, ` +
+        `${num(rec["failed"])} failed, ${num(rec["skipped"])} skipped\n`
+      );
+    }
+    case "route": {
+      const label: Record<string, string> = {
+        P0: "STOP",
+        A: "author the tests",
+        A2: "complete what is missing",
+        B: "execute the tests that exist",
+      };
+      const path = String(p["path"] ?? "?");
+      const denied = Array.isArray(p["denied"]) ? (p["denied"] as string[]).length : 0;
+      return (
+        `aqa: route ${path} — ${label[path] ?? "?"}: ${String(p["reason"] ?? "")}` +
+        (denied > 0 ? ` (${denied} authoring tool(s) not offered)` : "") +
+        "\n"
+      );
+    }
+    case "agent": {
+      const role = String(p["role"] ?? "");
+      const tools = Array.isArray(p["tools"]) ? (p["tools"] as string[]).length : 0;
+      return role === "default"
+        ? "aqa: back to the full toolset\n"
+        : `aqa: ${role} agent takes over — ${String(p["because"] ?? "")}; it may use ${tools} tool(s), nothing else\n`;
+    }
+    case "triage": {
+      const runLevel = p["runLevel"];
+      if (typeof runLevel === "string") {
+        return runLevel === "environmental"
+          ? "aqa: nothing in this run measured the product — the environment failed before the tests reached it (application down, or the test fixture missing)\n"
+          : `aqa: nothing in this run measured the product — the test runner itself failed (${runLevel})\n`;
+      }
+      const verdicts = Array.isArray(p["verdicts"]) ? p["verdicts"] : [];
+      if (verdicts.length === 0)
+        return "aqa: suite is green — the earlier failures are gone, nothing is held for you\n";
+      const by = new Map<string, number>();
+      for (const v of verdicts) {
+        const c = String((v as Record<string, unknown>)["category"] ?? "?");
+        by.set(c, (by.get(c) ?? 0) + 1);
+      }
+      // In words, not in the classifier's vocabulary. "4 flake" told an
+      // operator nothing about what happens next, and "real-defect" reads as a
+      // verdict on the product when it means "this one goes to a person".
+      const say: Record<string, (n: number) => string> = {
+        "real-defect": (n) => `${n} look${n === 1 ? "s" : ""} like a product defect — held for you`,
+        flake: (n) => `${n} may be flaky — re-running to find out`,
+        "test-defect": (n) => `${n} look${n === 1 ? "s" : ""} like the test's fault — the agent fixes ${n === 1 ? "it" : "them"}`,
+        environmental: (n) => `${n} could not reach the application`,
+      };
+      const parts = [...by]
+        .map(([c, n]) => (say[c] ? (say[c] as (x: number) => string)(n) : `${n} ${c}`))
+        .join("; ");
+      return `aqa: ${verdicts.length} failure(s) triaged — ${parts}\n`;
+    }
+    case "policy": {
+      // Only the bug-handling decisions: every other policy line would bury
+      // the ones an operator is waiting for.
+      const reason = String(p["reason"] ?? "");
+      if (reason.startsWith("deferred until execution finishes")) {
+        const title = /"([^"]+)"/.exec(reason)?.[1] ?? "bug";
+        return `aqa: bug proposal held until the run finishes — ${title}\n`;
+      }
+      if (reason.startsWith("dropped at end of run")) {
+        return `aqa: bug proposal ${reason.replace(/^dropped at end of run — /, "dropped — ")}\n`;
+      }
+      // Stage 2: a design the runtime sent back, with what was wrong — the
+      // reviewer is only asked once these are gone.
+      if (p["toolName"] === "aqa.test_design" && p["decision"] === "refuse") {
+        const problems = reason.split("\n- ").slice(1);
+        return (
+          `aqa: the design was sent back to the agent — ${problems.length || 1} thing(s) to fix\n` +
+          problems.map((x) => `       - ${x}\n`).join("")
+        );
+      }
+      if (reason.includes("no test design has been approved yet")) {
+        return "aqa: the suite may not run until a test design is approved\n";
+      }
+      return "";
+    }
+    case "verify": {
+      const gaps = Array.isArray(p["gaps"]) ? p["gaps"] : [];
+      if (p["done"] === true) return "aqa: checks passed — the run did what this story needed\n";
+      // The gap codes are for the ledger; a person reading a terminal wants the
+      // first sentence of the reason.
+      const first = gaps
+        .slice(0, 3)
+        .map((g) => {
+          const r = g as Record<string, unknown>;
+          const message = String(r["message"] ?? "");
+          const sentence = message.split(/(?<=[.:])\s/)[0] ?? message;
+          return `       - ${sentence.slice(0, 150)}`;
+        })
+        .join("\n");
+      const more = gaps.length > 3 ? `\n       … and ${gaps.length - 3} more` : "";
+      return `aqa: ${gaps.length} thing(s) still unfinished\n${first}${more}\n`;
+    }
+    default:
+      return "";
+  }
+}
+
+function num(v: unknown): number {
+  return typeof v === "number" ? v : 0;
 }

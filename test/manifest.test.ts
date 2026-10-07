@@ -40,7 +40,7 @@ describe("governance manifest", () => {
     expect(classify("evil.rm_rf").policyClass).toBe("destructive");
   });
 
-  it("admits no Azure DevOps write beyond test cases, suites, plans, comments and branches", () => {
+  it("admits no Azure DevOps write beyond test cases, suites, plans, comments, branches and bug creation", () => {
     const writes = Object.entries(DEFAULT_MANIFEST)
       .filter(([n]) => n.startsWith("ado."))
       .filter(([, e]) => entryClass(e) !== "read")
@@ -52,7 +52,20 @@ describe("governance manifest", () => {
       "ado.testplan_test_plan_write",
       "ado.testplan_test_suite_write",
       "ado.wit_work_item_comment_write",
+      "ado.wit_work_item_write",
     ]);
+  });
+
+  it("lets wit_work_item_write CREATE and nothing else, and only a Bug", () => {
+    // The list above is a coarse guard: it would pass if the whole tool were
+    // admitted. This is the fine one. `update`, `update_batch` and `add_child`
+    // must stay unlisted — an agent that can edit fields on an existing work
+    // item can change the acceptance criteria it is being measured against, and
+    // that stays a human action.
+    const entry = DEFAULT_MANIFEST["ado.wit_work_item_write"];
+    expect(Object.keys(entry?.actions ?? {})).toEqual(["create"]);
+    expect(entry?.actions?.["create"]?.requireArgIn).toEqual({ workItemType: ["Bug"] });
+    expect(entry?.actions?.["create"]?.policyClass).toBe("write_record");
   });
 
   it("never classifies the arbitrary-code Playwright tools", () => {

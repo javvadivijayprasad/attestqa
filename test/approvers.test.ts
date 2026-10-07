@@ -330,3 +330,27 @@ describe("file approval, as the platform actually drives it", () => {
     expect(captured?.summary).toContain("ado.case_write");
   });
 });
+
+describe("a denial can say why", () => {
+  it("asks for a reason at a terminal, and carries it back", async () => {
+    const { PassThrough } = await import("node:stream");
+    const input = Object.assign(new PassThrough(), { isTTY: true });
+    const output = new PassThrough();
+    const p = new TerminalApprover({ input, output } as never, "x").ask(req);
+    input.write("n\n");
+    input.write("D6 cites AC-1 and AC-1 says nothing about accessibility\n");
+    const r = await p;
+    expect(r.decision).toBe("denied");
+    expect(r.reason).toBe("D6 cites AC-1 and AC-1 says nothing about accessibility");
+  });
+
+  it("does not ask when nobody is at the terminal", async () => {
+    const { PassThrough } = await import("node:stream");
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const p = new TerminalApprover({ input, output }, "x").ask(req);
+    input.write("n\n");
+    const r = await p;
+    expect(r.reason).toBeUndefined();
+  });
+});

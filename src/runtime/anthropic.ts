@@ -11,12 +11,36 @@ export interface MessagesApi {
   create(body: MessageRequest): Promise<MessageResponse>;
 }
 
+/**
+ * A cache breakpoint. Everything BEFORE it, in the order tools → system →
+ * messages, becomes a cacheable prefix.
+ */
+export interface CacheControl {
+  type: "ephemeral";
+}
+
+export const CACHE_CONTROL: CacheControl = { type: "ephemeral" };
+
+export interface SystemBlock {
+  type: "text";
+  text: string;
+  cache_control?: CacheControl;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+  cache_control?: CacheControl;
+}
+
 export interface MessageRequest {
   model: string;
   max_tokens: number;
-  system: string;
+  /** A plain string, or blocks so a cache breakpoint can be placed. */
+  system: string | SystemBlock[];
   messages: Array<{ role: "user" | "assistant"; content: string }>;
-  tools?: Array<{ name: string; description: string; input_schema: Record<string, unknown> }>;
+  tools?: ToolDefinition[];
   tool_choice?: { type: "auto" | "any" | "none" };
   temperature?: number;
 }
@@ -28,18 +52,58 @@ export interface MessageResponse {
     | { type: string; [k: string]: unknown }
   >;
   stop_reason?: string | null;
-  usage?: { input_tokens?: number; output_tokens?: number };
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
 }
 
-export type MessagesFactory = (apiKey: string) => Promise<MessagesApi>;
+export interface TransportOptions {
+  timeoutMs: number;
+  maxRetries: number;
+}
+
+export type MessagesFactory = (
+  apiKey: string,
+  transport?: TransportOptions,
+) => Promise<MessagesApi>;
+
+/**
+ * How long one model call may take before it is abandoned.
+ *
+ * Every other wait in this runtime is bounded — the step and token budgets, the
+ * approval timeout, the adapters' command timeouts. The model call was not, and
+ * a stalled connection therefore hung a run indefinitely: observed on run
+ * `20260915T222657Z-73bb1bab`, where the ledger's last event is a `context` at
+ * 22:44:17 and nothing followed it for 26 minutes. The loop could not stop it
+ * because control never came back.
+ *
+ * The worse half of that bug is evidential. A hung request produces no event at
+ * all, so the one artefact this project relies on to explain a run says only
+ * that a cycle was assembled. A timeout turns silence into a recorded failure.
+ *
+ * Five minutes is generous for a single call — a large cycle with an 8k output
+ * budget runs to a minute or two — and anything beyond it is pathological
+ * rather than slow.
+ */
+export const DEFAULT_TRANSPORT: TransportOptions = { timeoutMs: 300_000, maxRetries: 2 };
 
 /** Default: the official SDK, imported lazily so unit tests never need it. */
-export const sdkMessagesFactory: MessagesFactory = async (apiKey) => {
+export const sdkMessagesFactory: MessagesFactory = async (apiKey, transport) => {
+  const { timeoutMs, maxRetries } = transport ?? DEFAULT_TRANSPORT;
   const mod = (await import("@anthropic-ai/sdk")) as unknown as {
-    default: new (opts: { apiKey: string }) => { messages: MessagesApi };
+    default: new (opts: {
+      apiKey: string;
+      timeout?: number;
+      maxRetries?: number;
+    }) => { messages: MessagesApi };
   };
   const Anthropic = mod.default;
-  return new Anthropic({ apiKey }).messages;
+  // The SDK retries a timed-out request itself; `maxRetries` bounds that, so the
+  // worst case is (maxRetries + 1) × timeoutMs rather than forever.
+  return new Anthropic({ apiKey, timeout: timeoutMs, maxRetries }).messages;
 };
 
 export interface AnthropicModelOptions {
@@ -49,6 +113,8 @@ export interface AnthropicModelOptions {
   maxTokens?: number;
   /** Injected for tests. */
   factory?: MessagesFactory;
+  /** Bounds on one model call. Defaults to DEFAULT_TRANSPORT. */
+  transport?: Partial<TransportOptions>;
   /** Where to report non-fatal adapter problems. Scrubbed before writing. */
   warn?: (message: string) => void;
 }
@@ -101,6 +167,7 @@ export class AnthropicModel implements ModelClient {
   private readonly apiKey: string;
   private readonly maxTokens: number;
   private readonly factory: MessagesFactory;
+  private readonly transport: TransportOptions;
   private readonly warn: (m: string) => void;
   private api: MessagesApi | undefined;
 
@@ -112,11 +179,12 @@ export class AnthropicModel implements ModelClient {
     // A generated spec for half a dozen scenarios does not fit in 4k.
     this.maxTokens = opts.maxTokens ?? 8192;
     this.factory = opts.factory ?? sdkMessagesFactory;
+    this.transport = { ...DEFAULT_TRANSPORT, ...opts.transport };
     this.warn = opts.warn ?? (() => {});
   }
 
   private async messages(): Promise<MessagesApi> {
-    this.api ??= await this.factory(this.apiKey);
+    this.api ??= await this.factory(this.apiKey, this.transport);
     return this.api;
   }
 
@@ -126,7 +194,7 @@ export class AnthropicModel implements ModelClient {
     ).create({
       model: this.model,
       max_tokens: Math.min(this.maxTokens, 1024),
-      system: scrub(`${RUNTIME_SYSTEM}\n\n---\n\n${input.skillInstructions}`).text,
+      system: systemBlocks(input.skillInstructions),
       messages: [
         {
           role: "user",
@@ -146,7 +214,7 @@ export class AnthropicModel implements ModelClient {
     ).create({
       model: this.model,
       max_tokens: this.maxTokens,
-      system: scrub(`${RUNTIME_SYSTEM}\n\n---\n\n${input.skillInstructions}`).text,
+      system: systemBlocks(input.skillInstructions),
       messages: [{ role: "user", content: scrub(renderCycle(input)).text }],
       tools,
       tool_choice: { type: "auto" },
@@ -197,7 +265,7 @@ export function wireTools(descriptors: ToolDescriptor[]): {
   toByWire: Map<string, string>;
 } {
   const toByWire = new Map<string, string>();
-  const tools = descriptors.map((d) => {
+  const tools: ToolDefinition[] = descriptors.map((d) => {
     const qualified = `${d.server}.${d.name}`;
     const wire = toWireName(qualified);
     toByWire.set(wire, qualified);
@@ -207,7 +275,38 @@ export function wireTools(descriptors: ToolDescriptor[]): {
       input_schema: normaliseSchema(d.inputSchema),
     };
   });
+
+  // A breakpoint on the LAST tool makes the whole tools block a cacheable
+  // prefix. This is the single largest saving available: the tool schemas are
+  // byte-identical on every cycle of a run and are most of what a cycle sends —
+  // a fix → run → fix cycle costs roughly 14k tokens, the bulk of it these.
+  //
+  // The order that matters is tools → system → messages. Anything before a
+  // breakpoint is cached, so this one covers the tools and nothing else, and
+  // the breakpoint at the end of the system block covers both.
+  const last = tools[tools.length - 1];
+  if (last) last.cache_control = CACHE_CONTROL;
+
   return { tools, toByWire };
+}
+
+/**
+ * The system prompt as cacheable blocks.
+ *
+ * `RUNTIME_SYSTEM` and the skill's instructions do not change within a run, so
+ * they are a prefix worth caching. Every cycle is assembled fresh from the
+ * ledger rather than continuing a conversation — that is what makes a run
+ * replayable — and the cost of that choice is re-sending this on every cycle.
+ * Caching removes the cost without touching the property.
+ */
+export function systemBlocks(skillInstructions: string): SystemBlock[] {
+  return [
+    {
+      type: "text",
+      text: scrub(`${RUNTIME_SYSTEM}\n\n---\n\n${skillInstructions}`).text,
+      cache_control: CACHE_CONTROL,
+    },
+  ];
 }
 
 /**
@@ -311,10 +410,18 @@ function textOf(res: MessageResponse): string {
 }
 
 function usageOf(res: MessageResponse): ModelUsage {
-  return {
+  const usage: ModelUsage = {
     inputTokens: res.usage?.input_tokens ?? 0,
     outputTokens: res.usage?.output_tokens ?? 0,
   };
+  // Emitted only when the API reports them. A zero is meaningful — it says the
+  // prefix missed — but an ABSENT field says the provider does not report
+  // caching at all, and the two should not be conflated in the evidence.
+  const read = res.usage?.cache_read_input_tokens;
+  const created = res.usage?.cache_creation_input_tokens;
+  if (typeof read === "number") usage.cacheReadTokens = read;
+  if (typeof created === "number") usage.cacheCreationTokens = created;
+  return usage;
 }
 
 /** "1. Read the story" → ["Read the story"]; falls back to non-empty lines. */

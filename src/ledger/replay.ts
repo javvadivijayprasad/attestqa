@@ -33,6 +33,18 @@ export function renderLine(e: AnyRunEvent): string {
       const first = firstLine(e.payload.result);
       return `${target} → failed: ${first}`;
     }
+    case "triage": {
+      // The run-level verdict leads, because "nothing here was measured" is a
+      // different kind of news from "two tests found bugs" and a reader
+      // scanning the line should not have to work that out from a count.
+      if (e.payload.runLevel !== null) {
+        return `Triage: ${e.payload.runLevel} — nothing in this run was measured`;
+      }
+      const n = e.payload.verdicts.length;
+      const q = e.payload.quarantined.length;
+      const kinds = [...new Set(e.payload.verdicts.map((v) => v.category))].join(", ");
+      return `Triage: ${n} failure(s) — ${kinds}${q > 0 ? `; ${q} quarantined` : ""}`;
+    }
     case "verify":
       return e.payload.done
         ? `Verifier: done${
@@ -41,6 +53,12 @@ export function renderLine(e: AnyRunEvent): string {
               : ""
           }`
         : `Verifier: ${e.payload.gaps.length} gaps — ${e.payload.gaps[0]?.message ?? ""}`;
+    case "route":
+      return `Route ${e.payload.path}: ${e.payload.reason}`;
+    case "agent":
+      return e.payload.role === "default"
+        ? "Agent: back to the skill's own tools"
+        : `Agent: ${e.payload.role} — ${e.payload.because}`;
     case "end":
       return `Agent finished: ${e.payload.status} — ${e.payload.summary}`;
   }
@@ -65,6 +83,9 @@ export interface ReplayStats {
   refusals: number;
   inputTokens: number;
   outputTokens: number;
+  /** Prompt-cache totals. Both stay 0 when the provider reports no caching. */
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
   wallMs: number;
   status: string;
 }
@@ -81,6 +102,8 @@ export function computeStats(events: AnyRunEvent[]): ReplayStats {
     refusals: 0,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheCreationTokens: 0,
     wallMs: first && last ? last.timestamp - first.timestamp : 0,
     status: "incomplete",
   };
@@ -90,6 +113,8 @@ export function computeStats(events: AnyRunEvent[]): ReplayStats {
         s.inferences++;
         s.inputTokens += e.payload.usage.inputTokens;
         s.outputTokens += e.payload.usage.outputTokens;
+        s.cacheReadTokens += e.payload.usage.cacheReadTokens ?? 0;
+        s.cacheCreationTokens += e.payload.usage.cacheCreationTokens ?? 0;
         break;
       case "call":
         s.calls++;
@@ -130,7 +155,7 @@ export function renderMarkdown(events: AnyRunEvent[]): string {
     `**Events:** ${stats.events} · **Inferences:** ${stats.inferences} · **Tool calls:** ${stats.calls} (${stats.failedCalls} failed) · **Approvals:** ${stats.approvals} · **Refusals:** ${stats.refusals}  `,
   );
   lines.push(
-    `**Tokens:** ${stats.inputTokens} in / ${stats.outputTokens} out · **Wall:** ${formatMs(stats.wallMs)}`,
+    `**Tokens:** ${stats.inputTokens} in / ${stats.outputTokens} out${renderCache(stats)} · **Wall:** ${formatMs(stats.wallMs)}`,
   );
   lines.push("");
   lines.push("## Timeline");
@@ -148,6 +173,33 @@ export function renderMarkdown(events: AnyRunEvent[]): string {
     lines.push("");
     for (const g of verify.payload.gaps) lines.push(`- \`${g.code}\` — ${g.message}`);
   }
+  // The defect candidates, from the LAST triage — a flake retry produces a
+  // second one, and the first is history rather than the run's conclusion.
+  // This section is the part of the report a tester reads first, so it goes
+  // above "checks not made" and below the gaps that explain why the run stopped.
+  const triage = [...events].reverse().find((e) => e.kind === "triage");
+  if (triage && triage.kind === "triage") {
+    if (triage.payload.runLevel !== null) {
+      lines.push("");
+      lines.push("## Nothing was measured");
+      lines.push("");
+      lines.push(
+        `The run was triaged \`${triage.payload.runLevel}\`: the system under test or the ` +
+          "harness failed, so no result in this run says anything about the product — " +
+          "including the results that passed. There are no defect candidates.",
+      );
+    } else if (triage.payload.quarantined.length > 0) {
+      lines.push("");
+      lines.push("## Defect candidates");
+      lines.push("");
+      lines.push("_Quarantined: these tests were not edited, and must not be._");
+      lines.push("");
+      for (const v of triage.payload.verdicts.filter((x) => x.category === "real-defect")) {
+        lines.push(`- **${v.test}** — ${v.evidence} _(${v.triagedBy}, ${v.confidence})_`);
+      }
+    }
+  }
+
   // A run can be done without being complete. What was NOT checked belongs in
   // the report next to what was, or the reader has to infer it from silence.
   if (verify && verify.kind === "verify" && (verify.payload.limitations?.length ?? 0) > 0) {
@@ -172,4 +224,19 @@ function formatMs(ms: number): string {
   if (s < 60) return `${s.toFixed(1)} s`;
   const m = Math.floor(s / 60);
   return `${m} min ${Math.round(s - m * 60)} s`;
+}
+
+/**
+ * The cache clause of the stats line, omitted entirely when nothing was cached.
+ *
+ * Reported as counts rather than as money saved: the price per token is not
+ * this project's to assert, and a run report that quotes a figure it cannot
+ * derive from its own ledger is the kind of claim the verifier exists to stop.
+ */
+function renderCache(stats: ReplayStats): string {
+  const { cacheReadTokens: read, cacheCreationTokens: written } = stats;
+  if (read === 0 && written === 0) return "";
+  const total = read + stats.inputTokens;
+  const share = total > 0 ? Math.round((read / total) * 100) : 0;
+  return ` · **Cache:** ${read} read (${share}% of input), ${written} written`;
 }

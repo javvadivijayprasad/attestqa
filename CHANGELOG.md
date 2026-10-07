@@ -4,6 +4,358 @@ All notable changes to this project will be documented in this file. Format: Kee
 versioning: SemVer. Any change to the contract (PLAN §0: CLI flags, exit codes, env vars,
 config schema, ledger event shapes, approval file mode, artefact paths) is a MAJOR bump.
 
+## [Unreleased]
+
+## [1.0.0] - 2026-09-18
+
+First version under the stated contract. `EVENT_KINDS`, the ledger event shapes,
+the CLI flags, the exit codes and the artefact paths are now things to depend on,
+because the VS Code extension and the platform read them and Paper I's figures
+are counted from them. Adding an event kind after this is a major bump.
+
+### Added — failure triage
+
+- **`src/triage/`: what kind of red this was.** A run that goes red gets its
+  failures classified before anything decides what to do about them. Five
+  categories, ported from `defect_analysis/engine/classifier.py`:
+  `infrastructure`, `environmental`, `flake`, `real-defect`, `expected-failure`.
+- **The port is a mirror, not a rewrite.** Each pattern keeps its Python source
+  text and is compiled at load, so divergence between the two implementations is
+  a string comparison rather than behaviour nobody noticed changing. The
+  algorithm is scored, not first-match: each bank scores as the fraction of its
+  patterns that matched, and the precedence order only breaks ties. A
+  reimplementation that walked the precedence list would have been a different
+  classifier wearing the same category names.
+- **Contagion.** `environmental` and `infrastructure` invalidate every other
+  result in the run: if the application was not serving, nothing was measured,
+  and a `real-defect` verdict elsewhere in that run is not evidence of anything.
+  The other three categories say something about one test and nothing about any
+  other. This distinction is agentic-qa's, not the service's — a dashboard never
+  has to decide what a verdict implies about its neighbours; a loop does.
+- **Contagion requires evidence.** A failure over a minute long with no
+  recognisable error reaches `infrastructure` on the duration boost alone. That
+  is faithful to the Python and harmless there. Here it would write off a whole
+  run, so the run-level verdict additionally requires that a pattern actually
+  matched. A stopwatch is not grounds for the strongest claim triage can make.
+- **Quarantine.** A test triaged `real-defect` may not be edited, and the rule is
+  enforced by a check rather than an instruction: the failing test and its exact
+  error are recorded, and a later attempt where it no longer fails the same way
+  raises `quarantined-test-modified`. "It passes now" and "the assertion was
+  relaxed" look identical from inside the run, and only one of them is good news.
+- **The suite always runs to completion.** Triage never stops execution; what it
+  can stop is the agent's edit-and-rerun loop. Twenty-nine other results cost
+  nothing extra to collect and are worth having.
+- **New gaps:** `sut-unavailable`, `harness-unusable`, `product-defect-suspected`
+  (one per candidate), `quarantined-test-modified`. `suite-not-green` is
+  suppressed when triage produced a more specific gap — it restates the exit code
+  where the others name the fix.
+
+### Changed — what running the real reporter showed
+
+The unit tests above used Playwright JSON that I wrote by hand. Running the
+actual reporter against a deliberately broken suite produced three verdicts and
+all three were wrong, for reasons no synthetic fixture would have contained.
+
+- **ANSI colour codes.** Playwright writes assertion diffs coloured, so a real
+  `toBe` failure arrives as `Error: \u001b[2mexpect(\u001b[22m...`. The escape
+  sequences sit between the words the patterns look for, and the evidence string
+  a human reads came out as garbage. Messages and stacks are now stripped before
+  matching.
+
+- **The retry boost fired on every failure.** classifier.py nudges toward
+  `flake` when `retries > 0`, and its comment says it means "retries WITH A
+  SUBSEQUENT PASS HISTORY" — but the code only checks the count. Under
+  Playwright, `retries: 1` in the config makes every failing spec report one
+  retry regardless: the real report showed `results: failed,failed` on all three
+  failures. At +0.25 that boost outscores most pattern banks, so a plain
+  `connect ECONNREFUSED` — an outage, the most consequential verdict there is —
+  came back classified `flake`. Worse, the count carries the opposite evidence
+  to the one claimed: a test retried that failed again is *less* likely to be a
+  flake, and a test that is flaky by Playwright's own definition never reaches
+  this code at all, because its spec is `ok: true`. `FailureSignal.flakyHistory`
+  now makes the Python's stated condition explicit. **Documented deviation.**
+
+- **The ported banks barely match Playwright.** They were tuned on Defects4J and
+  BugsInPy — Java and Python phrasing. Playwright says `Timeout 5000ms exceeded`
+  where the ported flake patterns want `timed out after 5000 ms` or `wait for`;
+  it says `expect(received).toBe(expected)` where the real-defect bank wants
+  `AssertionError`. A textbook flake and a clean assertion failure both scored
+  zero. `PW_BANKS` adds Playwright-native patterns as a **separate** bank, scored
+  independently with the higher score winning — appending to the ported lists
+  would have changed every ported score, since scoring is a fraction of bank
+  size, and made the two implementations disagree by arithmetic rather than by
+  judgement. **Documented deviation.**
+
+- **Evidence is the failure's own words.** It was the matched pattern fragments,
+  which on a real failure read `expect(received). · Object.is equality ·
+  expect(received).toBe` — three pieces of one sentence, none of them the useful
+  part, while the message itself said `Expected: 90` and `Received: 100`. That
+  string is what gets quoted into a bug report. Which patterns matched is still
+  recorded in `matchedPatterns`, where a machine can find it.
+
+Six regression tests now carry real reporter bytes.
+
+### Fixed — triage ran too late to stop anything
+
+The first implementation put triage inside the verifier. The verifier only runs
+when the model declares the goal reached — so on a run where the model keeps
+repairing, it never runs at all.
+
+Observed on run `20260918T154354Z-1f5d7538` against a live Juice Shop: 33
+inferences, four `pw.run_tests`, fifteen rewrites of one spec, **zero triage
+events**. The suite reported `4 passed, 1 failed` identically all four times
+while the agent rewrote the spec around the one failure. That is exactly the
+scenario triage exists for, and triage was structurally unable to see it. A stop
+rule that can only speak after the loop has ended is not a stop rule, and the
+claim that this turns a 76-inference run into ~10 was false as shipped.
+
+- Triage now runs **after every cycle**, from the loop, not from the verifier.
+- `TriagePayload.reportFingerprint` (contract, additive) — a content hash of the
+  execution report. Re-triaging an unchanged report is a no-op, so a per-cycle
+  call cannot flood the ledger, inflate `attempt`, or make the quarantine check
+  compare a report against itself. The loop therefore needs no knowledge of
+  which tool produces a report or when.
+- `triageAction()` gives the loop a decision in terms it can act on without
+  knowing anything about defects: **stop** when nothing was measured; **stop**
+  when every remaining failure is a product defect or a known failure, since the
+  only route to green from there is to damage the evidence; otherwise **carry
+  on**, with the quarantined tests named in the next context.
+- `ScriptedVerifier`'s triage script no longer repeats its last entry — past the
+  end it returns `undefined`, mirroring an unchanged report.
+
+On the observed run this would have stopped at the second `pw.run_tests`:
+roughly 12 inferences instead of 33, with the failing test named as a defect
+candidate instead of rewritten fifteen times.
+
+### Fixed — the execution report was written once and never again
+
+`PwTools` persisted `.aqa-report/playwright.json` only when no file was already
+there, guarded with `!existsSync(reportAbs)`. The first run a workspace ever did
+froze the file; every run after it left the stale copy in place. In
+`examples/sandbox` a report from 14 September saying "5 passed, 0 failed" was
+still on disk on 18 September while the live suite reported 4 passed, 1 failed —
+so triage read a green report, correctly found no failures, and said nothing,
+across three suite runs. The comment above that line claimed the write made the
+run's raw evidence "as durable as its conclusions"; it made it permanently wrong.
+
+Now always overwrites: that file is the current call's evidence, and anything
+already there belongs to a run that is over.
+
+The failure mode is the dangerous kind — not a crash, but silence that reads as
+agreement — so the verifier now catches the whole class. `failures-not-triaged`
+fires when the suite reports failing tests and triage classified none, whatever
+the reason: missing report, stale report, unreadable report. The verifier is the
+only place that sees both the suite's own count and what triage made of it.
+
+### Added — a failure that reproduces is not a flake
+
+`flake` means one thing: it would pass if you ran it again. A failure that comes
+back with identical evidence after the agent edited the spec and re-ran has
+falsified that claim by the definition of the word. No pattern bank can see
+this — every bank reads one message in isolation — and neither can the service,
+which classifies one failure at a time with no memory of the previous attempt.
+Only the run's own history has it.
+
+`applyRepetition()` re-classifies a repeated `flake` as `real-defect` at LOW
+confidence. That is not a claim that the product is broken; it is a claim that
+the failure has stopped being the agent's to fix by guessing. Quarantine stops
+the rewriting, the failure becomes a defect candidate, and a person decides
+whether the product or the test is wrong — the decision that actually needs a
+human, with bug filing gated on their answer.
+
+Related, and deliberately NOT "fixed": the real-defect pattern
+`to(Be|Equal|Contain|Match)\b` does not match `toBeVisible`, `toBeEnabled` or
+the rest of Playwright's waiting-assertion family. Widening it was the obvious
+move and would have been wrong — `expect(locator).toBeVisible()` timing out means
+either the product never rendered the element or the test is looking for the
+wrong one, and no regular expression can tell which. That ambiguity is settled by
+repetition, not by a pattern. The boundary now carries a comment saying so, since
+it reads like an oversight.
+
+### Measured — run 20260918T161031Z-b0686ec0, live Juice Shop
+
+The first end-to-end run with triage working:
+
+| | before triage | with triage |
+| --- | --- | --- |
+| inferences | 33 | **19** |
+| suite runs | 4 | 2 |
+| rewrites of the spec | 15 | **1** |
+| outcome | budget spent, nothing concluded | `blocked`, one defect candidate named |
+
+The progression is the designed one, and it happened without being scripted:
+
+1. Suite red: 4 passed, 1 failed on AC-1.
+2. Triage #1 — `flake` at 0.167 on `expect(locator).toBeVisible() failed`.
+   Ambiguous on sight, so the agent is allowed one repair attempt.
+3. The agent investigates the live page with the browser tools and rewrites the
+   spec once.
+4. Suite still 4/1, but the failure has changed shape, so the report fingerprint
+   changes and triage runs again.
+5. Triage #2 — `real-defect` at 0.4 on
+   `expect(page).not.toHaveURL(...) Expected pattern: not /#\/login/`.
+   Quarantined, run stops, candidate reported.
+
+### Added — defect candidates become proposed bugs, on approval only
+
+The rule is the operator's: **any Playwright or environment failure is re-run once; if
+it fails again it is real, and the user is asked whether to create a defect; if they say
+no, it ends there.**
+
+- **Triage no longer ends a run.** Its first verdict in a run is never acted on: it asks
+  for one clean re-run of the suite, unchanged, and forbids editing a spec, selector,
+  timeout or config value first — an edit makes the two runs incomparable and destroys
+  the only evidence separating a flake from a defect. This replaced an immediate stop on
+  `environmental`/`infrastructure`, which decided on the operator's behalf that an
+  unreachable application could never be worth filing. That is a judgement about the
+  product and it belongs to a person.
+- **A failure that survives the retry becomes a proposed Bug.**
+  `ado.wit_work_item_write` action `create`, `workItemType` "Bug", classified
+  `write_record` → the gate asks. Deny is final: the instructions forbid rewording it,
+  retrying it, or opening it as another work item type.
+- **New governance capability: `ActionDescriptor.requireArgIn`.** Confines an action to
+  named argument values — here `workItemType ∈ {Bug}`. A disallowed value is REFUSED,
+  not raised to `ask`: a reviewer approving something the manifest never meant to permit
+  is answering the wrong question, and their yes would be indistinguishable from a yes to
+  the intended case. `update`, `update_batch` and `add_child` stay unlisted, so the agent
+  still cannot edit fields on an existing work item — acceptance criteria remain a
+  human's to write.
+- **Bugs must say what was RULED OUT.** Not what the agent saw — what it checked that
+  would have made this *not* a defect, and what that check said. Confidence follows from
+  that paragraph; no named check means "nothing ruled out" and low confidence.
+  Prompted by a real proposal that claimed "Confidence: High that this is a product
+  defect" while its own repro steps opened "Enter a REGISTERED user's email" — a
+  precondition asserted and never tested. A 200 from the login endpoint makes it a
+  defect; a 401 makes it a fixture problem and no bug at all, and the two are
+  indistinguishable from outside.
+
+**The unchanged retry is instructed, not enforced — deliberately.** Nothing in the gate
+stops the agent editing a spec between the failed run and the retry. Decided against on
+2026-09-18: the instruction held on the first real run (`20260918T170400Z-4683360d` made
+two `pw.run_tests` calls with no `fs.write_file` between them), and enforcement would
+cost a gate rule guarding a case that has not happened. The quarantine check still
+catches the specific harm. Revisit if a run is observed editing before its retry.
+
+### Measured — run 20260918T170400Z-4683360d, live Juice Shop, deny path
+
+| | this morning | now |
+| --- | --- | --- |
+| inferences | 33 | **15** |
+| suite runs | 4 | 2 (one is the mandatory retry) |
+| rewrites of the spec | 15 | **0** |
+| test cases | 0 | 4, and **not** re-created on the second run |
+
+The agent re-ran the suite with nothing edited between the two runs, proposed one bug,
+had it denied, and wrote: *"per policy, this is the end of the matter and no further bug
+is filed."* It did not reword it or retry under another type.
+
+### Added — contract
+
+- **`triage` event kind**, with `attempt`, `runLevel`, `verdicts[]`,
+  `quarantined[]` and optional `disagreements[]`. Its own kind rather than a
+  field on `verify`, because triage runs more than once per run (a flake verdict
+  means a retry) and because the quarantine check reads back what an earlier
+  attempt recorded. A run from before this version has no `triage` line, which is
+  the correct answer to "what did triage decide", not a missing field.
+- `Verifier.triage?()` — optional, runs before `verify`, and the loop writes its
+  result to the ledger. Verifiers do not write to the ledger; the loop does.
+- `aqa replay` renders triage in the timeline and adds a **Defect candidates**
+  section, or a **Nothing was measured** section when the run was written off.
+
+### Added — the defect analysis service, as an upgrade
+
+- `DEFECT_ANALYSIS_URL` unset (the default) means triage runs entirely
+  in-process and **nothing leaves the machine**. Set, failures are POSTed to the
+  service and its verdicts win where it answered.
+- The service can never fail a run: a timeout, a non-200, a malformed body or an
+  out-of-vocabulary category all fall back to the built-in verdict already in
+  hand, and the report says the run's verdicts did not all come from one
+  classifier.
+- Disagreements between the two are **recorded, not resolved** — they are the
+  training signal for the service and the drift alarm for the port, and they are
+  the one thing two implementations buy that one does not.
+- The URL is read from the environment and only from the environment. An
+  endpoint the agent could nominate from a work item or a tool result would be
+  an exfiltration path with a helpful name.
+
+### Added — tests
+
+- 48 tests for the triage module: the first unit tests for any defect-side code
+  in this project. One of them found a real interaction on the day it was
+  written (the duration-boost/contagion collision above).
+
+### Fixed
+
+- A backtick inside a template literal in `src/skills/story-to-tests.ts` broke
+  the build. Second occurrence of this exact class.
+
+### Docs
+
+- `docs/DESIGN_triage.md` — the design, including the three questions it closed
+  and what changed after the first draft got the algorithm wrong.
+- `docs/VERSIONS.md` — what is released where, and the release order.
+- `docs/ADOPTION.md` — a data-egress section, since this is the first feature
+  that can send anything outside the workspace.
+
+
+### Added (A10 — prompt caching)
+
+- **Cache breakpoints on the tools block and the system prompt.** Both are
+  byte-identical on every cycle of a run and are most of what a cycle sends — a
+  fix → run → fix cycle costs roughly 14k tokens, the bulk of it the fixed tool
+  schemas. Assembling each cycle from the ledger rather than continuing an
+  API-side conversation is what makes a run replayable; re-sending that prefix
+  every cycle was the price of the property. Caching removes the price without
+  touching the property.
+- **Contract, additive and optional:** `InferencePayload.usage.cacheReadTokens`
+  and `.cacheCreationTokens`, written only when the provider reports prompt-cache
+  accounting. Absent is not zero — a zero says the prefix missed, absent says the
+  provider does not report caching — and keeping them off the payload otherwise
+  is what leaves the golden fixture unchanged.
+- `aqa replay` reports cache reads as a share of input, and omits the clause
+  entirely when nothing was cached. Counts, not money: the price per token is
+  not this project's to assert, and a run report that quotes a figure it cannot
+  derive from its own ledger is the kind of claim the verifier exists to stop.
+- A test asserts the tools and system bytes are identical across two cycles.
+  The saving depends entirely on that, and a change that reordered tools or
+  rewrote the system prompt per cycle would fail no other test — it would just
+  quietly stop the cache from hitting.
+
+### Fixed (A10 — a model call had no bound)
+
+- **A stalled model request hung a run indefinitely.** Every other wait here is
+  bounded — the step and token budgets, `--approval-timeout`, the adapters'
+  command timeouts — but the Anthropic call was issued with no timeout and no
+  retry bound, so a connection that stopped responding never returned control to
+  the loop. Observed on run `20260915T222657Z-73bb1bab`: the ledger's last event
+  is a `context` at 22:44:17 and nothing followed it for 26 minutes.
+  `DEFAULT_TRANSPORT` now sets a 5-minute timeout and 2 retries, configurable per
+  model via `AnthropicModelOptions.transport`.
+- The worse half of that defect was evidential rather than operational. A hung
+  request writes no event, so the ledger — the one artefact this project relies
+  on to explain a run — recorded only that a cycle had been assembled, and the
+  reason for the silence was not in it. A timeout turns silence into a recorded
+  failure, which is the property that was actually missing.
+
+**Measured** on run `20260915T222657Z-73bb1bab`, 76 inferences: 75 of them hit the
+cache — only the first missed, which is the write — and the cached prefix was
+exactly 6,282 tokens every time, confirming the tools and system bytes really
+are identical across cycles. Input-token-equivalents fell from 1,654,057 to
+1,231,592, a **25.5% reduction**.
+
+The shape of the saving matters more than the total. An early cycle sends 3,445
+real tokens against 6,282 cached — **57% cheaper**. A late cycle sends 25,974
+against the same 6,282 — **17%**. Caching removed the cost that was constant and
+left the cost that scales: the message content, which grows with the run's
+history and cannot carry a breakpoint while it is assembled as a single string.
+Splitting it so the stable sources sit ahead of the growing history is the next
+move, and this run is the evidence for it.
+
+Also observed: a **260-second gap** between two inferences, across a suite run,
+and the cache still hit — 4.3 minutes against a five-minute window. It survived,
+barely. A slower suite would miss, which makes the one-hour TTL a question with
+evidence behind it rather than a guess.
+
 ## [0.1.2] — 2026-09-15
 
 ### Fixed

@@ -28,3 +28,18 @@ examples/sandbox/.aqa-report/
 .playwright-mcp/
 test-results/
 playwright-report/
+
+# bdd2pw output when a run's workspace is the repo root. `test/` (singular) is
+# this package's own suite and IS committed; `tests/` and `pages/` are not.
+/tests/
+/pages/
+
+# Scratch repo for bdd2pw dry runs: `bdd2pw analyze`/`scaffold` writes Page
+# Objects and a spec here while we measure how many Gherkin steps bind. It is
+# measurement output, regenerated on demand.
+.scratch-bdd2pw/
+
+# Playwright report written by the pw adapter during a run, and the folder files
+# are moved to instead of deleted. Both are working state, never source.
+.aqa-report/
+_to_delete/

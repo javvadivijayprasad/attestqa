@@ -23,6 +23,21 @@ export interface ScopeArgs {
 export interface ActionDescriptor {
   policyClass: PolicyClass;
   scopeArgs?: ScopeArgs;
+  /**
+   * Argument values this action is confined to, e.g. `{ workItemType: ["Bug"] }`.
+   *
+   * Some actions are safe for one value of an argument and not for others.
+   * `wit_work_item_write#create` is the case this exists for: creating a Bug
+   * from a triaged defect candidate is the job, and creating a User Story or a
+   * Task is the agent inventing work nobody asked for. Both are the same tool,
+   * the same action, and differ only in one string.
+   *
+   * A value outside the list is REFUSED, not raised to `ask` — a reviewer asked
+   * to approve something the manifest never meant to permit is being asked the
+   * wrong question, and approving it would be indistinguishable from approving
+   * the intended case.
+   */
+  requireArgIn?: Record<string, readonly string[]>;
 }
 
 export interface ToolDescriptor {
@@ -60,6 +75,18 @@ export interface ToolDescriptor {
    * and the policy decision both describe what was actually sent (A8).
    */
   defaultArgs?: Record<string, unknown>;
+  /**
+   * Arguments the runtime SETS, whatever the model proposed — merged AFTER the
+   * model's arguments, so they win. `defaultArgs` fills a gap; this closes one.
+   *
+   * The Azure DevOps project is here. It used to be a default, which the model
+   * could override, and in run 20260921T142549Z it did: four bug creations
+   * carried project "AQA Sandbox" and "JuiceShopTest", names the model made up.
+   * They failed only because no such projects existed. In an organisation where
+   * one did, the bugs would have been filed there — and the approval prompt
+   * never showed the project, so the reviewer could not have caught it.
+   */
+  pinnedArgs?: Record<string, unknown>;
 }
 
 export interface ToolResult {

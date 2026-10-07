@@ -18,7 +18,7 @@ this way, see [ARCHITECTURE.md](ARCHITECTURE.md).
 early exit
 
 ```
-aqa run "Write tests for AB#1" --config ai-quality.config.yaml --workspace examples/sandbox
+aqa run "Write tests for AB#1" --config ai-quality.config.yaml --workspace examples/sample-project
 ```
 
 In order:

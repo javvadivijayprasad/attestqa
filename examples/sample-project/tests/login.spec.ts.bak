@@ -1,0 +1,165 @@
+// Implemented from AB#1 acceptance criteria (Login with valid credentials)
+// Application under test: OWASP Juice Shop
+import { test, expect } from "@playwright/test";
+
+test.describe("Login with valid credentials", () => {
+  test.setTimeout(90000);
+
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/#/login", { waitUntil: "domcontentloaded", timeout: 60000 });
+    // Dismiss cookie consent banner if present
+    const cookieBtn = page.getByRole("button", { name: "Me want it!" });
+    if (await cookieBtn.isVisible({ timeout: 4000 }).catch(() => false)) {
+      await cookieBtn.click();
+      await page.waitForTimeout(600);
+    }
+    // Dismiss welcome banner if present
+    const dismissBtn = page.getByRole("button", { name: /close welcome banner/i });
+    if (await dismissBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await dismissBtn.click();
+      await page.waitForTimeout(600);
+    }
+  });
+
+  // AC-1: A registered user who submits their correct email and password is signed in:
+  // the account menu shows their email address and offers Logout.
+  test("AC-1: A registered user signs in with correct email and password", async ({ page }) => {
+    const email = process.env["AQA_APP_USER"] ?? "";
+    const pass = process.env["AQA_APP_PASS"] ?? "";
+
+    await test.step("Given I am on the login page", async () => {
+      await expect(page.locator("#email")).toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step("When I enter valid credentials and submit", async () => {
+      await page.locator("#email").fill(email);
+      await page.locator("#password").fill(pass);
+      // Wait for the button to become enabled (Angular validates both fields)
+      await expect(page.locator("#loginButton")).toBeEnabled({ timeout: 10000 });
+      await page.locator("#loginButton").click();
+    });
+
+    await test.step("Then I should be signed in and the account menu shows my email and offers Logout", async () => {
+      // After a successful login, the Angular SPA navigates away from /login.
+      // Wait for navigation away from login page
+      await expect(page).not.toHaveURL(/#\/login/, { timeout: 30000 });
+
+      // Find the account button in the navbar — it shows the user's email when logged in.
+      // In Juice Shop the navbar account button has id="navbarAccount" or contains account_circle icon.
+      const accountBtn = page.locator("#navbarAccount");
+      await expect(accountBtn).toBeVisible({ timeout: 15000 });
+
+      // Click the account button to open the dropdown menu
+      await accountBtn.click();
+
+      // Angular Material renders the menu in an overlay outside the main DOM tree.
+      // The overlay container is .cdk-overlay-container and menu items are buttons inside it.
+      // We wait for any button with text "Logout" to appear in the overlay.
+      const logoutBtn = page.locator(".cdk-overlay-container button", { hasText: "Logout" })
+        .or(page.locator(".mat-menu-panel button", { hasText: "Logout" }))
+        .or(page.locator(".mat-mdc-menu-panel button", { hasText: "Logout" }))
+        .or(page.getByRole("menuitem", { name: /logout/i }))
+        .first();
+
+      await expect(logoutBtn).toBeVisible({ timeout: 15000 });
+    });
+  });
+
+  // AC-2: Submitting a valid email with an incorrect password keeps the user on the login
+  // page and shows "Invalid email or password." The message does not reveal whether the
+  // email or the password was wrong.
+  test("AC-2: Submitting a valid email with an incorrect password shows a generic error message", async ({ page }) => {
+    const email = process.env["AQA_APP_USER"] ?? "";
+
+    await test.step("Given I am on the login page", async () => {
+      await expect(page.locator("#email")).toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step("When I enter a valid email with an incorrect password and submit", async () => {
+      await page.locator("#email").fill(email);
+      await page.locator("#password").fill("WrongPassword!99");
+      await expect(page.locator("#loginButton")).toBeEnabled({ timeout: 10000 });
+      await page.locator("#loginButton").click();
+    });
+
+    await test.step("Then I should remain on the login page and see \"Invalid email or password.\"", async () => {
+      await expect(page).toHaveURL(/#\/login/, { timeout: 10000 });
+      // Juice Shop shows the login error in a snackbar
+      await expect(
+        page.locator("mat-error, .mat-error, [class*='error'], snack-bar-container").first()
+      ).toContainText("Invalid email or password.", { timeout: 15000 });
+    });
+  });
+
+  // AC-3: The Log in button is disabled while either field is empty.
+  // An email field that has been touched and left empty shows "Please provide an email address.";
+  // the password field shows "Please provide a password."
+  // Bug #30: Log in button stays enabled while the form is invalid — state-transition test.
+  test("AC-3a: Touched email field left empty shows validation message and Log in button is disabled", async ({ page }) => {
+    await test.step("Given I am on the login page", async () => {
+      await expect(page.locator("#email")).toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step("When I touch the email field and leave it empty", async () => {
+      const emailField = page.locator("#email");
+      await emailField.click();
+      // Tab away to trigger Angular validation
+      await page.keyboard.press("Tab");
+    });
+
+    await test.step("Then the Log in button is disabled and the email field shows \"Please provide an email address.\"", async () => {
+      // Bug #30: button must be disabled when form is invalid
+      await expect(page.locator("#loginButton")).toBeDisabled({ timeout: 10000 });
+      await expect(
+        page.locator("mat-error, .mat-error").first()
+      ).toContainText("Please provide an email address.", { timeout: 10000 });
+    });
+  });
+
+  // @bug:30 — Log in button stays enabled while the form is invalid (state-transition)
+  test("AC-3b: Touched password field left empty shows validation message and Log in button is disabled", async ({ page }) => {
+    await test.step("Given I am on the login page", async () => {
+      await expect(page.locator("#email")).toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step("When I touch the password field and leave it empty", async () => {
+      // First fill email so the button disabled state is driven only by the empty password
+      await page.locator("#email").fill(process.env["AQA_APP_USER"] ?? "test@example.com");
+      const passwordField = page.locator("#password");
+      await passwordField.click();
+      // Tab away to trigger Angular validation
+      await page.keyboard.press("Tab");
+    });
+
+    await test.step("Then the Log in button is disabled and the password field shows \"Please provide a password.\"", async () => {
+      // Bug #30: button must be disabled when form is invalid
+      await expect(page.locator("#loginButton")).toBeDisabled({ timeout: 10000 });
+      await expect(
+        page.locator("mat-error, .mat-error").first()
+      ).toContainText("Please provide a password.", { timeout: 10000 });
+    });
+  });
+
+  // AC-4: An unregistered email with any password produces the same "Invalid email or
+  // password." message as a wrong password, so the response does not disclose whether an
+  // account exists.
+  test("AC-4: An unregistered email with any password produces the same error as a wrong password", async ({ page }) => {
+    await test.step("Given I am on the login page", async () => {
+      await expect(page.locator("#email")).toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step("When I enter an unregistered email with a password and submit", async () => {
+      await page.locator("#email").fill("nobody-registered-" + Date.now() + "@example.com");
+      await page.locator("#password").fill("SomePassword123!");
+      await expect(page.locator("#loginButton")).toBeEnabled({ timeout: 10000 });
+      await page.locator("#loginButton").click();
+    });
+
+    await test.step("Then I should see \"Invalid email or password.\" without revealing whether the account exists", async () => {
+      await expect(page).toHaveURL(/#\/login/, { timeout: 10000 });
+      await expect(
+        page.locator("mat-error, .mat-error, [class*='error'], snack-bar-container").first()
+      ).toContainText("Invalid email or password.", { timeout: 15000 });
+    });
+  });
+});

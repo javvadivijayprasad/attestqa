@@ -44,10 +44,15 @@ export const DEFAULT_MANIFEST: Manifest = {
   "fs.read_file": { policyClass: "read" },
   "fs.list_dir": { policyClass: "read" },
   "fs.write_file": { policyClass: "write_workspace" },
+  // A surgical edit is the same class of change as a write, and is judged the
+  // same way: the rules compute what the file WOULD become and apply to that.
+  "fs.replace_in_file": { policyClass: "write_workspace" },
 
   // ---------------------------------------------------------------- bdd2pw (in-process)
-  "bdd2pw.parse": { policyClass: "read" },
-  "bdd2pw.to_spec": { policyClass: "write_workspace" },
+  // bdd2pw scans the page under test, so both entries carry a url scope arg:
+  // the gate checks it against agent.scope.urls like any other navigation.
+  "bdd2pw.analyze": { policyClass: "read", scopeArgs: { url: "url" } },
+  "bdd2pw.scaffold": { policyClass: "write_workspace", scopeArgs: { url: "url" } },
 
   // ---------------------------------------------------------------- pw (in-process)
   "pw.list_tests": { policyClass: "read" },
@@ -57,6 +62,15 @@ export const DEFAULT_MANIFEST: Manifest = {
   // The run's own report, counted from the ledger. Reads the ledger; writes
   // nothing anywhere.
   "aqa.run_summary": { policyClass: "read" },
+  // Reads one file in the workspace and counts it. Classified here because an
+  // adapter the skill offers but the manifest does not name is refused as
+  // destructive — correct by default, and silent if you forget.
+  "aqa.defect_profile": { policyClass: "read" },
+  "aqa.defect_context": { policyClass: "read" },
+  // Locator repair: reads the page snapshot Playwright wrote at a failure and
+  // returns what was addressable there. It changes nothing — the repair is an
+  // ordinary spec write, judged on its own.
+  "aqa.heal_locator": { policyClass: "read" },
 
   // ---------------------------------------------------------------- tcg (in-process)
   "tcg.generate_cases": { policyClass: "read" },
@@ -74,6 +88,32 @@ export const DEFAULT_MANIFEST: Manifest = {
       list_comments: { policyClass: "read", scopeArgs: { workItem: "workItemId" } },
       // Work item TYPE metadata (fields of "Test Case") carries no work item id.
       get_type: { policyClass: "read" },
+    },
+  },
+  // Creating a Bug from a triaged defect candidate, and nothing else.
+  //
+  // The tool as a whole is `destructive` — `update` rewrites fields on an
+  // existing work item, and an agent that can edit acceptance criteria can
+  // change what it is being measured against. Only `create` is classified, and
+  // `requireArgIn` confines it to workItemType "Bug": every other type is
+  // refused, so the agent cannot invent a User Story or a Task.
+  //
+  // `write_record` means the gate ASKS. Nothing is filed without a person
+  // saying yes at the terminal, which is the whole point — triage produces a
+  // candidate, a human decides whether it is a defect.
+  "ado.wit_work_item_write": {
+    // The worst LISTED action, per the invariant a unit test asserts. `update`,
+    // `update_batch` and `add_child` are deliberately absent, which refuses
+    // them exactly like an unknown tool — an agent that can edit fields on an
+    // existing work item can change the acceptance criteria it is being
+    // measured against, and that stays a human action.
+    policyClass: "write_record",
+    actionArg: ACTION,
+    actions: {
+      create: {
+        policyClass: "write_record",
+        requireArgIn: { workItemType: ["Bug"] },
+      },
     },
   },
   "ado.wit_query": {

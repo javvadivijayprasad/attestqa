@@ -140,9 +140,12 @@ describe("CompositeTools", () => {
     );
     const all = new CompositeTools([mcp, new FsTools(ws)]);
     const names = (await all.listTools()).map((t) => `${t.server}.${t.name}`).sort();
-    expect(names).toEqual(["ado.t", "fs.list_dir", "fs.read_file", "fs.write_file"]);
+    expect(names).toEqual(["ado.t", "fs.list_dir", "fs.read_file", "fs.replace_in_file", "fs.write_file"]);
+    // `lines` rides along on every read: a truncated view is useless unless the
+    // agent can tell how much it did not see, and ask for that part by range.
     expect((await all.call("fs", "read_file", { path: "a.txt" })).result).toEqual({
       path: "a.txt",
+      lines: 1,
       content: "hi",
     });
     expect((await all.call("ado", "t", {})).result).toBe("ok");
@@ -162,8 +165,29 @@ describe("FsTools", () => {
     });
     expect((await fs.call("fs", "read_file", { path: "features/a.feature" })).result).toEqual({
       path: "features/a.feature",
+      lines: 1,
       content: "Feature: A",
     });
+    // A window on a long file. Without one, "narrow the request instead" was
+    // advice the tool could not take: a spec too long for the context budget
+    // could be read once, truncated, and never seen again (20260928T082428Z).
+    writeFileSync(join(ws, "long.txt"), "l1\nl2\nl3\nl4\nl5");
+    expect((await fs.call("fs", "read_file", { path: "long.txt", fromLine: 2, toLine: 4 })).result).toEqual({
+      path: "long.txt",
+      lines: 5,
+      fromLine: 2,
+      toLine: 4,
+      content: "l2\nl3\nl4",
+    });
+    // An open end is the rest of the file; past the end is an error, not an
+    // empty answer that reads as "there is nothing there".
+    expect(
+      (await fs.call("fs", "read_file", { path: "long.txt", fromLine: 4 })).result,
+    ).toMatchObject({ fromLine: 4, toLine: 5, content: "l4\nl5" });
+    const past = await fs.call("fs", "read_file", { path: "long.txt", fromLine: 99 });
+    expect(past.ok).toBe(false);
+    expect(JSON.stringify(past.result)).toContain("5 line(s)");
+
     const w = await fs.call("fs", "write_file", { path: "tests/new.spec.ts", content: "x" });
     expect(w.ok).toBe(true);
     expect(w.artefacts).toEqual(["tests/new.spec.ts"]);
@@ -178,12 +202,66 @@ describe("FsTools", () => {
     expect(existsSync(join(ws, "..", "x"))).toBe(false);
   });
 
+  it("refuses to read a credential file, and never names it in a listing", async () => {
+    // Run 20260918T221233Z, event 33: `fs.read_file .env` succeeded and put a
+    // model key, an Azure DevOps PAT and an application password into the
+    // ledger in plaintext, permanently — a ledger is append-only.
+    //
+    // Nothing malfunctioned. The skill tells the agent to take its test
+    // account from AQA_APP_USER/AQA_APP_PASS, so it went looking for the file
+    // that defines them, and `read` is a class the default policy executes
+    // without asking anyone. Hence a refusal in the adapter rather than a rule
+    // in the policy: a path the process does not have cannot be enabled by a
+    // config file someone edited in a hurry.
+    const ws = tmp();
+    const fs = new FsTools(ws);
+    for (const name of [".env", ".env.local", ".env.example", ".npmrc", "server.key", "id_rsa"]) {
+      writeFileSync(join(ws, name), "AZURE_DEVOPS_PAT=hunter2\n");
+      const r = await fs.call("fs", "read_file", { path: name });
+      expect(r.ok).toBe(false);
+      expect(JSON.stringify(r.result)).toContain("credential file");
+      // The refusal must not carry the contents, which is the whole point.
+      expect(JSON.stringify(r.result)).not.toContain("hunter2");
+      // Writing is refused too: an agent that cannot read .env but can
+      // overwrite it still destroys a working checkout.
+      expect((await fs.call("fs", "write_file", { path: name, content: "x" })).ok).toBe(false);
+      expect(readFileSync(join(ws, name), "utf8")).toContain("hunter2");
+    }
+
+    // A listing reports that something was withheld — the agent must not
+    // reason about a workspace that does not exist — but does not name the
+    // files, which would just be an invitation to ask for them one by one.
+    mkdirSync(join(ws, "tests"));
+    const listing = await fs.call("fs", "list_dir", {});
+    const result = listing.result as {
+      entries: Array<{ name: string }>;
+      hiddenCredentialFiles?: number;
+    };
+    expect(result.entries.map((e) => e.name)).toEqual(["tests"]);
+    expect(result.hiddenCredentialFiles).toBe(6);
+    expect(JSON.stringify(listing.result)).not.toContain(".env");
+  });
+
+  it("does not refuse an ordinary file whose name merely resembles one", async () => {
+    // `environment.ts` is not `.env`; a check that cannot tell them apart makes
+    // the workspace unreadable and the agent works around it.
+    const ws = tmp();
+    const fs = new FsTools(ws);
+    for (const name of ["environment.ts", "env.md", "keys.md", "monkey.ts", "grid.pem.md"]) {
+      writeFileSync(join(ws, name), "ordinary");
+      const r = await fs.call("fs", "read_file", { path: name });
+      expect(r.ok).toBe(true);
+    }
+  });
+
   it("descriptors carry the right classes", async () => {
     const t = await new FsTools(tmp()).listTools();
     expect(Object.fromEntries(t.map((d) => [d.name, d.policyClass]))).toEqual({
       read_file: "read",
       list_dir: "read",
       write_file: "write_workspace",
+      // A surgical edit is the same class of change as a write.
+      replace_in_file: "write_workspace",
     });
   });
 });

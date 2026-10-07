@@ -1,0 +1,60 @@
+{
+  "project": "agentic-qa-sandbox",
+  "query": "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = 'agentic-qa-sandbox' AND [System.WorkItemType] = 'Bug' AND [System.State] IN ('Closed', 'Resolved', 'Done') ORDER BY [System.ChangedDate] DESC",
+  "generatedAt": "2026-09-17T23:00:00.000Z",
+  "vocabulary": "Paper F event schema (Defects4J + BugsInPy, 1,323 defects); surfaces inferred from bug text, not from fix diffs",
+  "queried": [34, 33, 32, 31, 30, 29],
+  "outOfScope": [],
+  "records": [
+    {
+      "id": 29,
+      "title": "Registration accepts a 3-character password",
+      "surface": "validator",
+      "exceptionType": "Other",
+      "httpStatus": 201,
+      "evidence": "\"server accepts anything non-empty\" — POST /api/Users with 3-char password returns 201 Created; expected 400 with 'Password must be at least 8 characters'",
+      "closedAt": "2026-09-17"
+    },
+    {
+      "id": 30,
+      "title": "Log in button stays enabled while the form is invalid",
+      "surface": "locator",
+      "exceptionType": "Other",
+      "evidence": "\"The 'Log in' button is enabled and focusable\" when both email and password fields are empty; button should be disabled until both fields are valid",
+      "closedAt": "2026-09-17"
+    },
+    {
+      "id": 31,
+      "title": "Removing a product from the basket leaves the row behind",
+      "surface": "schema",
+      "exceptionType": "Other",
+      "evidence": "\"BasketItem rows are not deleted when the parent is, so the next read picks them up again\" — persisted database rows survive removal, totals revert on reload",
+      "closedAt": "2026-09-17"
+    },
+    {
+      "id": 32,
+      "title": "Password reset links point at localhost in staging",
+      "surface": "config",
+      "exceptionType": "Other",
+      "evidence": "\"The base URL is read from APP_BASE_URL, which was never set for the staging deployment, so it fell back to the development default\"",
+      "closedAt": "2026-09-17"
+    },
+    {
+      "id": 33,
+      "title": "Search returns no results for some products after the 2.3.0 release",
+      "surface": "app_code",
+      "exceptionType": "Other",
+      "evidence": "\"Searching for certain products returns nothing... Seems to affect newer products more than older ones\" — ambiguous; no specific surface named in report; least specific applicable surface used",
+      "closedAt": "2026-09-17"
+    },
+    {
+      "id": 34,
+      "title": "Checkout suite fails intermittently — \"email already registered\"",
+      "surface": "fixture",
+      "exceptionType": "Other",
+      "httpStatus": 409,
+      "evidence": "\"The application behaves correctly; the test does not\" — checkout spec registers email in beforeEach without cleanup; re-run against same container returns 409",
+      "closedAt": "2026-09-17"
+    }
+  ]
+}

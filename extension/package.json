@@ -2,7 +2,7 @@
   "name": "agentic-qa-vscode",
   "displayName": "Agentic QA",
   "description": "Run the agentic-qa runtime from VS Code: approve its writes in the editor, and read the run ledger it leaves behind.",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "publisher": "vijaypjavvadi",
   "license": "MIT",
   "repository": {

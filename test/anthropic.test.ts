@@ -8,6 +8,8 @@ import {
   toWireName,
   fromWireName,
   wireTools,
+  DEFAULT_TRANSPORT,
+  type TransportOptions,
   type MessageRequest,
   type MessageResponse,
   type MessagesApi,
@@ -48,6 +50,11 @@ function fakeApi(responses: MessageResponse[]): MessagesApi & { sent: MessageReq
       return r;
     },
   };
+}
+
+/** The system prompt is sent as cacheable blocks; tests want the text. */
+function systemText(req: MessageRequest): string {
+  return typeof req.system === "string" ? req.system : req.system.map((b) => b.text).join("");
 }
 
 const model = (api: MessagesApi, over = {}) =>
@@ -154,8 +161,8 @@ describe("AnthropicModel.decide", () => {
     const api = fakeApi([{ content: [] }]);
     await model(api).decide(input());
     const sent = api.sent[0]!;
-    expect(sent.system.indexOf(RUNTIME_SYSTEM)).toBe(0);
-    expect(sent.system).toContain("SKILL INSTRUCTIONS");
+    expect(systemText(sent).indexOf(RUNTIME_SYSTEM)).toBe(0);
+    expect(systemText(sent)).toContain("SKILL INSTRUCTIONS");
     expect(sent.tools?.map((t) => t.name)).toEqual(["ado__wit_work_item", "fs__read_file"]);
     expect(sent.tool_choice).toEqual({ type: "auto" });
   });
@@ -176,7 +183,7 @@ describe("AnthropicModel.decide", () => {
     });
     await model(api).decide(leaky);
     const sent = api.sent[0]!;
-    const all = sent.system + JSON.stringify(sent.messages);
+    const all = systemText(sent) + JSON.stringify(sent.messages);
     expect(all).not.toContain("abcdefghijklmnop12345");
     expect(all).not.toContain("Bearer abcdefghijklmnopqrst");
     expect(all).toContain("[REDACTED]");
@@ -293,5 +300,126 @@ describe("renderCycle", () => {
     expect(text).toContain("- Now I implement the steps.");
     // ordering: notes come after the history, before the call to act
     expect(text.indexOf("# What you said in earlier cycles")).toBeLessThan(text.indexOf("# Now"));
+  });
+});
+
+describe("prompt caching", () => {
+  it("puts a cache breakpoint on the last tool and on the system block", async () => {
+    const api = fakeApi([{ content: [] }]);
+    await model(api).decide(input());
+    const sent = api.sent[0]!;
+
+    const marks = sent.tools!.map((t) => Boolean(t.cache_control));
+    // Only the last tool carries one: the breakpoint makes everything BEFORE
+    // it cacheable, so one at the end covers the whole tools block.
+    expect(marks).toEqual([false, true]);
+
+    expect(Array.isArray(sent.system)).toBe(true);
+    const blocks = sent.system as { cache_control?: unknown }[];
+    expect(blocks[blocks.length - 1]!.cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("caches the system prompt on plan(), which sends no tools", async () => {
+    const api = fakeApi([{ content: [{ type: "text", text: "1. Read the story" }] }]);
+    await model(api).plan(input());
+    const sent = api.sent[0]!;
+    expect(sent.tools).toBeUndefined();
+    const blocks = sent.system as { cache_control?: unknown }[];
+    expect(blocks[0]!.cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("sends the same tools and system bytes on every cycle, or nothing is cacheable", async () => {
+    // The saving depends entirely on the prefix being byte-identical. A change
+    // that reorders tools or rewrites the system prompt per cycle would not
+    // fail any other test — it would just quietly stop the cache from hitting.
+    const api = fakeApi([{ content: [] }, { content: [] }]);
+    const m = model(api);
+    await m.decide(input());
+    await m.decide(input({ history: [{ toolName: "fs.read_file", ok: true, summary: "x", ledgerRef: "e1" }] }));
+    const [a, b] = api.sent;
+    expect(JSON.stringify(b!.tools)).toBe(JSON.stringify(a!.tools));
+    expect(JSON.stringify(b!.system)).toBe(JSON.stringify(a!.system));
+    expect(JSON.stringify(b!.messages)).not.toBe(JSON.stringify(a!.messages));
+  });
+
+  it("records cache accounting when the API reports it", async () => {
+    const api = fakeApi([
+      {
+        content: [],
+        usage: {
+          input_tokens: 120,
+          output_tokens: 8,
+          cache_read_input_tokens: 14000,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    ]);
+    const decision = await model(api).decide(input());
+    expect(decision.usage.cacheReadTokens).toBe(14000);
+    expect(decision.usage.cacheCreationTokens).toBe(0);
+  });
+
+  it("omits cache fields entirely when the API reports none", async () => {
+    // Absent must not become 0. A zero says the prefix missed; absent says the
+    // provider does not report caching — and the golden fixture depends on the
+    // fields staying off the payload.
+    const api = fakeApi([{ content: [], usage: { input_tokens: 10, output_tokens: 2 } }]);
+    const decision = await model(api).decide(input());
+    expect("cacheReadTokens" in decision.usage).toBe(false);
+    expect("cacheCreationTokens" in decision.usage).toBe(false);
+  });
+});
+
+describe("model call bounds", () => {
+  it("passes a timeout and a retry bound to the factory", async () => {
+    const seen: Array<{ apiKey: string; transport: TransportOptions | undefined }> = [];
+    const api = fakeApi([{ content: [] }]);
+    const m = new AnthropicModel({
+      apiKey: "sk-ant-test",
+      factory: async (apiKey, transport) => {
+        seen.push({ apiKey, transport });
+        return api;
+      },
+    });
+    await m.decide(input());
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.transport).toEqual(DEFAULT_TRANSPORT);
+  });
+
+  it("lets a caller tighten the timeout without restating the rest", async () => {
+    const seen: TransportOptions[] = [];
+    const api = fakeApi([{ content: [] }]);
+    const m = new AnthropicModel({
+      apiKey: "sk-ant-test",
+      transport: { timeoutMs: 5_000 },
+      factory: async (_k, t) => {
+        seen.push(t!);
+        return api;
+      },
+    });
+    await m.decide(input());
+    expect(seen[0]).toEqual({ timeoutMs: 5_000, maxRetries: DEFAULT_TRANSPORT.maxRetries });
+  });
+
+  it("bounds the wait rather than leaving it open", () => {
+    // The point of the default is that it is FINITE. A run that hangs on a
+    // stalled request produces no event at all, so the ledger — the one thing
+    // this project relies on to explain a run — says only that a cycle was
+    // assembled. Observed on 20260915T222657Z-73bb1bab: 26 minutes of silence.
+    expect(Number.isFinite(DEFAULT_TRANSPORT.timeoutMs)).toBe(true);
+    expect(DEFAULT_TRANSPORT.timeoutMs).toBeGreaterThan(0);
+    expect(DEFAULT_TRANSPORT.maxRetries).toBeGreaterThanOrEqual(0);
+  });
+
+  it("surfaces a transport failure instead of swallowing it", async () => {
+    // The loop turns a thrown error into an `error` end event. Silence is the
+    // failure mode worth preventing; a recorded failure is fine.
+    const m = new AnthropicModel({
+      apiKey: "sk-ant-test",
+      factory: async () => ({
+        create: () => Promise.reject(new Error("Request timed out.")),
+      }),
+    });
+    await expect(m.decide(input())).rejects.toThrow(/timed out/i);
   });
 });

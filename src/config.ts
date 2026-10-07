@@ -18,6 +18,8 @@ export class ConfigError extends Error {
   override name = "ConfigError";
 }
 
+const LLM_PROVIDERS = ["anthropic", "openai", "gemini"];
+
 export const DEFAULT_BUDGETS = { steps: 40, tokens: 400_000 };
 
 export async function loadAgentConfig(file: string): Promise<AgentConfig> {
@@ -85,7 +87,43 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
     capabilities.test_plans = c["test_plans"];
   }
 
-  return { model, prompt_version, budgets, scope, policy, capabilities };
+  let test_types: string[] | undefined;
+  if (agent["test_types"] !== undefined) {
+    const known = ["functional", "security", "accessibility", "confirmation"];
+    const list = strList(agent["test_types"], `${source}: agent.test_types`);
+    for (const t of list) {
+      if (!known.includes(t))
+        throw new ConfigError(`${source}: agent.test_types has unknown type "${t}" (known: ${known.join(", ")})`);
+    }
+    test_types = list;
+  }
+
+  // bdd2pw's own LLM fallback for steps its deterministic rules cannot bind.
+  // Named for what it is: a FALLBACK. The rule table is still tried first, and
+  // this only decides whether an unbound step becomes a TODO or a generated
+  // binding. The sidecar URL is not configurable here — it comes from the
+  // environment (AI_GOVERNANCE_URL), so no config file can nominate where
+  // prompts are sent.
+  let llm_fallback: AgentConfig["llm_fallback"];
+  if (agent["llm_fallback"] !== undefined) {
+    const v = str(agent["llm_fallback"]);
+    if (v === undefined || !LLM_PROVIDERS.includes(v))
+      throw new ConfigError(
+        `${source}: agent.llm_fallback must be one of ${LLM_PROVIDERS.join(", ")}`,
+      );
+    llm_fallback = v as AgentConfig["llm_fallback"];
+  }
+
+  return {
+    model,
+    prompt_version,
+    budgets,
+    scope,
+    policy,
+    capabilities,
+    ...(test_types ? { test_types } : {}),
+    ...(llm_fallback ? { llm_fallback } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

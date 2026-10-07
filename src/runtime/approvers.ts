@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import type { ApprovalRequest, ApprovalResult, Approver } from "./approval.js";
+import { renderApproval } from "./render-approval.js";
 
 /**
  * `--approval terminal`: prints the request and reads y/n from stdin.
@@ -20,14 +21,33 @@ export class TerminalApprover implements Approver {
   async ask(request: ApprovalRequest): Promise<ApprovalResult> {
     const out = this.io.output;
     out.write(`\n[aqa] approval ${request.approvalId} requested\n`);
-    out.write(`  ${request.summary}\n`);
-    for (const c of request.calls) out.write(`  - ${c.toolName} ${JSON.stringify(c.args)}\n`);
-    const answer = await this.prompt("  approve? [y/N] ");
+    if (request.note) out.write(`\n  ${request.note.replace(/\n/g, "\n  ")}\n`);
+    out.write(renderApproval(request.calls, request.covered ? { covered: request.covered } : {}) + "\n");
+    // "v" shows the arguments verbatim. The full call is in the ledger either
+    // way; this is for the reader who wants it without leaving the prompt.
+    let answer = await this.prompt("  approve? [y/N/v=verbose] ");
+    if (/^v(erbose)?$/i.test(answer.trim())) {
+      out.write(
+        renderApproval(request.calls, {
+          verbose: true,
+          ...(request.covered ? { covered: request.covered } : {}),
+        }) + "\n",
+      );
+      answer = await this.prompt("  approve? [y/N] ");
+    }
     const approved = /^y(es)?$/i.test(answer.trim());
+    // A denial that says why is worth far more than one that does not: the
+    // agent is told, in the reviewer's words, what to change.
+    // Only where someone is actually sitting there: a piped or ended stdin
+    // has no second answer to give, and waiting for one would hang the run.
+    const interactive = (this.io.input as { isTTY?: boolean }).isTTY === true;
+    const reason =
+      approved || !interactive ? "" : (await this.prompt("  why not? (optional, Enter to skip) ")).trim();
     return {
       decision: approved ? "approved" : "denied",
       by: this.who,
       at: new Date().toISOString(),
+      ...(reason ? { reason } : {}),
     };
   }
 

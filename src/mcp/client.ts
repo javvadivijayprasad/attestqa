@@ -42,6 +42,8 @@ export interface ServerSpec {
    * cannot answer is a failed call, so the runtime supplies it up front.
    */
   defaultArgs?: Record<string, unknown>;
+  /** Arguments the runtime sets on every tool that declares them, overriding the model. */
+  pinnedArgs?: Record<string, unknown>;
 }
 
 export type SessionFactory = (spec: ServerSpec) => Promise<McpSession>;
@@ -119,6 +121,8 @@ export class McpToolClient implements ToolClient {
         if (entry.actions) d.actions = entry.actions;
         const defaults = pickKnown(spec.defaultArgs, t.inputSchema);
         if (defaults) d.defaultArgs = defaults;
+        const pinned = pickKnown(spec.pinnedArgs, t.inputSchema);
+        if (pinned) d.pinnedArgs = pinned;
         this.descriptors.push(d);
       }
     }

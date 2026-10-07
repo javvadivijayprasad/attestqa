@@ -49,9 +49,11 @@ export function azureDevOpsServer(env: RuntimeEnv): ServerSpec {
       AZURE_DEVOPS_ORG_URL: orgUrl,
       AZURE_DEVOPS_PROJECT: project,
     },
-    // Without this the server elicits ("which project?") and the call fails
-    // outright, because elicitation needs a client that can ask a human.
-    defaultArgs: { project },
+    // Without a project the server elicits ("which project?") and the call
+    // fails outright, because elicitation needs a client that can ask a human.
+    // PINNED, not defaulted: the model does not get to choose which project it
+    // writes to. See `ToolDescriptor.pinnedArgs` for the run that showed why.
+    pinnedArgs: { project },
   };
 }
 
