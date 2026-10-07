@@ -7,6 +7,12 @@ application (OWASP Juice Shop), one Azure DevOps project, one model family
 (`claude-sonnet-4-6`), 21–28 September 2026. Every figure below is derived from
 `.aqa/runs/*/events.jsonl` and is reproducible with `aqa replay`.
 
+**Frozen at commit `f2771d4`, tag `corpus-2026-10-07`.** That is the runtime the corpus
+and every run cited here were produced by; it changes from here only for a defect that
+would invalidate a result, and any such change is recorded in this section. The last run
+before the freeze, `20261007T203629Z-20f31b80`, was clean: 12 passed, 2 failed (#87, #83),
+every guard engaged, no false record.
+
 ---
 
 ## 1. The question
