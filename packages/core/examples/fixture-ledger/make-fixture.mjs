@@ -10,7 +10,7 @@ let id = 1;
 let t = 1789228800000; // 2026-09-12T16:00:00Z
 const ev = (kind, payload, dt = 400) => {
   t += dt;
-  return { tool: "agentic-qa", runId, eventId: id++, timestamp: t, kind, payload };
+  return { tool: "attestqa", runId, eventId: id++, timestamp: t, kind, payload };
 };
 const usage = (i, o) => ({ inputTokens: i, outputTokens: o });
 const model = "claude-sonnet-4-6";

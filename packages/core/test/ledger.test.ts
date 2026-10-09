@@ -37,7 +37,7 @@ describe("Ledger append", () => {
     expect(raw.split("\n").filter(Boolean)).toHaveLength(1);
     const parsed = JSON.parse(raw.trim());
     expect(parsed).toMatchObject({
-      tool: "agentic-qa",
+      tool: "attestqa",
       runId: "run-b",
       eventId: 1,
       timestamp: 1000,
@@ -79,11 +79,16 @@ describe("Ledger append", () => {
 });
 
 describe("parseLedger", () => {
-  it("parses the fixture ledger completely and covers every event kind", () => {
+  it("parses the fixture ledger completely and covers every event kind the loop writes", () => {
     const events = readLedgerFile(FIXTURE);
     expect(events.length).toBe(45);
     const kinds = new Set(events.map((e) => e.kind));
-    for (const k of EVENT_KINDS) expect(kinds.has(k)).toBe(true);
+    // The fixture is produced by the loop, and the loop never writes the
+    // ledger 2.0 kinds: a ruling or an edit is a person's act, and run_aborted
+    // is written by the host after the loop has died. Those three are covered
+    // in ledger-v2.test.ts. Every other kind must appear here.
+    const writtenByPeopleOrHost = new Set(["ruling", "user_edit", "run_aborted"]);
+    for (const k of EVENT_KINDS) if (!writtenByPeopleOrHost.has(k)) expect(kinds.has(k)).toBe(true);
     expect(events[events.length - 1]!.kind).toBe("end");
   });
 

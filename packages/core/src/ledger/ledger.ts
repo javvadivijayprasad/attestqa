@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AnyRunEvent, EventKind, PayloadByKind, RunEvent } from "../types.js";
-import { EVENT_KINDS } from "../types.js";
+import { EVENT_KINDS, LEDGER_TOOL, LEDGER_TOOLS } from "../types.js";
 
 export const LEDGER_FILE = "events.jsonl";
 export const APPROVALS_DIR = "approvals";
@@ -64,7 +64,7 @@ export class Ledger {
     timestamp = Date.now(),
   ): RunEvent<K> {
     const event: RunEvent<K> = {
-      tool: "agentic-qa",
+      tool: LEDGER_TOOL,
       runId: this.runId,
       eventId: this.nextEventId++,
       timestamp,
@@ -125,8 +125,10 @@ function assertRunEvent(value: unknown, where: string): AnyRunEvent {
   if (typeof value !== "object" || value === null)
     throw new LedgerFormatError(`${where}: not an object`);
   const v = value as Record<string, unknown>;
-  if (v["tool"] !== "agentic-qa")
-    throw new LedgerFormatError(`${where}: tool must be "agentic-qa"`);
+  if (!(LEDGER_TOOLS as readonly unknown[]).includes(v["tool"]))
+    throw new LedgerFormatError(
+      `${where}: tool must be one of ${LEDGER_TOOLS.map((t) => `"${t}"`).join(", ")}`,
+    );
   if (typeof v["runId"] !== "string" || v["runId"] === "")
     throw new LedgerFormatError(`${where}: runId missing`);
   if (typeof v["eventId"] !== "number" || !Number.isInteger(v["eventId"]) || v["eventId"] < 1)

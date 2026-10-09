@@ -61,6 +61,12 @@ export function renderLine(e: AnyRunEvent): string {
         : `Agent: ${e.payload.role} — ${e.payload.because}`;
     case "end":
       return `Agent finished: ${e.payload.status} — ${e.payload.summary}`;
+    case "ruling":
+      return `Ruling by ${e.payload.author} on ${e.payload.subject.type} ${e.payload.subject.ref}: ${e.payload.decision} — ${e.payload.reason}`;
+    case "user_edit":
+      return `Edited by ${e.payload.author}: ${e.payload.path}${e.payload.reason ? ` — ${e.payload.reason}` : ""}`;
+    case "run_aborted":
+      return `Run aborted after event ${e.payload.lastEventId}: ${e.payload.reason}`;
   }
 }
 
@@ -130,6 +136,11 @@ export function computeStats(events: AnyRunEvent[]): ReplayStats {
         break;
       case "end":
         s.status = e.payload.status;
+        break;
+      // A host-written close for a run whose process died: the report says so
+      // rather than leaving the run looking merely unfinished.
+      case "run_aborted":
+        if (s.status === "incomplete") s.status = "aborted";
         break;
       default:
         break;

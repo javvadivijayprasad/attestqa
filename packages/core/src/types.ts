@@ -29,6 +29,15 @@ export const EVENT_KINDS = [
   // by the runtime when the role changes, so a replay says which agent acted.
   "agent",
   "end",
+  // Ledger 2.0 (attestqa 2.0.0). A person's decision about what the software
+  // SHOULD do, recorded so later runs can cite it and no run can claim it.
+  "ruling",
+  // A change a person made through the UI, so the agent can never present a
+  // human's wording as its own.
+  "user_edit",
+  // Written by the host when a run's process exits without an `end` event, so
+  // a crashed run still has a readable, closed ledger.
+  "run_aborted",
 ] as const;
 
 export type EventKind = (typeof EVENT_KINDS)[number];
@@ -299,6 +308,32 @@ export interface AgentPayload {
   tools: string[];
 }
 
+/** Who decided, and why: a ruling a later run may cite but never author. */
+export interface RulingPayload {
+  subject: { type: "test" | "question" | "ac" | "bug"; ref: string };
+  decision: string;
+  reason: string;
+  author: string;
+  source: "ui" | "cli" | "tracker-comment";
+}
+
+/** A file change made by a person through attestqa, not by the agent. */
+export interface UserEditPayload {
+  path: string;
+  before?: string;
+  after: string;
+  author: string;
+  reason?: string;
+}
+
+/** The run's process ended without writing `end`. Written by the host. */
+export interface RunAbortedPayload {
+  reason: string;
+  lastEventId: number;
+  exitCode?: number | null;
+  signal?: string;
+}
+
 export interface PayloadByKind {
   request: RequestPayload;
   plan: PlanPayload;
@@ -314,14 +349,26 @@ export interface PayloadByKind {
   route: RoutePayload;
   agent: AgentPayload;
   end: EndPayload;
+  ruling: RulingPayload;
+  user_edit: UserEditPayload;
+  run_aborted: RunAbortedPayload;
 }
 
 /**
  * One ledger line. Mirrors the pw-extensions `RunEvent` envelope so the three
- * tool families are cross-readable (`tool` is always "agentic-qa" here).
+ * tool families are cross-readable.
+ *
+ * Ledger 2.0: new ledgers are written with `tool: "attestqa"`. Ledgers written
+ * before the rename say "agentic-qa" — including every run in the Paper I
+ * corpus — and must keep loading, replaying and reporting exactly as before.
  */
+export const LEDGER_TOOLS = ["attestqa", "agentic-qa"] as const;
+export type LedgerTool = (typeof LEDGER_TOOLS)[number];
+/** What this version writes. */
+export const LEDGER_TOOL: LedgerTool = "attestqa";
+
 export interface RunEvent<K extends EventKind = EventKind> {
-  tool: "agentic-qa";
+  tool: LedgerTool;
   runId: string;
   eventId: number;
   timestamp: number;
@@ -477,7 +524,9 @@ export interface Skill {
    * Returns undefined when there is nothing to do — nothing has changed since
    * the last run, or there is nothing to run yet.
    */
-  autoRun?: (events: AnyRunEvent[]) => { toolName: string; args: Record<string, unknown>; why: string } | undefined;
+  autoRun?: (
+    events: AnyRunEvent[],
+  ) => { toolName: string; args: Record<string, unknown>; why: string } | undefined;
   /**
    * The path this run should take, decided from the ledger AFTER preflight and
    * BEFORE the first model turn. Pure: same events, same route.
@@ -518,7 +567,10 @@ export interface Skill {
    * rules that depend on what the run has already seen — e.g. "this acceptance
    * criterion already has a test case".
    */
-  refuse?: (call: { toolName: string; args: Record<string, unknown> }, events: AnyRunEvent[]) => string | undefined;
+  refuse?: (
+    call: { toolName: string; args: Record<string, unknown> },
+    events: AnyRunEvent[],
+  ) => string | undefined;
   /**
    * The report the RUNTIME posts at the very end, after execution and the bug
    * decision — or undefined when there is nothing a reader needs to know. It
