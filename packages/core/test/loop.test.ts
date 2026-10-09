@@ -546,7 +546,9 @@ describe("preflight: reads the RUNTIME makes before the model's first turn", () 
     const events = d.ledger.read();
     const policy = events.find((e) => e.kind === "policy");
     expect(policy?.payload).toMatchObject({ toolName: "s.read", decision: "execute" });
-    const calls = events.filter((e) => e.kind === "call").map((e) => (e.payload as { toolName: string }).toolName);
+    const calls = events
+      .filter((e) => e.kind === "call")
+      .map((e) => (e.payload as { toolName: string }).toolName);
     // The real read, then the digest recorded as the runtime's own result.
     expect(calls.slice(0, 2)).toEqual(["read", "story_context"]);
     // The model saw the digest BEFORE it planned.
@@ -578,18 +580,46 @@ describe("preflight: reads the RUNTIME makes before the model's first turn", () 
 describe("bug proposals wait for the end of the run", () => {
   const bugCall = {
     toolName: "ado.wit_work_item_write",
-    args: { action: "create", workItemType: "Bug", parentId: 1, tags: "agentic-qa", title: "AC-1: broken" },
+    args: {
+      action: "create",
+      workItemType: "Bug",
+      parentId: 1,
+      tags: "agentic-qa",
+      title: "AC-1: broken",
+    },
   };
 
   it("holds a mid-run proposal, asks nobody, and drops it when the suite ends green", async () => {
     const t = tools()
       .add(
-        { server: "ado", name: "wit_work_item_write", description: "", inputSchema: {}, policyClass: "write_record" },
+        {
+          server: "ado",
+          name: "wit_work_item_write",
+          description: "",
+          inputSchema: {},
+          policyClass: "write_record",
+        },
         { ok: true, result: { id: 99 }, artefacts: [] },
       )
       .add(
-        { server: "pw", name: "run_tests", description: "", inputSchema: {}, policyClass: "write_workspace" },
-        { ok: true, result: { passed: 1, failed: 0, skipped: 0, green: true, tests: [{ title: "AC-1 x", status: "passed" }] }, artefacts: [] },
+        {
+          server: "pw",
+          name: "run_tests",
+          description: "",
+          inputSchema: {},
+          policyClass: "write_workspace",
+        },
+        {
+          ok: true,
+          result: {
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            green: true,
+            tests: [{ title: "AC-1 x", status: "passed" }],
+          },
+          artefacts: [],
+        },
       );
     const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
     const d = deps(
@@ -601,7 +631,11 @@ describe("bug proposals wait for the end of the run", () => {
       {
         tools: t,
         approver,
-        skill: { ...skill(), allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"], workItem: "1" },
+        skill: {
+          ...skill(),
+          allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"],
+          workItem: "1",
+        },
       },
     );
     await runLoop(d);
@@ -613,12 +647,34 @@ describe("bug proposals wait for the end of the run", () => {
   it("asks ONCE at the end, beside the final result, when the test is still failing", async () => {
     const t = tools()
       .add(
-        { server: "ado", name: "wit_work_item_write", description: "", inputSchema: {}, policyClass: "write_record" },
+        {
+          server: "ado",
+          name: "wit_work_item_write",
+          description: "",
+          inputSchema: {},
+          policyClass: "write_record",
+        },
         { ok: true, result: { id: 99 }, artefacts: [] },
       )
       .add(
-        { server: "pw", name: "run_tests", description: "", inputSchema: {}, policyClass: "write_workspace" },
-        { ok: true, result: { passed: 0, failed: 1, skipped: 0, green: false, tests: [{ title: "AC-1 signs in", status: "failed" }] }, artefacts: [] },
+        {
+          server: "pw",
+          name: "run_tests",
+          description: "",
+          inputSchema: {},
+          policyClass: "write_workspace",
+        },
+        {
+          ok: true,
+          result: {
+            passed: 0,
+            failed: 1,
+            skipped: 0,
+            green: false,
+            tests: [{ title: "AC-1 signs in", status: "failed" }],
+          },
+          artefacts: [],
+        },
       );
     const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
     const d = deps(
@@ -630,7 +686,11 @@ describe("bug proposals wait for the end of the run", () => {
       {
         tools: t,
         approver,
-        skill: { ...skill(), allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"], workItem: "1" },
+        skill: {
+          ...skill(),
+          allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"],
+          workItem: "1",
+        },
       },
     );
     await runLoop(d);
@@ -658,12 +718,20 @@ describe("pinned arguments: the runtime, not the model, chooses the project", ()
       { ok: true, result: {}, artefacts: [] },
     );
     const d = deps(
-      [{ calls: [{ toolName: "ado.wit_work_item", args: { project: "JuiceShopTest", id: 1 } }], usage: u }, goal],
+      [
+        {
+          calls: [{ toolName: "ado.wit_work_item", args: { project: "JuiceShopTest", id: 1 } }],
+          usage: u,
+        },
+        goal,
+      ],
       { tools: t, skill: { ...skill(), allowedTools: ["ado.wit_work_item"] } },
     );
     await runLoop(d);
     expect(t.calls[0]?.args["project"]).toBe("agentic-qa-sandbox");
-    const recorded = d.ledger.read().find((e) => e.kind === "call")?.payload as { args: Record<string, unknown> };
+    const recorded = d.ledger.read().find((e) => e.kind === "call")?.payload as {
+      args: Record<string, unknown>;
+    };
     expect(recorded.args["project"]).toBe("agentic-qa-sandbox");
   });
 
@@ -677,7 +745,9 @@ describe("pinned arguments: the runtime, not the model, chooses the project", ()
       defaultArgs: { top: 10 },
       pinnedArgs: { project: "p" },
     };
-    expect(withRuntimeArgs({ toolName: "s.x", args: { top: 50, project: "q" } }, tool).args).toEqual({
+    expect(
+      withRuntimeArgs({ toolName: "s.x", args: { top: 50, project: "q" } }, tool).args,
+    ).toEqual({
       top: 50,
       project: "p",
     });
@@ -687,7 +757,13 @@ describe("pinned arguments: the runtime, not the model, chooses the project", ()
 describe("the runtime's own end-of-run writes", () => {
   it("posts the skill's final report once, after everything else, through one approval", async () => {
     const t = tools().add(
-      { server: "ado", name: "wit_work_item_comment_write", description: "", inputSchema: {}, policyClass: "write_record" },
+      {
+        server: "ado",
+        name: "wit_work_item_comment_write",
+        description: "",
+        inputSchema: {},
+        policyClass: "write_record",
+      },
       { ok: true, result: { id: 1 }, artefacts: [] },
     );
     const approver = new ScriptedApprover([], { decision: "approved", by: "t", at: "" });
@@ -699,7 +775,11 @@ describe("the runtime's own end-of-run writes", () => {
         allowedTools: ["s.read", "ado.wit_work_item_comment_write"],
         finalReport: (_events, ctx) => ({
           toolName: "ado.wit_work_item_comment_write",
-          args: { action: "add", workItemId: 1, text: `report ${ctx.runId} / ${ctx.agentNote ?? ""}` },
+          args: {
+            action: "add",
+            workItemId: 1,
+            text: `report ${ctx.runId} / ${ctx.agentNote ?? ""}`,
+          },
         }),
       },
     });
@@ -728,7 +808,14 @@ describe("preflight: reads of items linked to the story", () => {
     // through the in-scope story's own links is allowed. The model's own reads
     // still obey the scope exactly as written.
     const t = new StubTools().add(
-      { server: "ado", name: "wit_work_item", description: "", inputSchema: {}, policyClass: "read", scopeArgs: { workItem: "id" } },
+      {
+        server: "ado",
+        name: "wit_work_item",
+        description: "",
+        inputSchema: {},
+        policyClass: "read",
+        scopeArgs: { workItem: "id" },
+      },
       { ok: true, result: { id: 42 }, artefacts: [] },
     );
     const results: boolean[] = [];

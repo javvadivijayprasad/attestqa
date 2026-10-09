@@ -82,7 +82,12 @@ export async function gatherStoryContext(
   );
 
   // ---- the story -----------------------------------------------------------
-  const story = await read("ado.wit_work_item", { ...base, action: "get", id, expand: "Relations" });
+  const story = await read("ado.wit_work_item", {
+    ...base,
+    action: "get",
+    id,
+    expand: "Relations",
+  });
   const s = asRecord(story.result);
   const sf = asRecord(s?.["fields"]) ?? {};
   if (!story.ok || !s) {
@@ -91,14 +96,16 @@ export async function gatherStoryContext(
   }
   summary["storyRead"] = 1;
   facts.story = { id, title: str(sf["System.Title"]) };
-  out.push(`STORY AB#${id} [${str(sf["System.WorkItemType"])}, ${str(sf["System.State"])}] ${str(sf["System.Title"])}`);
+  out.push(
+    `STORY AB#${id} [${str(sf["System.WorkItemType"])}, ${str(sf["System.State"])}] ${str(sf["System.Title"])}`,
+  );
   const ac = clean(sf["Microsoft.VSTS.Common.AcceptanceCriteria"], 4000);
   if (ac) out.push("Acceptance criteria:", indent(ac));
   else
     out.push(
       "Acceptance criteria: NONE RECORDED on this story.",
-      "  Design from the description, the tasks and the comments instead, cover \"story\", and cite",
-      "  what you read (\"story description\"). Say in your final message that the story has no",
+      '  Design from the description, the tasks and the comments instead, cover "story", and cite',
+      '  what you read ("story description"). Say in your final message that the story has no',
       "  acceptance criteria — a story without them is a finding in its own right. You may still",
       "  only use what is written down: the description, the tasks, the comments and the bugs.",
       "  How the application happens to behave is not a requirement.",
@@ -128,7 +135,12 @@ export async function gatherStoryContext(
     // created 69-72 for the same four criteria (20260921T192908Z).
     const tc = await read(
       "ado.wit_work_item",
-      { ...base, action: "get_batch", ids: existing, fields: ["System.Id", "System.Title", "System.WorkItemType"] },
+      {
+        ...base,
+        action: "get_batch",
+        ids: existing,
+        fields: ["System.Id", "System.Title", "System.WorkItemType"],
+      },
       { linkedToStory: true },
     );
     const cases = workItems(tc.result);
@@ -159,7 +171,9 @@ export async function gatherStoryContext(
     if (p.ok) {
       summary["epicRead"] = 1;
       facts.epic = { id: Number(rel.parent), title: str(pf["System.Title"]) };
-      out.push(`PARENT #${rel.parent} [${str(pf["System.WorkItemType"])}] ${str(pf["System.Title"])}`);
+      out.push(
+        `PARENT #${rel.parent} [${str(pf["System.WorkItemType"])}] ${str(pf["System.Title"])}`,
+      );
       const d = clean(pf["System.Description"], DESCRIPTION_CHARS);
       if (d) out.push(indent(d));
 
@@ -196,10 +210,13 @@ export async function gatherStoryContext(
             "that belongs to one of these is NOT this story's to test. If an open bug below is about one " +
             "of them, say so and leave it:",
         );
-        if (!sb.ok) out.push(`  ${siblings.map((n) => `#${n}`).join(", ")}: NOT READ — ${why(sb.result)}`);
+        if (!sb.ok)
+          out.push(`  ${siblings.map((n) => `#${n}`).join(", ")}: NOT READ — ${why(sb.result)}`);
         for (const w of items) {
           const f = asRecord(w["fields"]) ?? {};
-          out.push(`  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}] ${str(f["System.Title"])}`);
+          out.push(
+            `  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}] ${str(f["System.Title"])}`,
+          );
           const sac = clean(f["Microsoft.VSTS.Common.AcceptanceCriteria"], DESCRIPTION_CHARS);
           if (sac) out.push(indent(sac, 4));
         }
@@ -221,7 +238,13 @@ export async function gatherStoryContext(
         ...base,
         action: "get_batch",
         ids: rel.children,
-        fields: ["System.Id", "System.Title", "System.WorkItemType", "System.State", "System.Description"],
+        fields: [
+          "System.Id",
+          "System.Title",
+          "System.WorkItemType",
+          "System.State",
+          "System.Description",
+        ],
       },
       { linkedToStory: true },
     );
@@ -230,13 +253,17 @@ export async function gatherStoryContext(
     facts.tasks = rel.children;
     if (!c.ok) {
       summary["tasksRefused"] = rel.children.length;
-      out.push(`CHILD ITEMS ${rel.children.map((n) => `#${n}`).join(", ")}: NOT READ — ${why(c.result)}`);
+      out.push(
+        `CHILD ITEMS ${rel.children.map((n) => `#${n}`).join(", ")}: NOT READ — ${why(c.result)}`,
+      );
     } else {
       out.push(`CHILD ITEMS (${items.length}) — where the implementation facts usually are:`);
     }
     for (const w of items) {
       const f = asRecord(w["fields"]) ?? {};
-      out.push(`  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}, ${str(f["System.State"])}] ${str(f["System.Title"])}`);
+      out.push(
+        `  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}, ${str(f["System.State"])}] ${str(f["System.Title"])}`,
+      );
       const d = clean(f["System.Description"], DESCRIPTION_CHARS);
       if (d) out.push(indent(d, 4));
     }
@@ -293,7 +320,13 @@ export async function gatherStoryContext(
         ...base,
         action: "get_batch",
         ids: bugIds.slice(0, 50),
-        fields: ["System.Id", "System.Title", "System.State", "System.Tags", "Microsoft.VSTS.TCM.ReproSteps"],
+        fields: [
+          "System.Id",
+          "System.Title",
+          "System.State",
+          "System.Tags",
+          "Microsoft.VSTS.TCM.ReproSteps",
+        ],
       },
       { linkedToStory: true },
     );
@@ -336,7 +369,10 @@ export async function gatherStoryContext(
       "Each state asks something different of you:",
     );
     for (const x of humanBugs) {
-      out.push(`  #${x.id} [${x.state}] ${x.title}`, `    ${STATE_MEANING[x.state] ?? "State not recognised — treat as a claim."}`);
+      out.push(
+        `  #${x.id} [${x.state}] ${x.title}`,
+        `    ${STATE_MEANING[x.state] ?? "State not recognised — treat as a claim."}`,
+      );
       if (x.repro) out.push(indent(x.repro, 4));
     }
     out.push(
@@ -416,7 +452,9 @@ export function isAgentBug(tags: string, text: string): boolean {
 }
 
 function clean(v: unknown, max: number): string {
-  const t = stripHtml(str(v)).replace(/\n{2,}/g, "\n").trim();
+  const t = stripHtml(str(v))
+    .replace(/\n{2,}/g, "\n")
+    .trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 

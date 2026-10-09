@@ -140,7 +140,13 @@ describe("CompositeTools", () => {
     );
     const all = new CompositeTools([mcp, new FsTools(ws)]);
     const names = (await all.listTools()).map((t) => `${t.server}.${t.name}`).sort();
-    expect(names).toEqual(["ado.t", "fs.list_dir", "fs.read_file", "fs.replace_in_file", "fs.write_file"]);
+    expect(names).toEqual([
+      "ado.t",
+      "fs.list_dir",
+      "fs.read_file",
+      "fs.replace_in_file",
+      "fs.write_file",
+    ]);
     // `lines` rides along on every read: a truncated view is useless unless the
     // agent can tell how much it did not see, and ask for that part by range.
     expect((await all.call("fs", "read_file", { path: "a.txt" })).result).toEqual({
@@ -172,7 +178,9 @@ describe("FsTools", () => {
     // advice the tool could not take: a spec too long for the context budget
     // could be read once, truncated, and never seen again (20260928T082428Z).
     writeFileSync(join(ws, "long.txt"), "l1\nl2\nl3\nl4\nl5");
-    expect((await fs.call("fs", "read_file", { path: "long.txt", fromLine: 2, toLine: 4 })).result).toEqual({
+    expect(
+      (await fs.call("fs", "read_file", { path: "long.txt", fromLine: 2, toLine: 4 })).result,
+    ).toEqual({
       path: "long.txt",
       lines: 5,
       fromLine: 2,

@@ -101,7 +101,9 @@ describe("what the design already has tests for", () => {
     const covered = coverageOf(DESIGN, { featureText: FEATURE, specText: SPEC, story: 44 });
     const lines = renderDesign(DESIGN, { covered });
     expect(lines[0]).toContain("2 already covered, 1 new");
-    expect(lines.join("\n")).toContain('ALREADY TESTED by "Story-a — logs out via the account menu"');
+    expect(lines.join("\n")).toContain(
+      'ALREADY TESTED by "Story-a — logs out via the account menu"',
+    );
   });
 });
 

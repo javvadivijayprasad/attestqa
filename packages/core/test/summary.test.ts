@@ -114,8 +114,18 @@ describe("the run's report is counted, not narrated", () => {
             green: true,
             failures: [],
             tests: [
-              { title: "AC-1 signs in", file: "tests/login.spec.ts", status: "passed", durationMs: 2400 },
-              { title: "AC-2 wrong password", file: "tests/login.spec.ts", status: "passed", durationMs: 800 },
+              {
+                title: "AC-1 signs in",
+                file: "tests/login.spec.ts",
+                status: "passed",
+                durationMs: 2400,
+              },
+              {
+                title: "AC-2 wrong password",
+                file: "tests/login.spec.ts",
+                status: "passed",
+                durationMs: 800,
+              },
             ],
             testsOmitted: 0,
           },
@@ -265,8 +275,17 @@ describe("run report: known bugs that did not reproduce", () => {
             skipped: 0,
             green: true,
             failures: [],
-            tests: [{ title: "AC-2b error clears", file: "l.spec.ts", status: "unexpected-pass", durationMs: 3000 }],
-            unexpectedPasses: [{ title: "AC-2b error clears", file: "l.spec.ts", note: "Bug #48 Active" }],
+            tests: [
+              {
+                title: "AC-2b error clears",
+                file: "l.spec.ts",
+                status: "unexpected-pass",
+                durationMs: 3000,
+              },
+            ],
+            unexpectedPasses: [
+              { title: "AC-2b error clears", file: "l.spec.ts", note: "Bug #48 Active" },
+            ],
           },
         },
       ]),
@@ -288,15 +307,25 @@ describe("run report: a known bug that passed in an EARLIER run", () => {
         {
           tool: "pw.run_tests",
           result: {
-            passed: 1, failed: 0, skipped: 0, green: true, failures: [],
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            green: true,
+            failures: [],
             tests: [{ title: "AC-2b error clears", file: "l.spec.ts", status: "unexpected-pass" }],
-            unexpectedPasses: [{ title: "AC-2b error clears", file: "l.spec.ts", note: "Bug #48 Active" }],
+            unexpectedPasses: [
+              { title: "AC-2b error clears", file: "l.spec.ts", note: "Bug #48 Active" },
+            ],
           },
         },
         {
           tool: "pw.run_tests",
           result: {
-            passed: 1, failed: 0, skipped: 0, green: true, failures: [],
+            passed: 1,
+            failed: 0,
+            skipped: 0,
+            green: true,
+            failures: [],
             tests: [{ title: "AC-2b error clears", file: "l.spec.ts", status: "passed" }],
             unexpectedPasses: [],
           },
@@ -315,7 +344,7 @@ describe("failureLines", () => {
     const { failureLines } = await import("../src/mcp/adapters/summary.js");
     const msg =
       "Error: expect(page).toHaveURL(expected) \u001b[31mfailed\u001b[39m\n\nExpected pattern: \u001b[32m/\\/#\\/login/\u001b[39m\n" +
-      "Received string:  \u001b[31m\"http://localhost:3100/#/\"\u001b[39m\nTimeout: 10000ms";
+      'Received string:  \u001b[31m"http://localhost:3100/#/"\u001b[39m\nTimeout: 10000ms';
     const out = failureLines(msg);
     expect(out).not.toContain("\u001b");
     expect(out).toContain("Error: expect(page).toHaveURL(expected) failed");

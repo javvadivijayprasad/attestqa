@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { agentConfigFromObject, modelConfig, ConfigError, type RuntimeEnv } from "../src/config.js";
 import { buildModel, credentialFor, describeModel } from "../src/runtime/provider.js";
-import { OpenAiCompatibleModel, endpointFor, type ChatTransport, type ChatRequest } from "../src/runtime/openai.js";
+import {
+  OpenAiCompatibleModel,
+  endpointFor,
+  type ChatTransport,
+  type ChatRequest,
+} from "../src/runtime/openai.js";
 import type { ModelInput } from "../src/runtime/model.js";
 
 /**
@@ -34,7 +39,12 @@ describe("agent.model in the config", () => {
 
   it("accepts the provider form", () => {
     const c = agentConfigFromObject(
-      withModel({ provider: "azure-openai", name: "gpt-4.1", endpoint: "https://acme.openai.azure.com", api_version: "2024-10-21" }),
+      withModel({
+        provider: "azure-openai",
+        name: "gpt-4.1",
+        endpoint: "https://acme.openai.azure.com",
+        api_version: "2024-10-21",
+      }),
     );
     expect(c.model).toEqual({
       provider: "azure-openai",
@@ -51,31 +61,56 @@ describe("agent.model in the config", () => {
   });
 
   it("requires an endpoint for azure-openai and local, and says what it looks like", () => {
-    expect(() => modelConfig({ provider: "azure-openai", name: "gpt-4.1" }, "agent.model")).toThrow(/openai\.azure\.com/);
-    expect(() => modelConfig({ provider: "local", name: "llama3" }, "agent.model")).toThrow(/localhost:11434/);
+    expect(() => modelConfig({ provider: "azure-openai", name: "gpt-4.1" }, "agent.model")).toThrow(
+      /openai\.azure\.com/,
+    );
+    expect(() => modelConfig({ provider: "local", name: "llama3" }, "agent.model")).toThrow(
+      /localhost:11434/,
+    );
   });
 
   it("refuses an endpoint that is not a URL", () => {
-    expect(() => modelConfig({ provider: "local", name: "llama3", endpoint: "not a url" }, "agent.model")).toThrow(ConfigError);
+    expect(() =>
+      modelConfig({ provider: "local", name: "llama3", endpoint: "not a url" }, "agent.model"),
+    ).toThrow(ConfigError);
   });
 });
 
 describe("the credential comes from the environment, per provider", () => {
-  const env = (over: Partial<RuntimeEnv> = {}): RuntimeEnv => ({ anthropicApiKey: "", sandbox: false, ...over });
+  const env = (over: Partial<RuntimeEnv> = {}): RuntimeEnv => ({
+    anthropicApiKey: "",
+    sandbox: false,
+    ...over,
+  });
 
   it("reads each provider's own variable", () => {
-    expect(credentialFor({ provider: "anthropic", name: "m" }, env({ anthropicApiKey: "a" }))).toBe("a");
+    expect(credentialFor({ provider: "anthropic", name: "m" }, env({ anthropicApiKey: "a" }))).toBe(
+      "a",
+    );
     expect(credentialFor({ provider: "openai", name: "m" }, env({ openaiApiKey: "o" }))).toBe("o");
-    expect(credentialFor({ provider: "azure-openai", name: "m", endpoint: "https://x.openai.azure.com" }, env({ azureOpenAiApiKey: "z" }))).toBe("z");
+    expect(
+      credentialFor(
+        { provider: "azure-openai", name: "m", endpoint: "https://x.openai.azure.com" },
+        env({ azureOpenAiApiKey: "z" }),
+      ),
+    ).toBe("z");
   });
 
   it("names the missing variable, not the symptom", () => {
     expect(() =>
-      buildModel({ config: { provider: "azure-openai", name: "gpt-4.1", endpoint: "https://x.openai.azure.com" }, env: env(), promptVersion: "v" }),
+      buildModel({
+        config: {
+          provider: "azure-openai",
+          name: "gpt-4.1",
+          endpoint: "https://x.openai.azure.com",
+        },
+        env: env(),
+        promptVersion: "v",
+      }),
     ).toThrow(/AZURE_OPENAI_API_KEY is not set/);
-    expect(() => buildModel({ config: { provider: "anthropic", name: "m" }, env: env(), promptVersion: "v" })).toThrow(
-      /ANTHROPIC_API_KEY is not set/,
-    );
+    expect(() =>
+      buildModel({ config: { provider: "anthropic", name: "m" }, env: env(), promptVersion: "v" }),
+    ).toThrow(/ANTHROPIC_API_KEY is not set/);
   });
 
   it("builds a local model with no credential at all", () => {
@@ -100,17 +135,28 @@ describe("the credential comes from the environment, per provider", () => {
   });
 
   it("describes itself for the terminal with the variable it reads", () => {
-    expect(describeModel({ provider: "azure-openai", name: "gpt-4.1", endpoint: "https://x.openai.azure.com" })).toBe(
-      "azure-openai gpt-4.1 at https://x.openai.azure.com (credential: AZURE_OPENAI_API_KEY)",
-    );
-    expect(describeModel({ provider: "local", name: "llama3", endpoint: "http://localhost:11434/v1" })).toContain("no credential");
+    expect(
+      describeModel({
+        provider: "azure-openai",
+        name: "gpt-4.1",
+        endpoint: "https://x.openai.azure.com",
+      }),
+    ).toBe("azure-openai gpt-4.1 at https://x.openai.azure.com (credential: AZURE_OPENAI_API_KEY)");
+    expect(
+      describeModel({ provider: "local", name: "llama3", endpoint: "http://localhost:11434/v1" }),
+    ).toContain("no credential");
   });
 });
 
 describe("one wire format, three endpoints", () => {
   it("routes Azure by deployment in the path with the api-key header", () => {
-    const e = endpointFor({ provider: "azure-openai", name: "gpt-4.1", endpoint: "https://acme.openai.azure.com/" }, "k");
-    expect(e.url).toBe("https://acme.openai.azure.com/openai/deployments/gpt-4.1/chat/completions?api-version=2024-10-21");
+    const e = endpointFor(
+      { provider: "azure-openai", name: "gpt-4.1", endpoint: "https://acme.openai.azure.com/" },
+      "k",
+    );
+    expect(e.url).toBe(
+      "https://acme.openai.azure.com/openai/deployments/gpt-4.1/chat/completions?api-version=2024-10-21",
+    );
     expect(e.headers).toEqual({ "api-key": "k" });
     expect(e.bodyModel).toBeUndefined();
   });
@@ -120,7 +166,10 @@ describe("one wire format, three endpoints", () => {
     expect(o.url).toBe("https://api.openai.com/v1/chat/completions");
     expect(o.headers).toEqual({ authorization: "Bearer k" });
     expect(o.bodyModel).toBe("gpt-4.1");
-    const l = endpointFor({ provider: "local", name: "llama3", endpoint: "http://localhost:11434/v1" }, undefined);
+    const l = endpointFor(
+      { provider: "local", name: "llama3", endpoint: "http://localhost:11434/v1" },
+      undefined,
+    );
     expect(l.url).toBe("http://localhost:11434/v1/chat/completions");
     expect(l.headers).toEqual({});
   });
@@ -160,11 +209,20 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
             {
               message: {
                 content: "Running the suite.",
-                tool_calls: [{ type: "function", function: { name: "pw__run_tests", arguments: '{"spec":"tests/e.spec.ts"}' } }],
+                tool_calls: [
+                  {
+                    type: "function",
+                    function: { name: "pw__run_tests", arguments: '{"spec":"tests/e.spec.ts"}' },
+                  },
+                ],
               },
             },
           ],
-          usage: { prompt_tokens: 120, completion_tokens: 8, prompt_tokens_details: { cached_tokens: 100 } },
+          usage: {
+            prompt_tokens: 120,
+            completion_tokens: 8,
+            prompt_tokens_details: { cached_tokens: 100 },
+          },
         },
         seen,
       ),
@@ -183,7 +241,10 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
     const m = new OpenAiCompatibleModel({
       config: { provider: "openai", name: "gpt-4.1" },
       apiKey: "k",
-      transport: fake({ choices: [{ message: { content: "Done." } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }),
+      transport: fake({
+        choices: [{ message: { content: "Done." } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1 },
+      }),
     });
     const d = await m.decide(input);
     expect(d.calls).toEqual([]);
@@ -197,7 +258,15 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
       apiKey: "k",
       warn: (w) => warnings.push(w),
       transport: fake({
-        choices: [{ message: { tool_calls: [{ type: "function", function: { name: "fs__delete_everything", arguments: "{}" } }] } }],
+        choices: [
+          {
+            message: {
+              tool_calls: [
+                { type: "function", function: { name: "fs__delete_everything", arguments: "{}" } },
+              ],
+            },
+          },
+        ],
       }),
     });
     const d = await m.decide(input);
@@ -212,7 +281,15 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
       apiKey: "k",
       warn: (w) => warnings.push(w),
       transport: fake({
-        choices: [{ message: { tool_calls: [{ type: "function", function: { name: "pw__run_tests", arguments: "{spec: oops" } }] } }],
+        choices: [
+          {
+            message: {
+              tool_calls: [
+                { type: "function", function: { name: "pw__run_tests", arguments: "{spec: oops" } },
+              ],
+            },
+          },
+        ],
       }),
     });
     const d = await m.decide(input);
@@ -224,7 +301,10 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
     const m = new OpenAiCompatibleModel({
       config: { provider: "azure-openai", name: "gpt-4.1", endpoint: "https://x.openai.azure.com" },
       apiKey: "k",
-      transport: async () => ({ status: 401, json: { error: { message: "Access denied due to invalid subscription key" } } }),
+      transport: async () => ({
+        status: 401,
+        json: { error: { message: "Access denied due to invalid subscription key" } },
+      }),
     });
     await expect(m.decide(input)).rejects.toThrow(/azure-openai gpt-4.1: Access denied/);
   });
@@ -233,7 +313,10 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
     const m = new OpenAiCompatibleModel({
       config: { provider: "openai", name: "gpt-4.1" },
       apiKey: "k",
-      transport: fake({ choices: [{ message: { content: "1. Read the story\n2. Run the suite" } }], usage: {} }),
+      transport: fake({
+        choices: [{ message: { content: "1. Read the story\n2. Run the suite" } }],
+        usage: {},
+      }),
     });
     const p = await m.plan(input);
     expect(p.steps).toEqual(["Read the story", "Run the suite"]);

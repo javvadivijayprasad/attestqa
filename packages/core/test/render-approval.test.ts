@@ -45,9 +45,7 @@ describe("renderApproval", () => {
     // I agreeing to" — and one test case plus one bug is a different question
     // from two test cases, with different stakes and often opposite answers.
     const out = renderApproval([CASE, BUG]);
-    expect(out.split("\n").find((l) => l.includes("Approve:"))).toContain(
-      "1 test case + 1 BUG",
-    );
+    expect(out.split("\n").find((l) => l.includes("Approve:"))).toContain("1 test case + 1 BUG");
   });
 
   it("prints a test case as a numbered scenario with its expectations", () => {
@@ -82,7 +80,11 @@ describe("renderApproval", () => {
     // leave: an untagged bug is read back as product knowledge by the next run.
     const bare = {
       toolName: "ado.wit_work_item_write",
-      args: { action: "create", workItemType: "Bug", fields: [{ name: "System.Title", value: "x" }] },
+      args: {
+        action: "create",
+        workItemType: "Bug",
+        fields: [{ name: "System.Title", value: "x" }],
+      },
     };
     const out = renderApproval([bare]);
     expect(out).toContain("NOT linked to any story");

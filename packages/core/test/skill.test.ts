@@ -37,7 +37,9 @@ describe("story-to-tests skill", () => {
     // so it is declared, and it is the only name allowed to be.
     const runtimeProduced = new Set(["aqa.story_context"]);
     expect(
-      STORY_TO_TESTS_SOURCES.every((s) => STORY_TO_TESTS_TOOLS.includes(s) || runtimeProduced.has(s)),
+      STORY_TO_TESTS_SOURCES.every(
+        (s) => STORY_TO_TESTS_TOOLS.includes(s) || runtimeProduced.has(s),
+      ),
     ).toBe(true);
     expect(skill.sourceTools).toEqual(STORY_TO_TESTS_SOURCES);
   });
@@ -138,9 +140,7 @@ describe("preconditions must be asserted, not assumed", () => {
   });
 
   it("says plainly that a broken precondition is not a defect", () => {
-    expect(text).toMatch(
-      /A\s+precondition\s+failure\s+is\s+not\s+a\s+product\s+defect/i,
-    );
+    expect(text).toMatch(/A\s+precondition\s+failure\s+is\s+not\s+a\s+product\s+defect/i);
   });
 });
 
@@ -157,7 +157,9 @@ describe("bug proposals must say what was ruled out", () => {
     expect(text).toMatch(/WHAT YOU RULED OUT/);
     // Whitespace-tolerant: these instructions are wrapped prose, so a literal
     // space in the pattern cannot match "what you\n       checked".
-    expect(text).toMatch(/what\s+you\s+checked\s+that\s+would\s+have\s+made\s+this\s+NOT\s+a\s+defect/i);
+    expect(text).toMatch(
+      /what\s+you\s+checked\s+that\s+would\s+have\s+made\s+this\s+NOT\s+a\s+defect/i,
+    );
   });
 
   it("ties confidence to that paragraph rather than to how the failure felt", () => {
@@ -215,8 +217,6 @@ describe("feature steps must be written for the generator", () => {
     // Observed on the same run: `Then I see "Invalid email or password."` bound
     // to the email FIELD's visibility. That test would pass while checking
     // something unrelated — worse than not binding at all.
-    expect(text).toMatch(
-      /a\s+step\s+that\s+binds\s+to\s+the\s+WRONG\s+element\s+is\s+worse/i,
-    );
+    expect(text).toMatch(/a\s+step\s+that\s+binds\s+to\s+the\s+WRONG\s+element\s+is\s+worse/i);
   });
 });

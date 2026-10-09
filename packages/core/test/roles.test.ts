@@ -32,7 +32,13 @@ function ledgerOf(
       ...base,
       eventId: ++id,
       kind: "observation",
-      payload: { eventIdOfCall: callId, ok: true, result: e.result ?? {}, artefacts: [], durationMs: 1 },
+      payload: {
+        eventIdOfCall: callId,
+        ok: true,
+        result: e.result ?? {},
+        artefacts: [],
+        durationMs: 1,
+      },
     } as AnyRunEvent);
   }
   return events;
@@ -45,7 +51,8 @@ const run = (failures: Array<{ title: string; message: string }>) => ({
 
 const LOCATOR = {
   title: "Story-a — logs out via the account menu",
-  message: "TimeoutError: locator.click\nCall log:\n  - waiting for locator('a[href=\"#/logout\"]')",
+  message:
+    "TimeoutError: locator.click\nCall log:\n  - waiting for locator('a[href=\"#/logout\"]')",
 };
 
 describe("which agent the run is being", () => {
@@ -70,7 +77,12 @@ describe("which agent the run is being", () => {
     const role = roleFor(
       ledgerOf([
         { tool: "fs.read_file", args: { path: "tests/e.spec.ts" }, result: { content: spec } },
-        run([{ title: "Story-a — logs out via the account menu", message: "expect(received).toBeNull()" }]),
+        run([
+          {
+            title: "Story-a — logs out via the account menu",
+            message: "expect(received).toBeNull()",
+          },
+        ]),
       ]),
     );
     expect(role.name).toBe("heal");
@@ -109,14 +121,16 @@ describe("a stuck action is the healer's business, however Playwright words it",
     const { stuckAction } = await import("../src/heal/locator.js");
     // What a broken locator actually produced (20260925T232423Z).
     expect(stuckAction("Test timeout of 30000ms exceeded.")).toBe(true);
-    expect(stuckAction("TimeoutError: locator.click\nCall log:\n  - waiting for getByRole('menuitem')")).toBe(true);
+    expect(
+      stuckAction("TimeoutError: locator.click\nCall log:\n  - waiting for getByRole('menuitem')"),
+    ).toBe(true);
     // A claim the product failed is NOT a heal: that is a finding.
     expect(
       stuckAction(
         "Test timeout of 30000ms exceeded.\nexpect(page).toHaveURL(expected)\nExpected pattern: /login/",
       ),
     ).toBe(false);
-    expect(stuckAction("expect(received).toBeNull()\nReceived: \"eyJ0…\"")).toBe(false);
+    expect(stuckAction('expect(received).toBeNull()\nReceived: "eyJ0…"')).toBe(false);
   });
 
   it("puts the run in the heal role for that failure", () => {
@@ -131,7 +145,10 @@ describe("the suite is a deliverable, not a desk", () => {
   it("refuses a scratch file written into tests/", async () => {
     const { storyRefusal } = await import("../src/skills/story-rules.js");
     const why = storyRefusal(
-      { toolName: "fs.write_file", args: { path: "tests/read-spec-probe.ts", content: "// probe" } },
+      {
+        toolName: "fs.write_file",
+        args: { path: "tests/read-spec-probe.ts", content: "// probe" },
+      },
       [],
     );
     expect(why).toContain("not a test, a fixture or a page object");
@@ -141,8 +158,13 @@ describe("the suite is a deliverable, not a desk", () => {
     const { storyRefusal } = await import("../src/skills/story-rules.js");
     // Only this rule is under test: a spec write has its own rules elsewhere
     // (scaffold first, and so on), so the check is that THIS refusal is silent.
-    for (const path of ["tests/epic-42.spec.ts", "tests/fixtures/users.json", "pages/login.page.ts"]) {
-      const why = storyRefusal({ toolName: "fs.write_file", args: { path, content: "x" } }, []) ?? "";
+    for (const path of [
+      "tests/epic-42.spec.ts",
+      "tests/fixtures/users.json",
+      "pages/login.page.ts",
+    ]) {
+      const why =
+        storyRefusal({ toolName: "fs.write_file", args: { path, content: "x" } }, []) ?? "";
       expect(why).not.toContain("not a test, a fixture or a page object");
     }
   });

@@ -5,7 +5,12 @@ import { hasAgentTag } from "../verify/story-to-tests.js";
 import { stripHtml } from "../runtime/render-approval.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { fileTextFromEvents, specPathFor, storyFacts, storyTestTitles } from "../design/test-design.js";
+import {
+  fileTextFromEvents,
+  specPathFor,
+  storyFacts,
+  storyTestTitles,
+} from "../design/test-design.js";
 
 /**
  * Which proposed bugs survive to be put to a human, decided AFTER execution
@@ -99,7 +104,10 @@ export function settleBugs(
       continue;
     }
     if (!finalRun) {
-      drop.push({ call, reason: "the suite never ran to completion, so there is no final result to support it" });
+      drop.push({
+        call,
+        reason: "the suite never ran to completion, so there is no final result to support it",
+      });
       continue;
     }
     if (green || (mine && stillFailing.length === 0)) {
@@ -221,11 +229,21 @@ export function settleBugs(
  */
 export function lastFullRun(events: AnyRunEvent[]) {
   const runs = successful(completedCalls(events), "pw.run_tests");
-  const full = runs.filter((c) => !FILTERS.some((k) => c.args[k] !== undefined && c.args[k] !== ""));
+  const full = runs.filter(
+    (c) => !FILTERS.some((k) => c.args[k] !== undefined && c.args[k] !== ""),
+  );
   return full.pop() ?? undefined;
 }
 
-const FILTERS = ["grep", "grepInvert", "grep-invert", "shard", "project", "lastFailed", "last-failed"];
+const FILTERS = [
+  "grep",
+  "grepInvert",
+  "grep-invert",
+  "shard",
+  "project",
+  "lastFailed",
+  "last-failed",
+];
 
 export function ownTestTitles(events: AnyRunEvent[], workItem?: string): Set<string> | undefined {
   const id = Number(workItem);
@@ -244,7 +262,11 @@ export function ownTestTitles(events: AnyRunEvent[], workItem?: string): Set<str
  * assertion on rule ids, an expected-to-fail marker, a named matcher. Prose
  * about the product is not checkable here and is left alone.
  */
-export function falseClaims(call: ProposedCall, events: AnyRunEvent[], workspaceDir?: string): string[] {
+export function falseClaims(
+  call: ProposedCall,
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string[] {
   const text = stripHtml(fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "");
   if (!text) return [];
   const facts = storyFacts(events);
@@ -262,9 +284,21 @@ export function falseClaims(call: ProposedCall, events: AnyRunEvent[], workspace
   const out: string[] = [];
   const claims: Array<[RegExp, RegExp, string]> = [
     [/\bscoped\b|\.include\s*\(/i, /\.include\s*\(/, "the scan is scoped (.include)"],
-    [/violations\s*\.\s*map|map\s*\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\s*\.\s*id/i, /\.map\s*\(/, "the assertion is on rule ids (violations.map)"],
-    [/\btest\.fail\b|expected[- ]to[- ]fail/i, /\btest\.fail\s*\(/, "the test is marked expected-to-fail (test.fail)"],
-    [/\bwithTags\b|pinned to (the )?(rule )?tags/i, /withTags\s*\(/, "the rule tags are pinned (withTags)"],
+    [
+      /violations\s*\.\s*map|map\s*\(\s*\(?\s*\w+\s*\)?\s*=>\s*\w+\s*\.\s*id/i,
+      /\.map\s*\(/,
+      "the assertion is on rule ids (violations.map)",
+    ],
+    [
+      /\btest\.fail\b|expected[- ]to[- ]fail/i,
+      /\btest\.fail\s*\(/,
+      "the test is marked expected-to-fail (test.fail)",
+    ],
+    [
+      /\bwithTags\b|pinned to (the )?(rule )?tags/i,
+      /withTags\s*\(/,
+      "the rule tags are pinned (withTags)",
+    ],
   ];
   for (const [claimed, inSpec, said] of claims) {
     if (claimed.test(text) && !inSpec.test(spec)) out.push(said);

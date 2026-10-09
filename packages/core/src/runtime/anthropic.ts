@@ -94,11 +94,9 @@ export const DEFAULT_TRANSPORT: TransportOptions = { timeoutMs: 300_000, maxRetr
 export const sdkMessagesFactory: MessagesFactory = async (apiKey, transport) => {
   const { timeoutMs, maxRetries } = transport ?? DEFAULT_TRANSPORT;
   const mod = (await import("@anthropic-ai/sdk")) as unknown as {
-    default: new (opts: {
-      apiKey: string;
-      timeout?: number;
-      maxRetries?: number;
-    }) => { messages: MessagesApi };
+    default: new (opts: { apiKey: string; timeout?: number; maxRetries?: number }) => {
+      messages: MessagesApi;
+    };
   };
   const Anthropic = mod.default;
   // The SDK retries a timed-out request itself; `maxRetries` bounds that, so the

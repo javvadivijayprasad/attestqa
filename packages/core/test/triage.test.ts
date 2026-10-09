@@ -51,8 +51,7 @@ describe("classification is scored, not first-match", () => {
   it("prefers the higher-scoring bank over the earlier one in precedence", () => {
     const v = classifyFailure({
       testId: "checkout › applies a discount",
-      message:
-        "AssertionError: expected 90.00 to equal 100.00 — element not found after update",
+      message: "AssertionError: expected 90.00 to equal 100.00 — element not found after update",
     });
     expect(v.category).toBe("real-defect");
   });
@@ -118,9 +117,9 @@ describe("scoring adjustments", () => {
     // The count alone is not enough: Playwright's `retries: 1` config makes
     // every failure report a retry, so a count-only rule fires on everything.
     expect(classifyFailure({ testId: "t", message, retries: 2 }).category).toBe("real-defect");
-    expect(
-      classifyFailure({ testId: "t", message, retries: 2, flakyHistory: true }).category,
-    ).toBe("flake");
+    expect(classifyFailure({ testId: "t", message, retries: 2, flakyHistory: true }).category).toBe(
+      "flake",
+    );
   });
 
   it("nudges a very slow failure toward infrastructure/flake, precedence deciding", () => {
@@ -416,7 +415,12 @@ function attemptFrom(attempt: number, failures: Parameters<typeof triageRun>[0])
 
 describe("triage gaps", () => {
   it("has nothing to say about a run that was never triaged", () => {
-    expect(triageGaps([])).toEqual({ gaps: [], limitations: [], attempts: 0, defectCandidates: [] });
+    expect(triageGaps([])).toEqual({
+      gaps: [],
+      limitations: [],
+      attempts: 0,
+      defectCandidates: [],
+    });
   });
 
   it("names the fix, and the person who has to make it, when the app was down", () => {
@@ -558,7 +562,9 @@ describe("runTriage", () => {
               {
                 title: "fails",
                 ok: false,
-                tests: [{ results: [{ error: { message: "AssertionError: expected 1 to be 2" } }] }],
+                tests: [
+                  { results: [{ error: { message: "AssertionError: expected 1 to be 2" } }] },
+                ],
               },
             ],
           },
@@ -825,9 +831,7 @@ const PW_ASSERTION_MESSAGE =
   ` // Object.is equality${c("22")}\n\nExpected: ${c("32")}90${c("39")}\n` +
   `Received: ${c("31")}100${c("39")}`;
 
-function pwReport(
-  specs: Array<{ title: string; message: string; statuses: string[] }>,
-): string {
+function pwReport(specs: Array<{ title: string; message: string; statuses: string[] }>): string {
   return JSON.stringify({
     config: {},
     errors: [],
@@ -949,12 +953,9 @@ describe("real Playwright output", () => {
     const r = triageRun(failures ?? []);
     expect(r.runLevel).toBeNull();
     expect(r.verdicts.map((v) => v.category).sort()).toEqual(["flake", "real-defect"]);
-    expect(r.quarantined).toEqual([
-      "checkout.spec.js \u203a applies a 10% discount code",
-    ]);
+    expect(r.quarantined).toEqual(["checkout.spec.js \u203a applies a 10% discount code"]);
   });
 });
-
 
 // ---------------------------------------------------------------------------
 // The stop rule. This is what the first implementation did not have: triage
@@ -1049,9 +1050,7 @@ describe("re-triaging an unchanged report", () => {
         suites: [
           {
             file: "a.spec.ts",
-            specs: [
-              { title: "fails", ok: false, tests: [{ results: [{ error: { message } }] }] },
-            ],
+            specs: [{ title: "fails", ok: false, tests: [{ results: [{ error: { message } }] }] }],
           },
         ],
       }),
@@ -1178,9 +1177,7 @@ describe("a report from a previous run is not evidence about this one", () => {
         suites: [
           {
             file: "a.spec.ts",
-            specs: [
-              { title: "fails", ok: false, tests: [{ results: [{ error: { message } }] }] },
-            ],
+            specs: [{ title: "fails", ok: false, tests: [{ results: [{ error: { message } }] }] }],
           },
         ],
       }),
@@ -1233,7 +1230,8 @@ describe("quarantine drift is judged on the failure's identity", () => {
   it("does not call a test modified when only the printed output varied", async () => {
     const { signature } = await import("../src/triage/step.js");
     const runA = 'Error: [ { "id": "label", "impact": "critical", "nodes": [ … 7 nodes … ] } ]';
-    const runB = 'Error: [ { "id": "label", "impact": "critical", "nodes": [ … 9 nodes, different order … ] } ]';
+    const runB =
+      'Error: [ { "id": "label", "impact": "critical", "nodes": [ … 9 nodes, different order … ] } ]';
     expect(signature(runA)).toBe(signature(runB));
   });
 

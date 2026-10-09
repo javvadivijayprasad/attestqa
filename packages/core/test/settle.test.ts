@@ -9,7 +9,12 @@ const base = { tool: "agentic-qa" as const, runId: "r", timestamp: 1 };
 function finalRun(tests: Array<{ title: string; status: string }>): AnyRunEvent[] {
   const failed = tests.filter((t) => t.status === "failed").length;
   return [
-    { ...base, eventId: 1, kind: "call", payload: { server: "pw", toolName: "run_tests", args: {}, startedAt: 0 } },
+    {
+      ...base,
+      eventId: 1,
+      kind: "call",
+      payload: { server: "pw", toolName: "run_tests", args: {}, startedAt: 0 },
+    },
     {
       ...base,
       eventId: 2,
@@ -17,7 +22,14 @@ function finalRun(tests: Array<{ title: string; status: string }>): AnyRunEvent[
       payload: {
         eventIdOfCall: 1,
         ok: true,
-        result: { passed: tests.length - failed, failed, skipped: 0, green: failed === 0, tests, failures: [] },
+        result: {
+          passed: tests.length - failed,
+          failed,
+          skipped: 0,
+          green: failed === 0,
+          tests,
+          failures: [],
+        },
         artefacts: [],
         durationMs: 1,
       },
@@ -41,9 +53,13 @@ function bug(title: string, extra: Record<string, unknown> = {}): ProposedCall {
   };
 }
 
-
 let evId = 1000;
-function pairEvents(server: string, toolName: string, args: Record<string, unknown>, result: unknown): AnyRunEvent[] {
+function pairEvents(
+  server: string,
+  toolName: string,
+  args: Record<string, unknown>,
+  result: unknown,
+): AnyRunEvent[] {
   const id = ++evId;
   return [
     { ...base, eventId: id, kind: "call", payload: { server, toolName, args, startedAt: 0 } },
@@ -57,12 +73,17 @@ function pairEvents(server: string, toolName: string, args: Record<string, unkno
 }
 
 function preflightWith(extra: Record<string, unknown>): AnyRunEvent[] {
-  return pairEvents("aqa", "story_context", {}, {
-    kind: "preflight",
-    summary: {},
-    text: "",
-    facts: { acceptanceCriteria: [], bugs: [], tasks: [], ...extra },
-  });
+  return pairEvents(
+    "aqa",
+    "story_context",
+    {},
+    {
+      kind: "preflight",
+      summary: {},
+      text: "",
+      facts: { acceptanceCriteria: [], bugs: [], tasks: [], ...extra },
+    },
+  );
 }
 
 function wroteSpec(path: string, content: string): AnyRunEvent[] {
@@ -129,7 +150,17 @@ describe("settleBugs — bugs are judged against the FINAL result", () => {
     });
     expect(unlinked.drop[0]?.reason).toContain("not linked");
     const untagged = settleBugs(
-      [{ toolName: "ado.wit_work_item_write", args: { action: "create", workItemType: "Bug", parentId: 1, fields: [{ name: "System.Title", value: "AC-2: x" }] } }],
+      [
+        {
+          toolName: "ado.wit_work_item_write",
+          args: {
+            action: "create",
+            workItemType: "Bug",
+            parentId: 1,
+            fields: [{ name: "System.Title", value: "AC-2: x" }],
+          },
+        },
+      ],
       failing,
       { workItem: "1", runLevel: null },
     );
@@ -162,11 +193,15 @@ describe("a bug is linked to its test by the TITLE, not by prose", () => {
         workItemType: "Bug",
         parentId: 1,
         fields: [
-          { name: "System.Title", value: "Login page fails WCAG 2 AA colour-contrast and label requirements" },
+          {
+            name: "System.Title",
+            value: "Login page fails WCAG 2 AA colour-contrast and label requirements",
+          },
           { name: "System.Tags", value: "agentic-qa" },
           {
             name: "Microsoft.VSTS.TCM.ReproSteps",
-            value: "<p>What was ruled out: all 7 other tests (AC-1 through AC-4, security) passed.</p>",
+            value:
+              "<p>What was ruled out: all 7 other tests (AC-1 through AC-4, security) passed.</p>",
           },
         ],
       },
@@ -203,7 +238,10 @@ describe("a bug's account of its own test is checked against the file", () => {
       "  });",
     ].join("\n");
     const events = [
-      ...preflightWith({ story: { id: 1, title: "L" }, epic: { id: 42, title: "Customer account access" } }),
+      ...preflightWith({
+        story: { id: 1, title: "L" },
+        epic: { id: 42, title: "Customer account access" },
+      }),
       ...wroteSpec("tests/epic-42-customer-account-access.spec.ts", spec),
       ...finalRun([{ title: "Accessibility", status: "failed" }]),
     ];
@@ -213,7 +251,8 @@ describe("a bug's account of its own test is checked against the file", () => {
         { name: "System.Tags", value: "agentic-qa" },
         {
           name: "Microsoft.VSTS.TCM.ReproSteps",
-          value: "<p>The scan is scoped to /#/login and the assertion is on violations.map(v =&gt; v.id).</p>",
+          value:
+            "<p>The scan is scoped to /#/login and the assertion is on violations.map(v =&gt; v.id).</p>",
         },
       ],
     });
@@ -231,7 +270,10 @@ describe("a bug's account of its own test is checked against the file", () => {
       "  });",
     ].join("\n");
     const events = [
-      ...preflightWith({ story: { id: 1, title: "L" }, epic: { id: 42, title: "Customer account access" } }),
+      ...preflightWith({
+        story: { id: 1, title: "L" },
+        epic: { id: 42, title: "Customer account access" },
+      }),
       ...wroteSpec("tests/epic-42-customer-account-access.spec.ts", spec),
       ...finalRun([{ title: "Accessibility", status: "failed" }]),
     ];
@@ -281,9 +323,18 @@ describe("one failing test, one bug — and no bug that doubts its own test", ()
   it("keeps one bug per failing test and drops the rest", () => {
     // 20260923T235843Z: four bugs, one failing test, all four filed.
     const three = [
-      withRepro("Logout option in account menu is not reachable after sign-in", "<p>Four selectors timed out.</p>"),
-      withRepro("Logout option in account menu dropdown is not accessible", "<p>The dropdown did not expose the link.</p>"),
-      withRepro("Logout menu item missing from account dropdown", "<p>No mat-menu-panel was rendered.</p>"),
+      withRepro(
+        "Logout option in account menu is not reachable after sign-in",
+        "<p>Four selectors timed out.</p>",
+      ),
+      withRepro(
+        "Logout option in account menu dropdown is not accessible",
+        "<p>The dropdown did not expose the link.</p>",
+      ),
+      withRepro(
+        "Logout menu item missing from account dropdown",
+        "<p>No mat-menu-panel was rendered.</p>",
+      ),
     ];
     const s = settleBugs(three, events, { workItem: "1", runLevel: null });
     expect(s.keep).toHaveLength(1);

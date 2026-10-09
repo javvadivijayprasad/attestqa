@@ -68,7 +68,11 @@ export class HealTools implements ToolClient {
 
     const wanted = typeof args["test"] === "string" ? args["test"].trim() : "";
     if (!wanted)
-      return { ok: false, result: { message: "which test failed? pass its title in `test`." }, artefacts: [] };
+      return {
+        ok: false,
+        result: { message: "which test failed? pass its title in `test`." },
+        artefacts: [],
+      };
 
     const failures = failuresFromLedger(this.ledger.read());
     if (failures.length === 0)

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { ScopedGate, TableGate, matchesAny, matchesUrl, raise, resolveAction } from "../src/governance/policy.js";
+import {
+  ScopedGate,
+  TableGate,
+  matchesAny,
+  matchesUrl,
+  raise,
+  resolveAction,
+} from "../src/governance/policy.js";
 import type { ToolDescriptor } from "../src/runtime/tools.js";
 import type { PolicyClass, PolicyDecision, PolicyTable, ScopeConfig } from "../src/types.js";
 import { DEFAULT_POLICY, POLICY_CLASSES } from "../src/types.js";

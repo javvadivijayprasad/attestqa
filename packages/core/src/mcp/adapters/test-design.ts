@@ -53,7 +53,9 @@ export class TestDesignTools implements ToolClient {
     const types = TEST_TYPES.filter((t) => this.inScope.includes(t))
       .map((t) => `${t} (${TYPE_MEANINGS[t]})`)
       .join("; ");
-    const techniques = DESIGN_TECHNIQUES.map((t) => `${t} (${DESIGN_TECHNIQUE_MEANINGS[t]})`).join("; ");
+    const techniques = DESIGN_TECHNIQUES.map((t) => `${t} (${DESIGN_TECHNIQUE_MEANINGS[t]})`).join(
+      "; ",
+    );
     return [
       {
         server: this.server,
@@ -75,13 +77,20 @@ export class TestDesignTools implements ToolClient {
               items: {
                 type: "object",
                 properties: {
-                  id: { type: "string", description: "D1, D2, … — each scenario is tagged @design:D1" },
+                  id: {
+                    type: "string",
+                    description: "D1, D2, … — each scenario is tagged @design:D1",
+                  },
                   covers: { type: "string" },
                   type: { type: "string", enum: [...TEST_TYPES] },
                   technique: { type: "string", enum: [...DESIGN_TECHNIQUES] },
                   conditions: { type: "array", items: { type: "string" } },
                   expected: { type: "string" },
-                  source: { type: "string", description: 'where the expectation comes from: "AC-2", "task #46", "bug #50", "comment"' },
+                  source: {
+                    type: "string",
+                    description:
+                      'where the expectation comes from: "AC-2", "task #46", "bug #50", "comment"',
+                  },
                   expectFail: { type: "boolean" },
                 },
                 required: ["id", "covers", "type", "technique", "conditions", "expected", "source"],
@@ -110,12 +119,16 @@ export class TestDesignTools implements ToolClient {
     if (!facts)
       return {
         ok: false,
-        result: { message: "no story context was read this run, so there is nothing to check a design against" },
+        result: {
+          message:
+            "no story context was read this run, so there is nothing to check a design against",
+        },
         artefacts: [],
       };
     const design = parseDesign(args);
     const problems = validateDesign(design, facts, this.inScope);
-    if (problems.length > 0) return { ok: false, result: { message: "design rejected", problems }, artefacts: [] };
+    if (problems.length > 0)
+      return { ok: false, result: { message: "design rejected", problems }, artefacts: [] };
     // What is already tested, so the record says what this run will WRITE as
     // opposed to what it will run. On the execute path that is usually all of
     // it, and the run's own output should say so rather than announcing work

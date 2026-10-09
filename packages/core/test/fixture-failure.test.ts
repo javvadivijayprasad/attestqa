@@ -66,7 +66,10 @@ describe("a missing test account writes the run off, not the product", () => {
 
   it("recognises the precondition variant without the word 'fixture'", () => {
     const r = triageRun([
-      failure("Bug-48", "Error: Login endpoint returned 401 on second attempt — check credentials\nExpected: 200\nReceived: 401"),
+      failure(
+        "Bug-48",
+        "Error: Login endpoint returned 401 on second attempt — check credentials\nExpected: 200\nReceived: 401",
+      ),
     ]);
     expect(r.verdicts[0]?.category).toBe("environmental");
   });
@@ -81,7 +84,10 @@ describe("a missing test account writes the run off, not the product", () => {
     // a bare 401 Unauthorized is a product finding. The suite has to SAY it is
     // a fixture problem; triage does not assume it.
     const r = triageRun([
-      failure("API — profile is readable when signed in", "Error: expected 200, got 401 Unauthorized\nExpected: 200\nReceived: 401"),
+      failure(
+        "API — profile is readable when signed in",
+        "Error: expected 200, got 401 Unauthorized\nExpected: 200\nReceived: 401",
+      ),
     ]);
     expect(r.verdicts[0]?.category).not.toBe("environmental");
   });

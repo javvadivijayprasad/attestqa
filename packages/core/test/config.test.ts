@@ -196,10 +196,12 @@ describe("agent.test_types (stage 2)", () => {
   });
 
   it("accepts the ISTQB types this runtime knows, and rejects others", () => {
-    const c = agentConfigFromObject({ agent: { ...good.agent, test_types: ["functional", "security"] } });
+    const c = agentConfigFromObject({
+      agent: { ...good.agent, test_types: ["functional", "security"] },
+    });
     expect(c.test_types).toEqual(["functional", "security"]);
-    expect(() => agentConfigFromObject({ agent: { ...good.agent, test_types: ["performance"] } })).toThrow(
-      /unknown type "performance"/,
-    );
+    expect(() =>
+      agentConfigFromObject({ agent: { ...good.agent, test_types: ["performance"] } }),
+    ).toThrow(/unknown type "performance"/);
   });
 });

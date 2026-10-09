@@ -58,7 +58,8 @@ const SIBLINGS = {
       fields: {
         "System.WorkItemType": "User Story",
         "System.Title": "Log out of an account",
-        "Microsoft.VSTS.Common.AcceptanceCriteria": "<p>AC-2: Logout returns the browser to the storefront home page.</p>",
+        "Microsoft.VSTS.Common.AcceptanceCriteria":
+          "<p>AC-2: Logout returns the browser to the storefront home page.</p>",
       },
     },
   ],
@@ -66,8 +67,20 @@ const SIBLINGS = {
 
 const CASES = {
   value: [
-    { id: 65, fields: { "System.WorkItemType": "Test Case", "System.Title": "AC-1: registered user signs in" } },
-    { id: 66, fields: { "System.WorkItemType": "Test Case", "System.Title": "AC-2: wrong password shows error" } },
+    {
+      id: 65,
+      fields: {
+        "System.WorkItemType": "Test Case",
+        "System.Title": "AC-1: registered user signs in",
+      },
+    },
+    {
+      id: 66,
+      fields: {
+        "System.WorkItemType": "Test Case",
+        "System.Title": "AC-2: wrong password shows error",
+      },
+    },
   ],
 };
 
@@ -88,8 +101,14 @@ const TASKS = {
 const COMMENTS = {
   totalCount: 3,
   comments: [
-    { text: "## agentic-qa run `20260921T133607Z-1470601c`\n\n**Suite: green**", createdBy: { displayName: "Vijay" } },
-    { text: "<p>PM decision: <b>no account lockout</b> this sprint.</p>", createdBy: { displayName: "Vijay" } },
+    {
+      text: "## agentic-qa run `20260921T133607Z-1470601c`\n\n**Suite: green**",
+      createdBy: { displayName: "Vijay" },
+    },
+    {
+      text: "<p>PM decision: <b>no account lockout</b> this sprint.</p>",
+      createdBy: { displayName: "Vijay" },
+    },
     { text: "<p>Endpoint moved in 2.3.0.</p>", createdBy: { displayName: "Vijay" } },
   ],
 };
@@ -98,7 +117,14 @@ const WIQL = { workItems: [{ id: 48 }, { id: 50 }, { id: 58 }, { id: 63 }] };
 
 const BUGS = {
   value: [
-    { id: 48, fields: { "System.Title": "Error message persists", "System.State": "Active", "System.Tags": "" } },
+    {
+      id: 48,
+      fields: {
+        "System.Title": "Error message persists",
+        "System.State": "Active",
+        "System.Tags": "",
+      },
+    },
     {
       id: 50,
       fields: {
@@ -113,11 +139,19 @@ const BUGS = {
       fields: {
         "System.Title": "Account menu hidden after login",
         "System.State": "New",
-        "Microsoft.VSTS.TCM.ReproSteps": "<p>Run IDs where this failed: 20260918T231318Z-fb4f588c</p>",
+        "Microsoft.VSTS.TCM.ReproSteps":
+          "<p>Run IDs where this failed: 20260918T231318Z-fb4f588c</p>",
       },
     },
     // Filed by a later run: tagged.
-    { id: 63, fields: { "System.Title": "Playwright binaries missing", "System.State": "New", "System.Tags": "agentic-qa" } },
+    {
+      id: 63,
+      fields: {
+        "System.Title": "Playwright binaries missing",
+        "System.State": "New",
+        "System.Tags": "agentic-qa",
+      },
+    },
   ],
 };
 
@@ -126,19 +160,24 @@ function fakeRead(overrides: Partial<Record<string, unknown>> = {}) {
   const asked: Array<{ toolName: string; args: Record<string, unknown> }> = [];
   const read: PreflightRead = async (toolName, args) => {
     asked.push({ toolName, args });
-    const key = toolName === "ado.wit_query" ? "wiql" : `${String(args["action"])}:${JSON.stringify(args["id"] ?? args["ids"] ?? "")}`;
+    const key =
+      toolName === "ado.wit_query"
+        ? "wiql"
+        : `${String(args["action"])}:${JSON.stringify(args["id"] ?? args["ids"] ?? "")}`;
     const table: Record<string, unknown> = {
-      'get:1': STORY,
-      'get_batch:[65,66]': CASES,
-      'get:42': EPIC,
-      'get_batch:[44]': SIBLINGS,
-      'get_batch:[45,47]': TASKS,
+      "get:1": STORY,
+      "get_batch:[65,66]": CASES,
+      "get:42": EPIC,
+      "get_batch:[44]": SIBLINGS,
+      "get_batch:[45,47]": TASKS,
       'list_comments:""': COMMENTS,
       wiql: WIQL,
-      'get_batch:[48,50,58,63]': BUGS,
+      "get_batch:[48,50,58,63]": BUGS,
       ...overrides,
     };
-    return key in table ? { ok: true, result: fence(table[key]) } : { ok: false, result: { message: `no fixture for ${key}` } };
+    return key in table
+      ? { ok: true, result: fence(table[key]) }
+      : { ok: false, result: { message: `no fixture for ${key}` } };
   };
   return { read, asked };
 }
@@ -185,7 +224,11 @@ describe("gatherStoryContext — stage 1, done by the runtime", () => {
   it("carries the criteria, bugs and tasks as facts for stage 2", async () => {
     const { read } = fakeRead();
     const d = await gatherStoryContext(read, { workItem: "1" });
-    const f = d.facts as { acceptanceCriteria: string[]; bugs: Array<{ id: number; state: string }>; tasks: number[] };
+    const f = d.facts as {
+      acceptanceCriteria: string[];
+      bugs: Array<{ id: number; state: string }>;
+      tasks: number[];
+    };
     expect(f.acceptanceCriteria).toEqual(["AC-1"]);
     expect(f.bugs.map((b) => `${b.id}:${b.state}`)).toContain("50:Resolved");
     expect(f.tasks.length).toBeGreaterThan(0);
@@ -262,12 +305,16 @@ describe("a refused read is reported as a refusal, never as an absence", () => {
     // reported "epic none, 0 tasks, 0 open bugs": three refusals dressed as
     // three absences, telling the model there was nothing to know and the
     // operator there was nothing to fix.
-    const refused = { ok: false, result: { message: 'work item "42" is not in the allowed work_items' } };
+    const refused = {
+      ok: false,
+      result: { message: 'work item "42" is not in the allowed work_items' },
+    };
     const inner = fakeRead().read;
     const read: PreflightRead = async (toolName, args) => {
       const id = args["id"];
       if (args["action"] === "get" && id === 1) return inner(toolName, args);
-      if (args["action"] === "list_comments" || toolName === "ado.wit_query") return inner(toolName, args);
+      if (args["action"] === "list_comments" || toolName === "ado.wit_query")
+        return inner(toolName, args);
       return refused;
     };
     const d = await gatherStoryContext(read, { workItem: "1" });

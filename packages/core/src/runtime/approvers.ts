@@ -22,7 +22,9 @@ export class TerminalApprover implements Approver {
     const out = this.io.output;
     out.write(`\n[aqa] approval ${request.approvalId} requested\n`);
     if (request.note) out.write(`\n  ${request.note.replace(/\n/g, "\n  ")}\n`);
-    out.write(renderApproval(request.calls, request.covered ? { covered: request.covered } : {}) + "\n");
+    out.write(
+      renderApproval(request.calls, request.covered ? { covered: request.covered } : {}) + "\n",
+    );
     // "v" shows the arguments verbatim. The full call is in the ledger either
     // way; this is for the reader who wants it without leaving the prompt.
     let answer = await this.prompt("  approve? [y/N/v=verbose] ");
@@ -42,7 +44,9 @@ export class TerminalApprover implements Approver {
     // has no second answer to give, and waiting for one would hang the run.
     const interactive = (this.io.input as { isTTY?: boolean }).isTTY === true;
     const reason =
-      approved || !interactive ? "" : (await this.prompt("  why not? (optional, Enter to skip) ")).trim();
+      approved || !interactive
+        ? ""
+        : (await this.prompt("  why not? (optional, Enter to skip) ")).trim();
     return {
       decision: approved ? "approved" : "denied",
       by: this.who,

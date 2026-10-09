@@ -32,7 +32,13 @@ function ledgerOf(
       ...base,
       eventId: ++id,
       kind: "observation",
-      payload: { eventIdOfCall: callId, ok: true, result: e.result ?? {}, artefacts: [], durationMs: 1 },
+      payload: {
+        eventIdOfCall: callId,
+        ok: true,
+        result: e.result ?? {},
+        artefacts: [],
+        durationMs: 1,
+      },
     } as AnyRunEvent);
   }
   return events;
@@ -56,7 +62,10 @@ const STORY = {
 };
 
 const FEATURE = "features/epic-42-customer-account-access.feature";
-const scaffold = { toolName: "bdd2pw.scaffold", args: { feature: FEATURE, url: "http://localhost:3100" } };
+const scaffold = {
+  toolName: "bdd2pw.scaffold",
+  args: { feature: FEATURE, url: "http://localhost:3100" },
+};
 
 describe("bdd2pw's own report decides whether a feature is ready", () => {
   it("reads the unbound steps out of its findings", () => {
@@ -69,7 +78,9 @@ describe("bdd2pw's own report decides whether a feature is ready", () => {
   });
 
   it("refuses a scaffold of a feature this run wrote but never analyzed", () => {
-    const events = ledgerOf([{ tool: "fs.write_file", args: { path: FEATURE, content: "Feature: x" } }]);
+    const events = ledgerOf([
+      { tool: "fs.write_file", args: { path: FEATURE, content: "Feature: x" } },
+    ]);
     expect(storyRefusal(scaffold, events)).toContain("bdd2pw.analyze");
   });
 
@@ -79,7 +90,10 @@ describe("bdd2pw's own report decides whether a feature is ready", () => {
       {
         tool: "bdd2pw.analyze",
         args: { feature: FEATURE, url: "http://localhost:3100" },
-        result: { unboundCount: 2, unbound: ['no rule matched: "When I find the Email field"', "ambiguous visibility step"] },
+        result: {
+          unboundCount: 2,
+          unbound: ['no rule matched: "When I find the Email field"', "ambiguous visibility step"],
+        },
       },
     ]);
     const why = storyRefusal(scaffold, events);
@@ -151,12 +165,18 @@ describe("another story's scenarios are not this run's to reword", () => {
   });
 
   it("refuses a reworded step in story #1's scenario", () => {
-    const after = before.replace('When I enter "user" and "pass"', "When I sign in with valid credentials");
+    const after = before.replace(
+      'When I enter "user" and "pass"',
+      "When I sign in with valid credentials",
+    );
     expect(storyRefusal(write(after), events(after))).toContain("rewords 1 scenario(s)");
   });
 
   it("allows a change to this story's own scenario", () => {
-    const after = before.replace("Given I am signed in", "Given I am signed in as a registered user");
+    const after = before.replace(
+      "Given I am signed in",
+      "Given I am signed in as a registered user",
+    );
     expect(storyRefusal(write(after), events(after))).toBeUndefined();
   });
 });

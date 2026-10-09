@@ -840,7 +840,9 @@ export function storyToTestsSkill(
       };
       const parsed = parseDesign(design.args);
       const covered = coverageOf(parsed, {
-        ...(read(featurePathFor(facts)) ? { featureText: read(featurePathFor(facts)) as string } : {}),
+        ...(read(featurePathFor(facts))
+          ? { featureText: read(featurePathFor(facts)) as string }
+          : {}),
         ...(read(specPathFor(facts)) ? { specText: read(specPathFor(facts)) as string } : {}),
         ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
       });
@@ -905,9 +907,7 @@ export function storyToTestsSkill(
       const d = chooseRoute({
         facts: storyFacts(events),
         ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
-        frameworkFound: options.workspaceDir
-          ? surveyFramework(options.workspaceDir).exists
-          : true,
+        frameworkFound: options.workspaceDir ? surveyFramework(options.workspaceDir).exists : true,
       });
       return {
         path: d.path,

@@ -29,7 +29,12 @@ const base = { tool: "agentic-qa" as const, runId: "r", timestamp: 1 };
 function context(): AnyRunEvent[] {
   const callId = ++id;
   return [
-    { ...base, eventId: callId, kind: "call", payload: { server: "aqa", toolName: "story_context", args: {}, startedAt: 0 } },
+    {
+      ...base,
+      eventId: callId,
+      kind: "call",
+      payload: { server: "aqa", toolName: "story_context", args: {}, startedAt: 0 },
+    },
     {
       ...base,
       eventId: ++id,
@@ -87,7 +92,12 @@ function refusalEvent(reason: string): AnyRunEvent {
 function ranTheSuite(): AnyRunEvent[] {
   const callId = ++id;
   return [
-    { ...base, eventId: callId, kind: "call", payload: { server: "pw", toolName: "run_tests", args: { spec: SPEC }, startedAt: 0 } },
+    {
+      ...base,
+      eventId: callId,
+      kind: "call",
+      payload: { server: "pw", toolName: "run_tests", args: { spec: SPEC }, startedAt: 0 },
+    },
     {
       ...base,
       eventId: ++id,
@@ -121,7 +131,9 @@ describe("a reproduced defect that is already on record", () => {
     // The refusal text goes into the ledger exactly as the rule produced it —
     // this is the coupling the report depends on, so it is asserted here rather
     // than restated as a literal.
-    const report = composeRunReport([...events, refusalEvent(why as string)], "r", { workItem: "44" });
+    const report = composeRunReport([...events, refusalEvent(why as string)], "r", {
+      workItem: "44",
+    });
     expect(report.text).toContain("**Bugs:**");
     expect(report.text).toContain("#83");
     expect(report.text).toContain("Active");
@@ -148,7 +160,12 @@ describe("a reproduced defect that is already on record", () => {
   it("does not confuse another refusal for this one", () => {
     const events = [...context(), ...ranTheSuite()];
     const report = composeRunReport(
-      [...events, refusalEvent('this bug is missing one thing: parentId: 44 — a bug nobody can trace to a story')],
+      [
+        ...events,
+        refusalEvent(
+          "this bug is missing one thing: parentId: 44 — a bug nobody can trace to a story",
+        ),
+      ],
       "r",
       { workItem: "44" },
     );

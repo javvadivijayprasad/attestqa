@@ -101,10 +101,13 @@ export function surveyFramework(workspaceDir: string): FrameworkProfile {
     );
 
   const inScope = (p: string): boolean =>
-    (root === "" || p.startsWith(`${root}/`)) && !otherConfigDirs.some((d) => d !== "" && p.startsWith(`${d}/`));
+    (root === "" || p.startsWith(`${root}/`)) &&
+    !otherConfigDirs.some((d) => d !== "" && p.startsWith(`${d}/`));
 
   const configText = chosen ? read(join(workspaceDir, chosen)) : undefined;
-  const testDir = configText ? firstMatch(configText, /testDir\s*:\s*["'`]([^"'`]+)["'`]/) : undefined;
+  const testDir = configText
+    ? firstMatch(configText, /testDir\s*:\s*["'`]([^"'`]+)["'`]/)
+    : undefined;
   const baseURL =
     configText &&
     (firstMatch(configText, /baseURL\s*:\s*["'`]([^"'`]+)["'`]/) ??
@@ -118,7 +121,10 @@ export function surveyFramework(workspaceDir: string): FrameworkProfile {
     .filter((p) => SPEC.test(p) && inScope(p))
     .filter((p) => {
       const t = read(join(workspaceDir, p)) ?? "";
-      return /@playwright\/test/.test(t) || (!!testDir && p.startsWith(`${under(root, clean(testDir) ?? "")}/`));
+      return (
+        /@playwright\/test/.test(t) ||
+        (!!testDir && p.startsWith(`${under(root, clean(testDir) ?? "")}/`))
+      );
     });
 
   const features = files.map(rel).filter((p) => /\.feature$/i.test(p) && inScope(p));
@@ -157,7 +163,13 @@ export function surveyFramework(workspaceDir: string): FrameworkProfile {
   );
 
   const envNames = configText
-    ? [...new Set([...configText.matchAll(/process\.env\[?["'`]([A-Z0-9_]+)["'`]?\]?/g)].map((m) => m[1] ?? ""))].filter(Boolean)
+    ? [
+        ...new Set(
+          [...configText.matchAll(/process\.env\[?["'`]([A-Z0-9_]+)["'`]?\]?/g)].map(
+            (m) => m[1] ?? "",
+          ),
+        ),
+      ].filter(Boolean)
     : [];
 
   return {
@@ -218,10 +230,15 @@ export function renderProfile(p: FrameworkProfile): string[] {
       `  this project has its own test fixture: ${p.fixtureModule}`,
       `    import { test, expect } from its path — NOT from "@playwright/test".`,
     );
-  if (p.baseURL) out.push(`  baseURL: ${p.baseURL} — navigate with relative paths and let the config decide`);
+  if (p.baseURL)
+    out.push(`  baseURL: ${p.baseURL} — navigate with relative paths and let the config decide`);
   if (p.envNames.length > 0) out.push(`  the config reads: ${p.envNames.join(", ")}`);
   if (Object.keys(p.testScripts).length > 0)
-    out.push(`  scripts: ${Object.entries(p.testScripts).map(([k, v]) => `${k} = ${v}`).join("; ")}`);
+    out.push(
+      `  scripts: ${Object.entries(p.testScripts)
+        .map(([k, v]) => `${k} = ${v}`)
+        .join("; ")}`,
+    );
   out.push(
     `  installed test packages you may import: ${p.deps.join(", ") || "(none read)"}`,
     "    A package that is not there is NOT available: say so as a limitation rather than",
@@ -238,7 +255,9 @@ export function missingImports(specText: string, p: FrameworkProfile): string[] 
   for (const m of specText.matchAll(/(?:from|import)\s*\(?\s*["'`]([^"'`]+)["'`]/g)) {
     const spec = m[1] ?? "";
     if (!spec || spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("node:")) continue;
-    const pkg = spec.startsWith("@") ? spec.split("/").slice(0, 2).join("/") : (spec.split("/")[0] ?? "");
+    const pkg = spec.startsWith("@")
+      ? spec.split("/").slice(0, 2).join("/")
+      : (spec.split("/")[0] ?? "");
     if (pkg && !p.deps.includes(pkg)) out.add(pkg);
   }
   return [...out];

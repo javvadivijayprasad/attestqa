@@ -222,7 +222,10 @@ export interface TriageAction {
   notes: string[];
 }
 
-export function triageAction(payload: TriagePayload, attemptsSoFar = payload.attempt): TriageAction {
+export function triageAction(
+  payload: TriagePayload,
+  attemptsSoFar = payload.attempt,
+): TriageAction {
   // ── Retry before judging. Every category, not just flakes. ──
   // The operator's rule, and it is better than what this had. A transient
   // outage and a persistent one look identical on the first report; so do a
@@ -256,7 +259,7 @@ export function triageAction(payload: TriagePayload, attemptsSoFar = payload.att
   const notes: string[] = [
     `The suite was re-run and still fails: ${kind}. This is no longer something to fix by ` +
       "guessing, and it is not yours to decide. Propose a Bug for each failure that is " +
-      "still red, with ado.wit_work_item_write action \"create\", workItemType \"Bug\" — " +
+      'still red, with ado.wit_work_item_write action "create", workItemType "Bug" — ' +
       "a human is asked to approve it and may say no, which ends it. Say plainly in each " +
       "bug what kind of failure it was, so the reviewer is not asked to rubber-stamp: an " +
       "application that was never reachable and a failing assertion deserve different " +
@@ -337,10 +340,15 @@ export function quarantines(v: { category: string; confidence: number }): boolea
  * the test — which is exactly the decision that needs a person, and the bug is
  * filed only if they say so.
  */
-export function applyRepetition<T extends { test: string; category: string; evidence: string; confidence: number; rationale: string }>(
-  verdicts: T[],
-  history: TriagePayload[],
-): T[] {
+export function applyRepetition<
+  T extends {
+    test: string;
+    category: string;
+    evidence: string;
+    confidence: number;
+    rationale: string;
+  },
+>(verdicts: T[], history: TriagePayload[]): T[] {
   if (history.length === 0) return verdicts;
 
   // How many earlier attempts saw this exact test fail this exact way.
@@ -379,7 +387,9 @@ export function applyRepetition<T extends { test: string; category: string; evid
  * treated the same way, because "the service said so" is not more evidence
  * than "the stopwatch said so" when neither can name what it saw.
  */
-function runLevelOf(verdicts: Array<{ category: string; matchedPatterns: string[] }>): string | null {
+function runLevelOf(
+  verdicts: Array<{ category: string; matchedPatterns: string[] }>,
+): string | null {
   for (const c of ["infrastructure", "environmental"] as TriageCategory[]) {
     if (!isContagious(c)) continue;
     if (verdicts.some((v) => v.category === c && v.matchedPatterns.length > 0)) return c;
@@ -464,9 +474,7 @@ export function triageGaps(events: AnyRunEvent[]): {
   // hidden` matched no pattern, was defaulted to real-defect at 0.10, and
   // quarantined a test that the agent then FIXED — proving the failure was in
   // the test, exactly as a zero-evidence verdict cannot tell you.
-  const claims = latest.verdicts.filter(
-    (x) => quarantines(x) && x.matchedPatterns.length > 0,
-  );
+  const claims = latest.verdicts.filter((x) => quarantines(x) && x.matchedPatterns.length > 0);
   const unexplained = latest.verdicts.filter(
     (x) => x.category === "real-defect" && !claims.includes(x),
   );

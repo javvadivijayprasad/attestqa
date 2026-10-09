@@ -255,7 +255,8 @@ async function buildTooling(
                 : {},
             ),
           );
-          if (governed) io.err(`aqa: bdd2pw LLM fallback ${llmFallback}, governed by the sidecar\n`);
+          if (governed)
+            io.err(`aqa: bdd2pw LLM fallback ${llmFallback}, governed by the sidecar\n`);
         }
         if (wanted.includes("pw")) clients.push(new PwTools(workspace));
         if (wanted.includes("tcg") && env.tcgUrl) clients.push(new TcgTools(env.tcgUrl));
@@ -306,7 +307,13 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
   const config = await loadAgentConfig(configPath);
 
   if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
-  const { tools, close } = await buildTooling(args, io, deps, config.scope.urls, config.llm_fallback);
+  const { tools, close } = await buildTooling(
+    args,
+    io,
+    deps,
+    config.scope.urls,
+    config.llm_fallback,
+  );
   try {
     const list = await tools.listTools();
     const gate = new ScopedGate(config.policy, config.scope, {
@@ -370,7 +377,7 @@ async function live(
   // over the file (standard dotenv precedence) and silently shadows it, which
   // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
   const credVar = CREDENTIAL_VAR[config.model.provider];
-  const credValue = credVar ? process.env[credVar] ?? "" : "";
+  const credValue = credVar ? (process.env[credVar] ?? "") : "";
   const keySource = !credVar
     ? "no credential needed"
     : loaded.includes(credVar)
@@ -670,8 +677,12 @@ function liveLine(e: AnyRunEvent): string {
         );
       }
       if (rec["recorded"] === true && typeof rec["items"] === "number") {
-        const already = Array.isArray(rec["alreadyTested"]) ? (rec["alreadyTested"] as string[]).length : 0;
-        const fresh = Array.isArray(rec["newItems"]) ? (rec["newItems"] as string[]).length : undefined;
+        const already = Array.isArray(rec["alreadyTested"])
+          ? (rec["alreadyTested"] as string[]).length
+          : 0;
+        const fresh = Array.isArray(rec["newItems"])
+          ? (rec["newItems"] as string[]).length
+          : undefined;
         if (already > 0)
           return (
             `aqa: test design approved — ${rec["items"]} item(s): ${already} already tested, ` +
@@ -729,7 +740,8 @@ function liveLine(e: AnyRunEvent): string {
       const say: Record<string, (n: number) => string> = {
         "real-defect": (n) => `${n} look${n === 1 ? "s" : ""} like a product defect — held for you`,
         flake: (n) => `${n} may be flaky — re-running to find out`,
-        "test-defect": (n) => `${n} look${n === 1 ? "s" : ""} like the test's fault — the agent fixes ${n === 1 ? "it" : "them"}`,
+        "test-defect": (n) =>
+          `${n} look${n === 1 ? "s" : ""} like the test's fault — the agent fixes ${n === 1 ? "it" : "them"}`,
         environmental: (n) => `${n} could not reach the application`,
       };
       const parts = [...by]

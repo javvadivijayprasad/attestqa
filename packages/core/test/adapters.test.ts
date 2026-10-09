@@ -240,9 +240,13 @@ describe("pw run_tests", () => {
 
   it("keeps the HEAD of a failure message, without colour codes", async () => {
     // The tail of a coloured message began "…22m failed" in 20260921T203913Z.
-    const long = "Error: expect(page).toHaveURL(expected) \u001b[31mfailed\u001b[39m\n" + "x".repeat(2000);
+    const long =
+      "Error: expect(page).toHaveURL(expected) \u001b[31mfailed\u001b[39m\n" + "x".repeat(2000);
     const suites = [
-      { file: "t.spec.ts", specs: [{ title: "A", ok: false, tests: [{ results: [{ error: { message: long } }] }] }] },
+      {
+        file: "t.spec.ts",
+        specs: [{ title: "A", ok: false, tests: [{ results: [{ error: { message: long } }] }] }],
+      },
     ];
     const r = runner({ code: 1, stdout: report({ expected: 0, unexpected: 1 }, suites) });
     const out = await new PwTools(tmp(), { runner: r.fn }).call("pw", "run_tests", {});
@@ -446,7 +450,13 @@ describe("summarise: every test, not only the failures", () => {
     const out = summarise(
       report([
         { title: "AC-1", ok: true, tests: [{ status: "expected", results: [{ duration: 2400 }] }] },
-        { title: "AC-2", ok: false, tests: [{ status: "unexpected", results: [{ duration: 900, error: { message: "boom" } }] }] },
+        {
+          title: "AC-2",
+          ok: false,
+          tests: [
+            { status: "unexpected", results: [{ duration: 900, error: { message: "boom" } }] },
+          ],
+        },
         { title: "AC-3", ok: true, tests: [{ status: "skipped", results: [{ duration: 0 }] }] },
       ]),
       1,
@@ -554,7 +564,11 @@ describe("summarise: a known bug that did not reproduce", () => {
     expect(out.failures).toEqual([]);
     expect(out.green).toBe(true);
     expect(out.unexpectedPasses).toEqual([
-      { title: "AC-2b error clears after correcting credentials", file: "tests/login.spec.ts", note: "Bug #48 Active" },
+      {
+        title: "AC-2b error clears after correcting credentials",
+        file: "tests/login.spec.ts",
+        note: "Bug #48 Active",
+      },
     ]);
     expect(out.tests[0]?.status).toBe("unexpected-pass");
   });
@@ -587,7 +601,10 @@ describe("a failure hands back the page it failed on", () => {
                 {
                   status: "unexpected",
                   results: [
-                    { error: { message: "locator timeout" }, attachments: [{ name: "error-context", path: ctx }] },
+                    {
+                      error: { message: "locator timeout" },
+                      attachments: [{ name: "error-context", path: ctx }],
+                    },
                   ],
                 },
               ],

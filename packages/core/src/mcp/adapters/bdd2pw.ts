@@ -158,7 +158,7 @@ export class Bdd2PwTools implements ToolClient {
             url,
             page: {
               type: "string",
-              description: "Page Object class name, PascalCase, e.g. \"LoginPage\".",
+              description: 'Page Object class name, PascalCase, e.g. "LoginPage".',
             },
             pages: {
               type: "string",
@@ -202,7 +202,8 @@ export class Bdd2PwTools implements ToolClient {
       }
       if (this.opts.storageState) extra.push("--storage-state", this.opts.storageState);
       if (this.opts.llmModel) {
-        if (SHELL_UNSAFE.test(this.opts.llmModel)) return fail("llmModel contains unsafe characters");
+        if (SHELL_UNSAFE.test(this.opts.llmModel))
+          return fail("llmModel contains unsafe characters");
         extra.push("--llm-model", this.opts.llmModel);
       }
       // LLM fallback, and only with a governance endpoint. bdd2pw fails closed
@@ -281,9 +282,15 @@ export class Bdd2PwTools implements ToolClient {
  */
 export function unboundSteps(out: string): string[] {
   const found: string[] = [];
-  for (const m of out.matchAll(/"severity"\s*:\s*"(warn|error)"\s*,\s*"message"\s*:\s*"((?:[^"\\]|\\.)*)"/g)) {
+  for (const m of out.matchAll(
+    /"severity"\s*:\s*"(warn|error)"\s*,\s*"message"\s*:\s*"((?:[^"\\]|\\.)*)"/g,
+  )) {
     const message = (m[2] ?? "").replace(/\\"/g, '"').replace(/\\n/g, " ");
-    if (/no rule matched|could not bind|unmatched step|ambiguous .*step|no POM field matched/i.test(message))
+    if (
+      /no rule matched|could not bind|unmatched step|ambiguous .*step|no POM field matched/i.test(
+        message,
+      )
+    )
       found.push(message.slice(0, 200));
   }
   return found;

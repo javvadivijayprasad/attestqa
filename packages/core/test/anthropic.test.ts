@@ -335,7 +335,9 @@ describe("prompt caching", () => {
     const api = fakeApi([{ content: [] }, { content: [] }]);
     const m = model(api);
     await m.decide(input());
-    await m.decide(input({ history: [{ toolName: "fs.read_file", ok: true, summary: "x", ledgerRef: "e1" }] }));
+    await m.decide(
+      input({ history: [{ toolName: "fs.read_file", ok: true, summary: "x", ledgerRef: "e1" }] }),
+    );
     const [a, b] = api.sent;
     expect(JSON.stringify(b!.tools)).toBe(JSON.stringify(a!.tools));
     expect(JSON.stringify(b!.system)).toBe(JSON.stringify(a!.system));

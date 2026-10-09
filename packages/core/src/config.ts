@@ -21,7 +21,12 @@ export class ConfigError extends Error {
 }
 
 const LLM_PROVIDERS = ["anthropic", "openai", "gemini"];
-export const MODEL_PROVIDERS: readonly ModelProvider[] = ["anthropic", "openai", "azure-openai", "local"];
+export const MODEL_PROVIDERS: readonly ModelProvider[] = [
+  "anthropic",
+  "openai",
+  "azure-openai",
+  "local",
+];
 export const DEFAULT_MODEL_NAME = "claude-sonnet-4-6";
 
 export const DEFAULT_BUDGETS = { steps: 40, tokens: 400_000 };
@@ -97,7 +102,9 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
     const list = strList(agent["test_types"], `${source}: agent.test_types`);
     for (const t of list) {
       if (!known.includes(t))
-        throw new ConfigError(`${source}: agent.test_types has unknown type "${t}" (known: ${known.join(", ")})`);
+        throw new ConfigError(
+          `${source}: agent.test_types has unknown type "${t}" (known: ${known.join(", ")})`,
+        );
     }
     test_types = list;
   }
@@ -147,13 +154,15 @@ export function modelConfig(raw: unknown, where: string): ModelConfig {
   if (raw === undefined) return { provider: "anthropic", name: DEFAULT_MODEL_NAME };
   const asString = str(raw);
   if (asString !== undefined) return { provider: "anthropic", name: asString };
-  if (!isObject(raw)) throw new ConfigError(`${where} must be a model name or a mapping with provider and name`);
+  if (!isObject(raw))
+    throw new ConfigError(`${where} must be a model name or a mapping with provider and name`);
 
   const provider = str(raw["provider"]);
   if (provider === undefined || !(MODEL_PROVIDERS as readonly string[]).includes(provider))
     throw new ConfigError(`${where}.provider must be one of ${MODEL_PROVIDERS.join(", ")}`);
   const name = str(raw["name"]);
-  if (!name) throw new ConfigError(`${where}.name is required (the model, or on Azure the deployment)`);
+  if (!name)
+    throw new ConfigError(`${where}.name is required (the model, or on Azure the deployment)`);
 
   const endpoint = str(raw["endpoint"]);
   if ((provider === "azure-openai" || provider === "local") && !endpoint)

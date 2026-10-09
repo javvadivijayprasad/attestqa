@@ -28,11 +28,7 @@ function route(path: "A" | "A-prime" | "B" | "P0"): AnyRunEvent {
   } as AnyRunEvent;
 }
 
-function call(
-  tool: string,
-  args: Record<string, unknown>,
-  result: unknown = {},
-): AnyRunEvent[] {
+function call(tool: string, args: Record<string, unknown>, result: unknown = {}): AnyRunEvent[] {
   const callId = ++id;
   return [
     {
@@ -65,7 +61,8 @@ const BEFORE = [
   "  });",
 ].join("\n");
 
-const readSpec = (text = BEFORE) => call("fs.read_file", { path: SPEC }, { path: SPEC, content: text });
+const readSpec = (text = BEFORE) =>
+  call("fs.read_file", { path: SPEC }, { path: SPEC, content: text });
 
 /** A run where Story-a failed on the assertion — a product disagreement, not a locator. */
 const failedRun = (extra: Record<string, unknown> = {}) =>
@@ -83,7 +80,7 @@ const failedRun = (extra: Record<string, unknown> = {}) =>
           title: "Story-a — logout",
           file: SPEC,
           message:
-            "Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /\\/#\\/login/\nReceived string: \"http://localhost:3100/#/\"",
+            'Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /\\/#\\/login/\nReceived string: "http://localhost:3100/#/"',
         },
       ],
     },
@@ -105,7 +102,7 @@ const stuckRun = () =>
           title: "Story-a — logout",
           file: SPEC,
           message:
-            'Test timeout of 30000ms exceeded.\nwaiting for getByRole(\'menuitem\', { name: \'Sign out\' })',
+            "Test timeout of 30000ms exceeded.\nwaiting for getByRole('menuitem', { name: 'Sign out' })",
         },
       ],
     },
@@ -232,7 +229,9 @@ describe("the suite does not run twice against the same bytes", () => {
 
   it("allows the first run", () => {
     const events = [route("B"), ...readSpec()];
-    expect(storyRefusal({ toolName: "pw.run_tests", args: { spec: SPEC } }, events)).toBeUndefined();
+    expect(
+      storyRefusal({ toolName: "pw.run_tests", args: { spec: SPEC } }, events),
+    ).toBeUndefined();
   });
 
   it("allows a full run once something has changed", () => {
@@ -242,7 +241,9 @@ describe("the suite does not run twice against the same bytes", () => {
       ...failedRun(),
       ...call("fs.replace_in_file", { path: SPEC, old: "a", new: "b" }, { replaced: 1 }),
     ];
-    expect(storyRefusal({ toolName: "pw.run_tests", args: { spec: SPEC } }, events)).toBeUndefined();
+    expect(
+      storyRefusal({ toolName: "pw.run_tests", args: { spec: SPEC } }, events),
+    ).toBeUndefined();
   });
 
   it("never refuses a filtered run — that is the healer proving one test", () => {
@@ -254,7 +255,9 @@ describe("the suite does not run twice against the same bytes", () => {
 
   it("a filtered run does not satisfy the suite, so the next full run is allowed", () => {
     const events = [route("B"), ...readSpec(), ...failedRun({ grep: "Story-a" })];
-    expect(storyRefusal({ toolName: "pw.run_tests", args: { spec: SPEC } }, events)).toBeUndefined();
+    expect(
+      storyRefusal({ toolName: "pw.run_tests", args: { spec: SPEC } }, events),
+    ).toBeUndefined();
   });
 });
 
@@ -269,7 +272,10 @@ describe("a truncated read is not a read", () => {
   it("allows a range it has not seen", () => {
     const events = [route("B"), ...readSpec()];
     expect(
-      storyRefusal({ toolName: "fs.read_file", args: { path: SPEC, fromLine: 40, toLine: 80 } }, events),
+      storyRefusal(
+        { toolName: "fs.read_file", args: { path: SPEC, fromLine: 40, toLine: 80 } },
+        events,
+      ),
     ).toBeUndefined();
   });
 

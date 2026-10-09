@@ -51,10 +51,13 @@ export const DESIGN_TECHNIQUES = [
 export type DesignTechnique = (typeof DESIGN_TECHNIQUES)[number];
 
 export const DESIGN_TECHNIQUE_MEANINGS: Record<DesignTechnique, string> = {
-  "equivalence-partitioning": "one value from each class the rule treats alike, including the invalid classes",
+  "equivalence-partitioning":
+    "one value from each class the rule treats alike, including the invalid classes",
   "boundary-value-analysis": "the edges of a rule: empty, minimum, maximum, one either side",
-  "decision-table": "each combination of conditions that changes the outcome, not each condition alone",
-  "state-transition": "what the view or session looks like AFTER an action, from each state that matters",
+  "decision-table":
+    "each combination of conditions that changes the outcome, not each condition alone",
+  "state-transition":
+    "what the view or session looks like AFTER an action, from each state that matters",
   "error-guessing": "where this kind of system usually breaks, from experience",
   "checklist-based": "a recognised checklist — for accessibility, the WCAG rules axe-core checks",
 };
@@ -161,9 +164,15 @@ export function parseDesign(args: Record<string, unknown>): TestDesign {
     return {
       id: String(r["id"] ?? "").trim(),
       covers: String(r["covers"] ?? "").trim(),
-      type: String(r["type"] ?? "").trim().toLowerCase() as TestType,
-      technique: String(r["technique"] ?? "").trim().toLowerCase() as DesignTechnique,
-      conditions: asArray(r["conditions"]).map((c) => String(c).trim()).filter(Boolean),
+      type: String(r["type"] ?? "")
+        .trim()
+        .toLowerCase() as TestType,
+      technique: String(r["technique"] ?? "")
+        .trim()
+        .toLowerCase() as DesignTechnique,
+      conditions: asArray(r["conditions"])
+        .map((c) => String(c).trim())
+        .filter(Boolean),
       expected: String(r["expected"] ?? "").trim(),
       source: String(r["source"] ?? "").trim(),
       ...(r["expectFail"] === true ? { expectFail: true } : {}),
@@ -224,11 +233,11 @@ const DERIVED_SOURCE = /\b(story|description|AB#\d+|acceptance criteria)\b/i;
  */
 function alternativeInExpectation(expected: string): string | undefined {
   const text = expected.replace(/\s+/g, " ");
-  if (/\(\s*or\b/i.test(text)) return "\"(or …\"";
-  if (/\beither\b.*\bor\b/i.test(text)) return "\"either … or\"";
-  if (/\bor\s+(the|a|it|they|he|she|we|you)\b/i.test(text)) return "\"or …\"";
+  if (/\(\s*or\b/i.test(text)) return '"(or …"';
+  if (/\beither\b.*\bor\b/i.test(text)) return '"either … or"';
+  if (/\bor\s+(the|a|it|they|he|she|we|you)\b/i.test(text)) return '"or …"';
   if (/\bor\s+\w+\s+(is|are|has|have|shows?|ends?|becomes?|remains?)\b/i.test(text))
-    return "\"or … is/has/shows\"";
+    return '"or … is/has/shows"';
   if (/\bfallback\b|\bat least one of\b|\bany of\b/i.test(text)) return "an alternative";
   return undefined;
 }
@@ -240,7 +249,11 @@ function alternativeInExpectation(expected: string): string | undefined {
  * Every rule is about the design's CONTENT against what stage 1 read — none is
  * about how the agent went about producing it.
  */
-export function validateDesign(d: TestDesign, facts: StoryFacts, inScope: readonly TestType[]): string[] {
+export function validateDesign(
+  d: TestDesign,
+  facts: StoryFacts,
+  inScope: readonly TestType[],
+): string[] {
   const problems: string[] = [];
   if (d.items.length === 0) return ["the design has no items"];
 
@@ -255,7 +268,8 @@ export function validateDesign(d: TestDesign, facts: StoryFacts, inScope: readon
   for (const e of d.excluded) {
     const b = bugRef(e.what);
     if (b !== undefined) excludedBugs.add(b);
-    for (const t of TEST_TYPES) if (new RegExp(`\\b${t}\\b`, "i").test(e.what)) excludedTypes.add(t);
+    for (const t of TEST_TYPES)
+      if (new RegExp(`\\b${t}\\b`, "i").test(e.what)) excludedTypes.add(t);
   }
 
   for (const e of d.excluded) {
@@ -269,20 +283,26 @@ export function validateDesign(d: TestDesign, facts: StoryFacts, inScope: readon
     // its scenarios @design:D1-44, was told the id was wrong, renamed the
     // design to D1 — and the scenarios in the feature file still said D1-44,
     // so every one of them read as "not in the design" (20260924T183415Z).
-    if (!/^D\d+(-\d+)?$/.test(it.id)) problems.push(`${at}: id must look like D1, D2, … or D1-44 for a shared epic file`);
+    if (!/^D\d+(-\d+)?$/.test(it.id))
+      problems.push(`${at}: id must look like D1, D2, … or D1-44 for a shared epic file`);
     else if (ids.has(it.id)) problems.push(`${at}: id used twice`);
     ids.add(it.id);
 
     if (!(TEST_TYPES as readonly string[]).includes(it.type))
       problems.push(`${at}: type "${it.type}" is not one of ${TEST_TYPES.join(", ")}`);
     else if (!inScope.includes(it.type))
-      problems.push(`${at}: type "${it.type}" is not in scope for this project (in scope: ${inScope.join(", ")})`);
+      problems.push(
+        `${at}: type "${it.type}" is not in scope for this project (in scope: ${inScope.join(", ")})`,
+      );
     if (!(DESIGN_TECHNIQUES as readonly string[]).includes(it.technique))
-      problems.push(`${at}: technique "${it.technique}" is not one of ${DESIGN_TECHNIQUES.join(", ")}`);
+      problems.push(
+        `${at}: technique "${it.technique}" is not one of ${DESIGN_TECHNIQUES.join(", ")}`,
+      );
     if (it.type === "accessibility" && it.technique !== "checklist-based")
       problems.push(`${at}: an accessibility item is checklist-based (the axe-core rules)`);
 
-    if (it.conditions.length === 0) problems.push(`${at}: list the test conditions — the values or situations exercised`);
+    if (it.conditions.length === 0)
+      problems.push(`${at}: list the test conditions — the values or situations exercised`);
     if (!it.expected) problems.push(`${at}: say what must be observed`);
     // The rule the logout test broke: an expectation nobody specified.
     // An accessibility item has no criterion behind it: it is in scope because
@@ -321,24 +341,38 @@ export function validateDesign(d: TestDesign, facts: StoryFacts, inScope: readon
     const task = taskRef(it.covers);
     if (label) {
       if (!storyAcs.has(label) && !storyAcs.has(baseLabel(label)))
-        problems.push(`${at}: covers ${label}, which is not one of the story's criteria (${[...storyAcs].join(", ")})`);
+        problems.push(
+          `${at}: covers ${label}, which is not one of the story's criteria (${[...storyAcs].join(", ")})`,
+        );
     } else if (bug !== undefined) {
       const b = bugs.get(bug);
-      if (!b) problems.push(`${at}: covers bug #${bug}, which is not one of the open bugs read in stage 1`);
+      if (!b)
+        problems.push(
+          `${at}: covers bug #${bug}, which is not one of the open bugs read in stage 1`,
+        );
       else {
-        if (it.type !== "confirmation") problems.push(`${at}: a test for bug #${bug} is type "confirmation"`);
+        if (it.type !== "confirmation")
+          problems.push(`${at}: a test for bug #${bug} is type "confirmation"`);
         if (b.state === "Active" && it.expectFail !== true)
           problems.push(
             `${at}: bug #${bug} is Active — its test is EXPECTED to fail; set expectFail: true ` +
-              "so that a pass reaches a person as \"did not reproduce\"",
+              'so that a pass reaches a person as "did not reproduce"',
           );
         if (b.state !== "Active" && it.expectFail === true)
-          problems.push(`${at}: bug #${bug} is ${b.state}, not Active — its test is not expected to fail`);
+          problems.push(
+            `${at}: bug #${bug} is ${b.state}, not Active — its test is not expected to fail`,
+          );
       }
     } else if (task !== undefined) {
-      if (!facts.tasks.includes(task)) problems.push(`${at}: covers task #${task}, which is not one of the story's tasks`);
-    } else if (!(it.covers.toLowerCase() === "story" && (it.type === "accessibility" || noCriteria))) {
-      problems.push(`${at}: covers "${it.covers}" — name a criterion (AC-2), a bug (bug #48) or a task (task #46)`);
+      if (!facts.tasks.includes(task))
+        problems.push(`${at}: covers task #${task}, which is not one of the story's tasks`);
+    } else if (!(
+      it.covers.toLowerCase() === "story" &&
+      (it.type === "accessibility" || noCriteria)
+    )) {
+      problems.push(
+        `${at}: covers "${it.covers}" — name a criterion (AC-2), a bug (bug #48) or a task (task #46)`,
+      );
     }
     // Both of these read as statements about a particular bug in the first
     // version ("a confirmation test covers a bug (\"bug #48\")"), which is how a
@@ -362,13 +396,15 @@ export function validateDesign(d: TestDesign, facts: StoryFacts, inScope: readon
   if (noCriteria && !d.items.some((it) => it.type === "functional"))
     problems.push(
       "this story has no acceptance criteria, so there is nothing to cover criterion by criterion — " +
-        "but it still needs at least one functional item, covering \"story\" and citing the description",
+        'but it still needs at least one functional item, covering "story" and citing the description',
     );
 
   // Coverage: every criterion has a functional test.
   for (const ac of storyAcs) {
     const covered = d.items.some(
-      (it) => it.type === "functional" && acLabels(it.covers).some((l) => l === ac || baseLabel(l) === ac),
+      (it) =>
+        it.type === "functional" &&
+        acLabels(it.covers).some((l) => l === ac || baseLabel(l) === ac),
     );
     if (!covered) problems.push(`${ac} has no functional test in the design`);
   }
@@ -405,7 +441,11 @@ export function storyFacts(events: AnyRunEvent[]): StoryFacts | undefined {
     acceptanceCriteria: asArray(f["acceptanceCriteria"]).map(String),
     bugs: asArray(f["bugs"]).map((b) => {
       const r = asRecord(b) ?? {};
-      return { id: Number(r["id"]), state: String(r["state"] ?? ""), title: String(r["title"] ?? "") };
+      return {
+        id: Number(r["id"]),
+        state: String(r["state"] ?? ""),
+        title: String(r["title"] ?? ""),
+      };
     }),
     filedBugs: asArray(f["filedBugs"]).map((b) => {
       const r = asRecord(b) ?? {};
@@ -519,7 +559,8 @@ export function coverageOf(
     owned.has(scenario) &&
     // When the spec is readable, a scenario only counts as covered if a test
     // for it actually exists in the file.
-    (implemented === undefined || [...implemented].some((t) => t.includes(scenario) || scenario.includes(t)));
+    (implemented === undefined ||
+      [...implemented].some((t) => t.includes(scenario) || scenario.includes(t)));
 
   const tagged = scenarioTagsOf(feature);
   for (const it of design.items) {
@@ -618,7 +659,9 @@ export function scenarioTags(feature: string): Array<{ scenario: string; tags: s
 }
 
 /** The @design:<id> tags on each scenario of a feature file. */
-export function scenarioDesignTags(feature: string): Array<{ scenario: string; designs: string[] }> {
+export function scenarioDesignTags(
+  feature: string,
+): Array<{ scenario: string; designs: string[] }> {
   const out: Array<{ scenario: string; designs: string[] }> = [];
   let pendingTags: string[] = [];
   for (const raw of feature.split("\n")) {
@@ -657,7 +700,9 @@ export function specBodies(spec: string): Map<string, string> {
     for (const id of current) out.set(id, (out.get(id) ?? "") + "\n" + text);
   };
   for (const line of spec.split("\n")) {
-    const tags = [...line.matchAll(/@design:(D\d+(?:-\d+)?)/gi)].map((m) => (m[1] ?? "").toUpperCase());
+    const tags = [...line.matchAll(/@design:(D\d+(?:-\d+)?)/gi)].map((m) =>
+      (m[1] ?? "").toUpperCase(),
+    );
     if (/^\s*\/\//.test(line) && tags.length > 0) {
       flush();
       current = tags;
@@ -680,7 +725,9 @@ export function specMarkers(spec: string): Map<string, boolean> {
     for (const id of current) out.set(id, (out.get(id) ?? false) || marked);
   };
   for (const line of lines) {
-    const tags = [...line.matchAll(/@design:(D\d+(?:-\d+)?)/gi)].map((m) => (m[1] ?? "").toUpperCase());
+    const tags = [...line.matchAll(/@design:(D\d+(?:-\d+)?)/gi)].map((m) =>
+      (m[1] ?? "").toUpperCase(),
+    );
     if (/^\s*\/\//.test(line) && tags.length > 0) {
       flush();
       current = tags;
@@ -709,9 +756,12 @@ export function traceProblems(
    */
   story?: number,
 ): { untested: string[]; untagged: string[]; unmarked: string[]; wrongShape: string[] } {
-  const all = features.flatMap((f) => scenarioDesignTags(f.text).map((s) => ({ ...s, path: f.path })));
+  const all = features.flatMap((f) =>
+    scenarioDesignTags(f.text).map((s) => ({ ...s, path: f.path })),
+  );
   const owner = new Map<string, number[]>();
-  for (const f of features) for (const s of scenarioStoryTags(f.text)) owner.set(s.scenario, s.stories);
+  for (const f of features)
+    for (const s of scenarioStoryTags(f.text)) owner.set(s.scenario, s.stories);
   // A scenario tagged for ANOTHER story is not this design's business. One
   // with no @story tag at all is nobody's and stays in scope.
   const scenarios =
@@ -723,13 +773,16 @@ export function traceProblems(
         });
   const tagged = new Set(scenarios.flatMap((s) => s.designs));
   const known = new Set(design.items.map((i) => i.id));
-  const untested = design.items.filter((i) => !tagged.has(i.id)).map((i) => `${i.id} (${i.covers})`);
+  const untested = design.items
+    .filter((i) => !tagged.has(i.id))
+    .map((i) => `${i.id} (${i.covers})`);
   const untagged = scenarios
     .filter((s) => s.designs.length === 0 || s.designs.some((d) => !known.has(d)))
     .map((s) => `${s.path}: "${s.scenario}"`);
   const markers = new Map<string, boolean>();
   for (const sp of specs)
-    for (const [id, marked] of specMarkers(sp.text)) markers.set(id, (markers.get(id) ?? false) || marked);
+    for (const [id, marked] of specMarkers(sp.text))
+      markers.set(id, (markers.get(id) ?? false) || marked);
   const unmarked = design.items
     .filter((i) => i.expectFail === true && markers.get(i.id) !== true)
     .map((i) => `${i.id} (${i.covers})`);
@@ -742,12 +795,14 @@ export function traceProblems(
   // input elsewhere on the page. "A test exists" was checked; "the test is
   // the one that was approved" was not.
   const bodies = new Map<string, string>();
-  for (const sp of specs) for (const [id, body] of specBodies(sp.text)) bodies.set(id, (bodies.get(id) ?? "") + body);
+  for (const sp of specs)
+    for (const [id, body] of specBodies(sp.text)) bodies.set(id, (bodies.get(id) ?? "") + body);
   const wrongShape: string[] = [];
   for (const item of design.items) {
     const body = bodies.get(item.id);
     if (!body) continue;
-    for (const missing of shapeProblems(item, body)) wrongShape.push(`${item.id} (${item.covers}): ${missing}`);
+    for (const missing of shapeProblems(item, body))
+      wrongShape.push(`${item.id} (${item.covers}): ${missing}`);
   }
 
   return { untested, untagged, unmarked, wrongShape };

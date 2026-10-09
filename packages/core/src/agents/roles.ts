@@ -136,7 +136,8 @@ function healableFailure(
     if (stuckAction(message)) return { title, why: "locator" };
     // A test that recovers from its own break reports an assertion failure, so
     // the locator error never surfaces. Same job, one step earlier.
-    if (anySpec && CATCHES.test(anySpec) && anySpec.includes(title)) return { title, why: "fallback" };
+    if (anySpec && CATCHES.test(anySpec) && anySpec.includes(title))
+      return { title, why: "fallback" };
   }
   return undefined;
 }

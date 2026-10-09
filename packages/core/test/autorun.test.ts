@@ -33,7 +33,13 @@ function ledgerOf(
       ...base,
       eventId: ++id,
       kind: "observation",
-      payload: { eventIdOfCall: callId, ok: true, result: e.result ?? {}, artefacts: [], durationMs: 1 },
+      payload: {
+        eventIdOfCall: callId,
+        ok: true,
+        result: e.result ?? {},
+        artefacts: [],
+        durationMs: 1,
+      },
     } as AnyRunEvent);
   }
   return events;
@@ -116,7 +122,11 @@ describe("the runtime runs the suite, and says why", () => {
         CONTEXT,
         DESIGN,
         RUN(),
-        { tool: "fs.replace_in_file", args: { path: SPEC, old: "a", new: "b" }, result: { replaced: 1 } },
+        {
+          tool: "fs.replace_in_file",
+          args: { path: SPEC, old: "a", new: "b" },
+          result: { replaced: 1 },
+        },
       ]),
     );
     expect(at?.why).toContain(SPEC);

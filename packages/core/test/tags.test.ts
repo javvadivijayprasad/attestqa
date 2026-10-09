@@ -32,7 +32,13 @@ function ledgerOf(
       ...base,
       eventId: ++id,
       kind: "observation",
-      payload: { eventIdOfCall: callId, ok: true, result: e.result ?? {}, artefacts: [], durationMs: 1 },
+      payload: {
+        eventIdOfCall: callId,
+        ok: true,
+        result: e.result ?? {},
+        artefacts: [],
+        durationMs: 1,
+      },
     } as AnyRunEvent);
   }
   return events;
@@ -75,9 +81,12 @@ const FEATURE = "features/epic-42-customer-account-access.feature";
 const existing = ["Feature: Customer account access", ""].join("\n");
 
 const withScenario = (tags: string) =>
-  [existing, `  ${tags}`, "  Scenario: Security — no JWT after logout", "    Given I am signed in"].join(
-    "\n",
-  );
+  [
+    existing,
+    `  ${tags}`,
+    "  Scenario: Security — no JWT after logout",
+    "    Given I am signed in",
+  ].join("\n");
 
 describe("a scenario says what kind of test it is", () => {
   it("names the tags the design implies", () => {
@@ -97,7 +106,10 @@ describe("a scenario says what kind of test it is", () => {
       DESIGN,
     ]);
     const why = storyRefusal(
-      { toolName: "fs.write_file", args: { path: FEATURE, content: withScenario("@story:44 @design:D13") } },
+      {
+        toolName: "fs.write_file",
+        args: { path: FEATURE, content: withScenario("@story:44 @design:D13") },
+      },
       events,
     );
     expect(why).toContain("@type:security");

@@ -70,7 +70,9 @@ export function renderApproval(calls: ProposedCall[], opts: RenderOptions = {}):
  * different stakes and deserve different answers.
  */
 function shapeLine(groups: Map<string, ProposedCall[]>): string {
-  const parts = [...groups].map(([kind, cs]) => `${cs.length} ${kind}${cs.length === 1 ? "" : "s"}`);
+  const parts = [...groups].map(
+    ([kind, cs]) => `${cs.length} ${kind}${cs.length === 1 ? "" : "s"}`,
+  );
   return `Approve: ${parts.join(" + ")}`;
 }
 
@@ -120,7 +122,8 @@ function renderDesignCall(
   // design for a story that has none: say so above it.
   const design = parseDesign(c.args);
   const noCriteria =
-    design.items.length > 0 && design.items.every((i) => !/\bAC[- ]?\d/i.test(`${i.covers} ${i.source}`));
+    design.items.length > 0 &&
+    design.items.every((i) => !/\bAC[- ]?\d/i.test(`${i.covers} ${i.source}`));
   const [head, ...rest] = renderDesign(design, { noCriteria, ...(covered ? { covered } : {}) });
   const out = [`${n}. ${head ?? "TEST DESIGN"}`];
   for (const l of rest) {
@@ -235,7 +238,8 @@ function fields(args: Record<string, unknown>): Record<string, string> {
     }
   } else {
     const rec = asRecord(f);
-    if (rec) for (const [k, v] of Object.entries(rec)) out[k] = typeof v === "string" ? v : String(v);
+    if (rec)
+      for (const [k, v] of Object.entries(rec)) out[k] = typeof v === "string" ? v : String(v);
   }
   return out;
 }

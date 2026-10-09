@@ -271,7 +271,10 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   async function askThenExecute(proposed: ProposedCall[], note: string): Promise<void> {
     const calls = proposed.map((c) => withRuntimeArgs(c, byName.get(c.toolName)));
     const approvalId = approvalIdFor(++approvals);
-    const verdicts = calls.map((call) => ({ call, v: gate.judge(call, byName.get(call.toolName)) }));
+    const verdicts = calls.map((call) => ({
+      call,
+      v: gate.judge(call, byName.get(call.toolName)),
+    }));
     for (const { call, v } of verdicts) {
       ledger.append(
         "policy",
@@ -326,7 +329,13 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       const endedAt = clock.now();
       ledger.append(
         "observation",
-        { eventIdOfCall: callEvent.eventId, ok, result: r, artefacts, durationMs: endedAt - startedAt },
+        {
+          eventIdOfCall: callEvent.eventId,
+          ok,
+          result: r,
+          artefacts,
+          durationMs: endedAt - startedAt,
+        },
         endedAt,
       );
     }
@@ -464,7 +473,13 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         const endedAt = clock.now();
         ledger.append(
           "observation",
-          { eventIdOfCall: callEvent.eventId, ok, result, artefacts: [], durationMs: endedAt - startedAt },
+          {
+            eventIdOfCall: callEvent.eventId,
+            ok,
+            result,
+            artefacts: [],
+            durationMs: endedAt - startedAt,
+          },
           endedAt,
         );
         // The model re-proposing a read the runtime already made is repetition,
@@ -478,7 +493,12 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         const at = clock.now();
         const callEvent = ledger.append(
           "call",
-          { server: "aqa", toolName: digest.toolName.replace(/^aqa\./, ""), args: {}, startedAt: at },
+          {
+            server: "aqa",
+            toolName: digest.toolName.replace(/^aqa\./, ""),
+            args: {},
+            startedAt: at,
+          },
           at,
         );
         const obs = ledger.append(
@@ -1044,7 +1064,10 @@ function isBugCreation(call: ProposedCall): boolean {
  * Done before the gate sees the call, so the policy decision, the approval
  * prompt and the ledger all describe what is sent rather than what was asked.
  */
-export function withRuntimeArgs(proposed: ProposedCall, tool: ToolDescriptor | undefined): ProposedCall {
+export function withRuntimeArgs(
+  proposed: ProposedCall,
+  tool: ToolDescriptor | undefined,
+): ProposedCall {
   if (!tool?.defaultArgs && !tool?.pinnedArgs) return proposed;
   return {
     toolName: proposed.toolName,

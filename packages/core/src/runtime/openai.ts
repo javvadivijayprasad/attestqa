@@ -265,7 +265,9 @@ function parseArgs(
   if (!raw) return {};
   try {
     const v: unknown = JSON.parse(raw);
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+    return typeof v === "object" && v !== null && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : {};
   } catch {
     warn(`model sent malformed JSON arguments for "${tool}"; treated as none`);
     return {};

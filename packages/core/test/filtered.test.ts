@@ -94,7 +94,7 @@ function redReport(): string {
                       duration: 10,
                       error: {
                         message:
-                          "Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /login/\nReceived string: \"http://localhost:3100/#/\"",
+                          'Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /login/\nReceived string: "http://localhost:3100/#/"',
                       },
                     },
                   ],
@@ -112,7 +112,10 @@ function redReport(): string {
 describe("triage reads the whole suite or nothing", () => {
   it("does not triage a report left by a filtered run", async () => {
     const ws = greenReport();
-    const events = [...run({ spec: "tests/epic-42.spec.ts" }), ...run({ spec: "tests/epic-42.spec.ts", grep: "Security" })];
+    const events = [
+      ...run({ spec: "tests/epic-42.spec.ts" }),
+      ...run({ spec: "tests/epic-42.spec.ts", grep: "Security" }),
+    ];
     expect(await runTriage({ events, workspaceDir: ws })).toBeUndefined();
   });
 
@@ -138,7 +141,12 @@ describe("triage reads the whole suite or nothing", () => {
 
   it("treats every filtering argument the same way", async () => {
     const ws = greenReport();
-    for (const filter of [{ grep: "x" }, { shard: "1/2" }, { project: "chromium" }, { lastFailed: true }]) {
+    for (const filter of [
+      { grep: "x" },
+      { shard: "1/2" },
+      { project: "chromium" },
+      { lastFailed: true },
+    ]) {
       const events = [...run({ spec: "s" }), ...run({ spec: "s", ...filter })];
       expect(await runTriage({ events, workspaceDir: ws })).toBeUndefined();
     }
@@ -168,7 +176,10 @@ describe("a filter that matched nothing is an error, not a red suite", () => {
   it("reads the totals, not the per-test rows: a report can have stats and no detail", async () => {
     // A green filtered run whose report carries totals but no per-test list is
     // still a green filtered run.
-    const statsOnly = JSON.stringify({ stats: { expected: 4, unexpected: 0, skipped: 0 }, suites: [] });
+    const statsOnly = JSON.stringify({
+      stats: { expected: 4, unexpected: 0, skipped: 0 },
+      suites: [],
+    });
     const r = await tools(statsOnly).call("pw", "run_tests", { grep: "AC-1" });
     expect(r.ok).toBe(true);
   });
@@ -185,7 +196,10 @@ describe("the JSON report is found wherever it starts, and a stale file is never
   const report = JSON.stringify({ stats: { expected: 2, unexpected: 0, skipped: 0 }, suites: [] });
 
   it("reads the reporter's JSON past a globalSetup log line", () => {
-    const stdout = "[global-setup] test account *@example.test is not registered — registering it\n" + report + "\n";
+    const stdout =
+      "[global-setup] test account *@example.test is not registered — registering it\n" +
+      report +
+      "\n";
     expect(extractJson(stdout)).toBeDefined();
     expect(JSON.parse(extractJson(stdout) as string).stats.expected).toBe(2);
   });
@@ -205,12 +219,17 @@ describe("the JSON report is found wherever it starts, and a stale file is never
     const ws = mkdtempSync(join(tmpdir(), "aqa-pw-stale-"));
     mkdirSync(join(ws, ".aqa-report"), { recursive: true });
     const stale = join(ws, ".aqa-report", "playwright.json");
-    writeFileSync(stale, JSON.stringify({ stats: { expected: 0, unexpected: 1, skipped: 0 }, suites: [] }));
+    writeFileSync(
+      stale,
+      JSON.stringify({ stats: { expected: 0, unexpected: 1, skipped: 0 }, suites: [] }),
+    );
     const old = Date.now() - 60_000;
     const { utimesSync } = await import("node:fs");
     utimesSync(stale, old / 1000, old / 1000);
 
-    const pw = new PwTools(ws, { runner: async () => ({ code: 1, stdout: "not json at all", stderr: "" }) });
+    const pw = new PwTools(ws, {
+      runner: async () => ({ code: 1, stdout: "not json at all", stderr: "" }),
+    });
     const r = await pw.call("pw", "run_tests", { spec: "tests/x.spec.ts" });
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r.result)).toContain("predates this call");

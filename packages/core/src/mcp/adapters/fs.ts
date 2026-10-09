@@ -114,7 +114,11 @@ export class FsTools implements ToolClient {
         const from = intArg(args["fromLine"]);
         const to = intArg(args["toLine"]);
         if (from === undefined && to === undefined)
-          return { ok: true, result: { path: rel, lines: lines.length, content: all }, artefacts: [] };
+          return {
+            ok: true,
+            result: { path: rel, lines: lines.length, content: all },
+            artefacts: [],
+          };
         const start = Math.max(1, from ?? 1);
         const end = Math.min(lines.length, to ?? lines.length);
         if (start > lines.length)
@@ -149,7 +153,9 @@ export class FsTools implements ToolClient {
         return {
           ok: true,
           result:
-            hidden > 0 ? { path: rel, entries, hiddenCredentialFiles: hidden } : { path: rel, entries },
+            hidden > 0
+              ? { path: rel, entries, hiddenCredentialFiles: hidden }
+              : { path: rel, entries },
           artefacts: [],
         };
       }

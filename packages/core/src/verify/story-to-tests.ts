@@ -1,14 +1,14 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type {
-  Gap,
-  TriagePayload,
-  Verifier,
-  VerifierInput,
-  VerifyPayload,
-} from "../types.js";
+import type { Gap, TriagePayload, Verifier, VerifierInput, VerifyPayload } from "../types.js";
 import { runTriage, triageGaps } from "../triage/step.js";
-import { approvedDesign, featurePathFor, storyFacts, traceProblems, type TestType } from "../design/test-design.js";
+import {
+  approvedDesign,
+  featurePathFor,
+  storyFacts,
+  traceProblems,
+  type TestType,
+} from "../design/test-design.js";
 import { lastFullRun, ownTestTitles } from "../triage/settle.js";
 import { routePathOf } from "../route/route.js";
 import {
@@ -199,9 +199,7 @@ export class StoryToTestsVerifier implements Verifier {
     // wants; refusing to accept it teaches the agent that the gap is noise.
     const scaffoldedAt = firstSuccessIndex(calls, "bdd2pw.scaffold");
     const lastScaffoldAt = lastSuccessIndex(calls, "bdd2pw.scaffold");
-    const written = specWritesInOrder(calls).filter((w) =>
-      fileExists(input.workspaceDir, w.path),
-    );
+    const written = specWritesInOrder(calls).filter((w) => fileExists(input.workspaceDir, w.path));
     // A spec is hand-written only if it was written before ANY scaffold and no
     // scaffold has regenerated it since. With no scaffold at all, both filters
     // pass and every write counts; with a scaffold, the two conditions cannot
@@ -340,7 +338,7 @@ export class StoryToTestsVerifier implements Verifier {
               "known-bug-test-not-marked",
               `the test for an Active bug is not marked expected-to-fail: ${t.unmarked.join(", ")}. ` +
                 'Add test.fail(true, "Bug #<id> Active: <title>") as the test\'s first line, so that a pass ' +
-                "reaches a person as \"did not reproduce\" instead of disappearing as an ordinary pass.",
+                'reaches a person as "did not reproduce" instead of disappearing as an ordinary pass.',
               { items: t.unmarked },
             ),
           );
@@ -368,7 +366,9 @@ export class StoryToTestsVerifier implements Verifier {
       // be this run's at all. A run cannot be held open for a test it did not
       // write and may not touch; those failures are reported as a limitation.
       const mine = ownTestTitles(input.events, this.opts.workItem);
-      const allFailingTitles = asArray(r["failures"]).map((f) => String(asRecord(f)?.["title"] ?? ""));
+      const allFailingTitles = asArray(r["failures"]).map((f) =>
+        String(asRecord(f)?.["title"] ?? ""),
+      );
       const otherStory = mine ? allFailingTitles.filter((t) => !mine.has(t)) : [];
       if (otherStory.length > 0)
         sharedSpecLimitations.push(
@@ -378,8 +378,11 @@ export class StoryToTestsVerifier implements Verifier {
       const failingTitles = mine ? allFailingTitles.filter((t) => mine.has(t)) : allFailingTitles;
       const allDefects =
         failingTitles.length > 0 &&
-        failingTitles.every((t) => t && triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)));
-      const greenForThisStory = r["green"] === true || (mine !== undefined && failingTitles.length === 0);
+        failingTitles.every(
+          (t) => t && triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)),
+        );
+      const greenForThisStory =
+        r["green"] === true || (mine !== undefined && failingTitles.length === 0);
       if (!greenForThisStory && !allDefects) {
         // When triage has something to say, it says it better. "The suite is
         // not green" is a restatement of the exit code; "the system under test

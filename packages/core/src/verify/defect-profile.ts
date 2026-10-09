@@ -149,7 +149,11 @@ export class DefectProfileVerifier implements Verifier {
           `${missed.length} bug(s) returned by the query are absent from the profile and were ` +
           "not recorded as out of scope. A profile that quietly drops what it could not " +
           "classify reports a distribution that is not the product's.",
-        evidence: { missed: missed.slice(0, 20), queried: queried.length, outOfScope: refused.size },
+        evidence: {
+          missed: missed.slice(0, 20),
+          queried: queried.length,
+          outOfScope: refused.size,
+        },
       });
     }
 

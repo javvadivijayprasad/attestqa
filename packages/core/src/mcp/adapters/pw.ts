@@ -215,7 +215,7 @@ export class PwTools implements ToolClient {
     if (typeof grep === "string" && grep && executed === 0)
       return fail(
         `--grep "${grep}" matched no tests, so nothing ran and there is nothing to conclude. ` +
-          "grep matches a test's TITLE, not its tags and not its file: `--grep \"@story:44\"` finds " +
+          'grep matches a test\'s TITLE, not its tags and not its file: `--grep "@story:44"` finds ' +
           "nothing unless that text is in the title. Use pw.list_tests to see the titles as " +
           "Playwright sees them, then grep a distinctive part of one — or drop the filter and run " +
           "the suite.",
@@ -310,12 +310,21 @@ export function summarise(raw: string, exitCode: number): TestRunSummary | undef
   const failures: TestRunSummary["failures"] = [];
   const tests: TestRunSummary["tests"] = [];
   const unexpectedPasses: TestRunSummary["unexpectedPasses"] = [];
-  walkSuites((report as { suites?: unknown[] }).suites ?? [], "", failures, tests, unexpectedPasses);
+  walkSuites(
+    (report as { suites?: unknown[] }).suites ?? [],
+    "",
+    failures,
+    tests,
+    unexpectedPasses,
+  );
   const testsOmitted = Math.max(0, tests.length - MAX_TESTS_RECORDED);
   const passed = num("expected");
   // Playwright counts an unexpected pass as `unexpected`; this runtime does not
   // count it as a failure.
-  const failed = Math.max(0, (num("unexpected") || failures.length + unexpectedPasses.length) - unexpectedPasses.length);
+  const failed = Math.max(
+    0,
+    (num("unexpected") || failures.length + unexpectedPasses.length) - unexpectedPasses.length,
+  );
   const skipped = num("skipped");
   const flaky = num("flaky");
   return {
@@ -377,7 +386,12 @@ function walkSuites(
       }
       if (spec.ok !== false) continue;
       const page = pageAtFailure(spec);
-      out.push({ title, file: f, message: firstError(spec), ...(page ? { pageAtFailure: page } : {}) });
+      out.push({
+        title,
+        file: f,
+        message: firstError(spec),
+        ...(page ? { pageAtFailure: page } : {}),
+      });
     }
     if (suite.suites) walkSuites(suite.suites, f, out, rows, unexpected);
   }

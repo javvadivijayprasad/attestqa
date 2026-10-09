@@ -107,7 +107,9 @@ export const INFRASTRUCTURE_PATTERNS: readonly TriagePattern[] = [
   py(String.raw`(?i)\b(disk\s+full|no\s+space\s+left)\b`),
   py(String.raw`(?i)\b(docker\s+daemon|docker\s+socket)\b.*\b(unavailable|refused)\b`),
   py(String.raw`(?i)\b(runner|agent)\b.*\b(lost|disconnected|terminated)\b`),
-  py(String.raw`(?i)\b(ci[\-_\s]?runner|jenkins\s+agent|github\s+actions\s+runner)\b.*(timeout|failed)`),
+  py(
+    String.raw`(?i)\b(ci[\-_\s]?runner|jenkins\s+agent|github\s+actions\s+runner)\b.*(timeout|failed)`,
+  ),
 ];
 
 export const ENVIRONMENTAL_PATTERNS: readonly TriagePattern[] = [
@@ -122,7 +124,9 @@ export const ENVIRONMENTAL_PATTERNS: readonly TriagePattern[] = [
 export const FLAKE_PATTERNS: readonly TriagePattern[] = [
   py(String.raw`(?i)\btimed\s*out\s*(after)?\s*\d+\s*(ms|sec|s)\b`),
   py(String.raw`(?i)\b(stale\s+element|element\s+not\s+found|element\s+not\s+visible)\b`),
-  py(String.raw`(?i)\b(waitfor|wait\s+for|\bwaituntil\b|\bwait_until\b)\b.*\b(timeout|failed|exceeded)\b`),
+  py(
+    String.raw`(?i)\b(waitfor|wait\s+for|\bwaituntil\b|\bwait_until\b)\b.*\b(timeout|failed|exceeded)\b`,
+  ),
   py(String.raw`(?i)\brandom\s+sleep\b`),
   py(String.raw`(?i)\bcypress\s+command\s+timeout\b`),
   py(String.raw`(?i)\bintermittent\b`),
@@ -131,7 +135,9 @@ export const FLAKE_PATTERNS: readonly TriagePattern[] = [
 export const REAL_DEFECT_PATTERNS: readonly TriagePattern[] = [
   py(String.raw`(?i)\bassert(ion)?\s*(error|failed)?\b`),
   py(String.raw`(?i)\bexpected\s+.+\s+to\s+(equal|be|contain|match)\b`),
-  py(String.raw`(?i)\b4\d\d\s+(bad\s+request|unauthoriz|forbidden|not\s+found|conflict|unprocessable)\b`),
+  py(
+    String.raw`(?i)\b4\d\d\s+(bad\s+request|unauthoriz|forbidden|not\s+found|conflict|unprocessable)\b`,
+  ),
   py(String.raw`(?i)\b(test\s+failed:|\bFAIL\b\s)`),
   py(String.raw`(?i)\bvalidation\s+error\b`),
 ];
@@ -185,7 +191,9 @@ export const PW_INFRASTRUCTURE_PATTERNS: readonly TriagePattern[] = [
 ];
 
 export const PW_ENVIRONMENTAL_PATTERNS: readonly TriagePattern[] = [
-  py(String.raw`(?i)\bnet::ERR_(CONNECTION_REFUSED|CONNECTION_RESET|NAME_NOT_RESOLVED|EMPTY_RESPONSE|CONNECTION_TIMED_OUT)\b`),
+  py(
+    String.raw`(?i)\bnet::ERR_(CONNECTION_REFUSED|CONNECTION_RESET|NAME_NOT_RESOLVED|EMPTY_RESPONSE|CONNECTION_TIMED_OUT)\b`,
+  ),
   py(String.raw`(?i)\b(page|apiRequestContext)\.(goto|get|post|fetch):`),
   py(String.raw`(?i)\bnavigating to ".+", waiting until "\w+"`),
   py(String.raw`(?i)\bwebServer\b.*\b(failed|timed out|exited)\b`),

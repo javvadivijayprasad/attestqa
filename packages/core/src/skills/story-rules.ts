@@ -1,7 +1,14 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AnyRunEvent } from "../types.js";
-import { asArray, asRecord, completedCalls, numberField, payloadOf, successful } from "../verify/evidence.js";
+import {
+  asArray,
+  asRecord,
+  completedCalls,
+  numberField,
+  payloadOf,
+  successful,
+} from "../verify/evidence.js";
 import { acLabels, allFailedTitles } from "../triage/settle.js";
 import { missingImports } from "../framework/survey.js";
 import { assertionsOf, isPartialRead, testsByTitle } from "../design/test-design.js";
@@ -99,8 +106,13 @@ export function makeStoryRefusal(
   if (!types || types.length === 0)
     return (call: { toolName: string; args: Record<string, unknown> }, events: AnyRunEvent[]) =>
       storyRefusal(call, events, where);
-  return (call: { toolName: string; args: Record<string, unknown> }, events: AnyRunEvent[]): string | undefined =>
-    invalidDesign(call, events, types) ?? designFirst(call, events) ?? storyRefusal(call, events, where);
+  return (
+    call: { toolName: string; args: Record<string, unknown> },
+    events: AnyRunEvent[],
+  ): string | undefined =>
+    invalidDesign(call, events, types) ??
+    designFirst(call, events) ??
+    storyRefusal(call, events, where);
 }
 
 /** A design the runtime can already see is wrong never reaches the reviewer. */
@@ -111,7 +123,8 @@ function invalidDesign(
 ): string | undefined {
   if (call.toolName !== "aqa.test_design") return;
   const facts = storyFacts(events);
-  if (!facts) return "no story context was read this run, so there is nothing to check a design against";
+  if (!facts)
+    return "no story context was read this run, so there is nothing to check a design against";
   const problems = validateDesign(parseDesign(call.args), facts, types);
   if (problems.length === 0) return;
   return `the test design has ${problems.length} problem(s) — fix them and submit again:\n- ${problems.join("\n- ")}`;
@@ -181,7 +194,9 @@ function duplicateTestCase(
 }
 
 /** Criterion label → the test case already covering it, from everything the run has seen. */
-export function coveredCriteria(events: AnyRunEvent[]): Map<string, { id?: number; title: string }> {
+export function coveredCriteria(
+  events: AnyRunEvent[],
+): Map<string, { id?: number; title: string }> {
   const out = new Map<string, { id?: number; title: string }>();
   const calls = completedCalls(events);
 
@@ -194,7 +209,8 @@ export function coveredCriteria(events: AnyRunEvent[]): Map<string, { id?: numbe
       if (f["System.WorkItemType"] !== "Test Case") continue;
       const title = String(f["System.Title"] ?? "");
       const id = numberField(w, "id") ?? numberField(f, "System.Id");
-      for (const l of acLabels(title)) if (!out.has(l)) out.set(l, { ...(id ? { id } : {}), title });
+      for (const l of acLabels(title))
+        if (!out.has(l)) out.set(l, { ...(id ? { id } : {}), title });
     }
   }
 
@@ -217,7 +233,10 @@ export function coveredCriteria(events: AnyRunEvent[]): Map<string, { id?: numbe
  * now composes and posts the report after the run and the bug decision are
  * both over.
  */
-function agentRunReport(call: { toolName: string; args: Record<string, unknown> }): string | undefined {
+function agentRunReport(call: {
+  toolName: string;
+  args: Record<string, unknown>;
+}): string | undefined {
   if (call.toolName !== "ado.wit_work_item_comment_write") return;
   const text = String(call.args["text"] ?? "");
   if (!/##\s*agentic-qa run\b/i.test(text)) return;
@@ -471,7 +490,10 @@ function writeChurn(
 /** Three attempts at one file is generous; the fourth is a loop. */
 const MAX_WRITES_BEFORE_RUNNING = 3;
 
-function specOrAnyWrite(call: { toolName: string; args: Record<string, unknown> }): string | undefined {
+function specOrAnyWrite(call: {
+  toolName: string;
+  args: Record<string, unknown>;
+}): string | undefined {
   if (call.toolName !== "fs.write_file") return;
   const p = call.args["path"];
   return typeof p === "string" && p ? p : undefined;
@@ -684,7 +706,6 @@ function untaggedTestCase(
   );
 }
 
-
 /** The suite this run executes is the epic\'s spec, not whatever is lying around. */
 function wrongSuiteTarget(
   call: { toolName: string; args: Record<string, unknown> },
@@ -746,7 +767,8 @@ function featureFirst(
 }
 
 /** Files that belong to the project, not to a run: its config, its manifest. */
-const PROJECT_OWNED = /(^|\/)(playwright\.config\.[cm]?[jt]s|package(-lock)?\.json|tsconfig[^/]*\.json|\.env[^/]*)$/i;
+const PROJECT_OWNED =
+  /(^|\/)(playwright\.config\.[cm]?[jt]s|package(-lock)?\.json|tsconfig[^/]*\.json|\.env[^/]*)$/i;
 
 /**
  * A run writes tests. It does not configure the project.
@@ -757,7 +779,10 @@ const PROJECT_OWNED = /(^|\/)(playwright\.config\.[cm]?[jt]s|package(-lock)?\.js
  * it edited to make its own tests pass would be the clearest possible way to
  * make a green suite meaningless.
  */
-function frameworkOwned(call: { toolName: string; args: Record<string, unknown> }): string | undefined {
+function frameworkOwned(call: {
+  toolName: string;
+  args: Record<string, unknown>;
+}): string | undefined {
   if (call.toolName !== "fs.write_file") return;
   const path = String(call.args["path"] ?? "");
   if (!PROJECT_OWNED.test(path)) return;
@@ -835,9 +860,13 @@ function unlinkedBug(
   const story = storyFacts(events)?.story?.id;
   const problems: string[] = [];
   if (story !== undefined && String(call.args["parentId"] ?? "") !== String(story))
-    problems.push(`parentId: ${story} — a bug nobody can trace to a story is a bug nobody will act on`);
+    problems.push(
+      `parentId: ${story} — a bug nobody can trace to a story is a bug nobody will act on`,
+    );
   if (!hasAgentTag(call.args["tags"] ?? fieldValue(call, "System.Tags")))
-    problems.push('System.Tags: "agentic-qa" — how a later run knows this bug came from a runtime and not from a person');
+    problems.push(
+      'System.Tags: "agentic-qa" — how a later run knows this bug came from a runtime and not from a person',
+    );
   if (problems.length === 0) return;
   return `this bug is missing ${problems.length === 1 ? "one thing" : "two things"}: ${problems.join("; ")}. Add ${
     problems.length === 1 ? "it" : "them"
@@ -994,7 +1023,9 @@ function unhealedLocator(
       const title = typeof f?.["title"] === "string" ? f["title"] : "";
       const message = typeof f?.["message"] === "string" ? f["message"] : "";
       if (!title || !stuckAction(message)) continue;
-      const seen = [...healed].some((h) => h && (title.toLowerCase().includes(h) || h.includes(title.toLowerCase())));
+      const seen = [...healed].some(
+        (h) => h && (title.toLowerCase().includes(h) || h.includes(title.toLowerCase())),
+      );
       if (!seen && !unexplained.includes(title)) unexplained.push(title);
     }
   }
@@ -1213,13 +1244,41 @@ function claimWords(assertion: string): string[] {
   const messages = [...assertion.matchAll(/["'`]([^"'`]{8,})["'`]/g)].map((m) => m[1] ?? "");
   if (messages.length === 0) return [];
   const stop = new Set([
-    "expect", "await", "async", "page", "locator", "should", "after", "before", "value",
-    "click", "visible", "contain", "match", "array", "received", "expected", "false", "true",
-    "null", "precondition", "getby", "getbyrole", "getbytext", "button", "menuitem", "element",
+    "expect",
+    "await",
+    "async",
+    "page",
+    "locator",
+    "should",
+    "after",
+    "before",
+    "value",
+    "click",
+    "visible",
+    "contain",
+    "match",
+    "array",
+    "received",
+    "expected",
+    "false",
+    "true",
+    "null",
+    "precondition",
+    "getby",
+    "getbyrole",
+    "getbytext",
+    "button",
+    "menuitem",
+    "element",
   ]);
   return [
     ...new Set(
-      (messages.join(" ").toLowerCase().match(/[a-z]{5,}/g) ?? []).filter((w) => !stop.has(w)),
+      (
+        messages
+          .join(" ")
+          .toLowerCase()
+          .match(/[a-z]{5,}/g) ?? []
+      ).filter((w) => !stop.has(w)),
     ),
   ];
 }
@@ -1257,7 +1316,9 @@ function unboundStepsBeforeScaffold(
   const calls = completedCalls(events);
   // Only when THIS run wrote the feature: a feature file it found on disk was
   // scaffolded before by whoever wrote it.
-  const wroteIt = successful(calls, "fs.write_file").some((c) => String(c.args["path"] ?? "") === feature);
+  const wroteIt = successful(calls, "fs.write_file").some(
+    (c) => String(c.args["path"] ?? "") === feature,
+  );
   if (!wroteIt) return;
 
   const analyses = successful(calls, "bdd2pw.analyze").filter(
@@ -1304,7 +1365,9 @@ function scaffoldWouldOverwrite(
   const text = specPath ? lastKnownContent(specPath, events, workspaceDir) : undefined;
   if (!text) return;
   const tests = testsByTitle(text);
-  const implemented = [...tests].filter(([, body]) => !/TODO/.test(body) && /expect\s*\(/.test(body));
+  const implemented = [...tests].filter(
+    ([, body]) => !/TODO/.test(body) && /expect\s*\(/.test(body),
+  );
   if (implemented.length === 0) return;
   return (
     `${specPath} already exists and ${implemented.length} of its ${tests.size} test(s) are ` +
@@ -1344,14 +1407,17 @@ function rewordsAnotherStory(
     // to rewrite.
     if (b.stories.length === 0 || b.stories.includes(story)) continue;
     const after = now.get(scenario);
-    if (after && after.body.replace(/\s+/g, " ") !== b.body.replace(/\s+/g, " ")) changed.push(scenario);
+    if (after && after.body.replace(/\s+/g, " ") !== b.body.replace(/\s+/g, " "))
+      changed.push(scenario);
   }
   if (changed.length === 0) return;
   return (
     `this write rewords ${changed.length} scenario(s) belonging to another story: ${changed
       .slice(0, 4)
       .map((c) => `"${c}"`)
-      .join(", ")}. They were approved and scaffolded by the run that wrote them, and their tests ` +
+      .join(
+        ", ",
+      )}. They were approved and scaffolded by the run that wrote them, and their tests ` +
     "are generated from these exact steps. Change only the scenarios tagged @story:" +
     `${story}, and leave the rest of the file byte for byte as you found it.`
   );
@@ -1364,7 +1430,8 @@ function scenarioBodies(feature: string): Map<string, { stories: number[]; body:
   let current: string | undefined;
   let body: string[] = [];
   const flush = () => {
-    if (current !== undefined) out.set(current, { stories: out.get(current)?.stories ?? [], body: body.join("\n") });
+    if (current !== undefined)
+      out.set(current, { stories: out.get(current)?.stories ?? [], body: body.join("\n") });
     body = [];
   };
   for (const raw of feature.split("\n")) {
@@ -1380,7 +1447,9 @@ function scenarioBodies(feature: string): Map<string, { stories: number[]; body:
       if (current !== undefined) flush();
       current = (m[1] ?? "").trim();
       out.set(current, {
-        stories: tags.map((t) => Number(/^@story:(\d+)$/i.exec(t)?.[1])).filter((n) => Number.isFinite(n)),
+        stories: tags
+          .map((t) => Number(/^@story:(\d+)$/i.exec(t)?.[1]))
+          .filter((n) => Number.isFinite(n)),
         body: "",
       });
       tags = [];
@@ -1492,7 +1561,10 @@ function writeOnExecutePath(
     `this run took the execute path: ${path} already contains this story's tests, and this run is ` +
     "here to run them. Repairing one is allowed — a locator that has moved, a fallback that hid " +
     `the failure — but this write takes away ${unrepairable.length} line(s) that are neither:\n` +
-    unrepairable.slice(0, 4).map((l) => `    ${l.trim()}`).join("\n") +
+    unrepairable
+      .slice(0, 4)
+      .map((l) => `    ${l.trim()}`)
+      .join("\n") +
     "\nA test may be strengthened; it may not be softened. If a test asserts the wrong thing, " +
     "that is a conversation with the product owner and not an edit: leave it red and report it. " +
     "If a test is genuinely missing, say so and stop — writing one is authoring, and authoring " +

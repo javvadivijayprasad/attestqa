@@ -134,9 +134,7 @@ export function selectorFromMessage(message: string): string | undefined {
 
 /** Words worth matching on: four letters or more, lowercased, de-duplicated. */
 function words(s: string): Set<string> {
-  return new Set(
-    (s.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((w) => !NOISE.has(w)),
-  );
+  return new Set((s.toLowerCase().match(/[a-z]{4,}/g) ?? []).filter((w) => !NOISE.has(w)));
 }
 
 /** Markup vocabulary, which every selector shares and which means nothing. */

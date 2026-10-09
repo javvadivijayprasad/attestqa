@@ -12,9 +12,19 @@ import type { AnyRunEvent } from "../src/types.js";
  */
 
 const FILED = [
-  { id: 83, state: "Active", title: "Story-a: Logout redirects to home page instead of login page", agent: true },
+  {
+    id: 83,
+    state: "Active",
+    title: "Story-a: Logout redirects to home page instead of login page",
+    agent: true,
+  },
   { id: 50, state: "Resolved", title: "Session token survives logout", agent: false },
-  { id: 84, state: "Active", title: "Logout flow has WCAG A/AA accessibility violations: color-contrast and label", agent: true },
+  {
+    id: 84,
+    state: "Active",
+    title: "Logout flow has WCAG A/AA accessibility violations: color-contrast and label",
+    agent: true,
+  },
 ];
 
 function ledger(filedBugs = FILED): AnyRunEvent[] {
@@ -67,19 +77,28 @@ const propose = (title: string) => ({
 
 describe("a defect already filed is not filed again", () => {
   it("refuses the fourth record of the logout redirect", () => {
-    const why = storyRefusal(propose("Logout does not redirect to the login page — app stays on /#/"), ledger());
+    const why = storyRefusal(
+      propose("Logout does not redirect to the login page — app stays on /#/"),
+      ledger(),
+    );
     expect(why).toContain("#83");
     expect(why).toContain("same defect");
   });
 
   it("says why the agent cannot see it, since that is the confusing part", () => {
-    const why = storyRefusal(propose("AC Story-a: Logout redirects to home page (/#/) instead of login page"), ledger());
+    const why = storyRefusal(
+      propose("AC Story-a: Logout redirects to home page (/#/) instead of login page"),
+      ledger(),
+    );
     expect(why).toContain("withheld");
   });
 
   it("does not say that about a bug a person filed", () => {
     const filed = [{ ...FILED[0]!, agent: false }];
-    const why = storyRefusal(propose("Logout does not redirect to the login page — app stays on /#/"), ledger(filed));
+    const why = storyRefusal(
+      propose("Logout does not redirect to the login page — app stays on /#/"),
+      ledger(filed),
+    );
     expect(why).toContain("#83");
     expect(why ?? "").not.toContain("withheld");
   });
@@ -112,7 +131,11 @@ describe("a defect already filed is not filed again", () => {
     const why = storyRefusal(
       {
         toolName: "ado.wit_work_item_write",
-        args: { action: "create", workItemType: "Test Case", title: "Logout redirects to login page" },
+        args: {
+          action: "create",
+          workItemType: "Test Case",
+          title: "Logout redirects to login page",
+        },
       },
       ledger(),
     );
@@ -138,6 +161,8 @@ describe("sameDefect is blunt on purpose", () => {
   });
 
   it("is not fooled by the story label two unrelated bugs share", () => {
-    expect(sameDefect("Story-a: user cannot sign in", "Story-a: password field is not masked")).toBe(false);
+    expect(
+      sameDefect("Story-a: user cannot sign in", "Story-a: password field is not masked"),
+    ).toBe(false);
   });
 });

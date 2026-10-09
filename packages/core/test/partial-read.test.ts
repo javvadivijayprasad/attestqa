@@ -147,7 +147,13 @@ describe("the file as the run saw it", () => {
         ...base,
         eventId: ++id,
         kind: "observation",
-        payload: { eventIdOfCall: callId, ok: true, result: { path: SPEC }, artefacts: [], durationMs: 1 },
+        payload: {
+          eventIdOfCall: callId,
+          ok: true,
+          result: { path: SPEC },
+          artefacts: [],
+          durationMs: 1,
+        },
       },
     ] as unknown as AnyRunEvent[];
     expect(fileTextFromEvents(events, SPEC)).toBe(written);
@@ -178,7 +184,9 @@ describe("the diff baseline", () => {
         attempt: 1,
         reportFingerprint: "f",
         runLevel: null,
-        verdicts: [{ test: `${SPEC} › Story-a — logout`, category: "real-defect", confidence: 0.8 }],
+        verdicts: [
+          { test: `${SPEC} › Story-a — logout`, category: "real-defect", confidence: 0.8 },
+        ],
         quarantined: ["Story-a — logout"],
       },
     } as unknown as AnyRunEvent;
@@ -192,7 +200,10 @@ describe("the diff baseline", () => {
       "  await expect(page).toHaveURL(/\\/#\\/login/);\n});\n\n// @story:44 @design:D11",
       '  await expect(page).toHaveURL(/\\/#\\/login/);\n  await expect(page.getByRole("button", { name: "Account" })).toBeVisible();\n});\n\n// @story:44 @design:D11',
     );
-    const why = storyRefusal({ toolName: "fs.write_file", args: { path: SPEC, content: strengthened } }, events);
+    const why = storyRefusal(
+      { toolName: "fs.write_file", args: { path: SPEC, content: strengthened } },
+      events,
+    );
     expect(why ?? "").not.toContain("drops the claim");
   });
 });

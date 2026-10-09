@@ -124,7 +124,9 @@ export function composeRunReport(
         .filter((t) => t && !mine.has(t))
     : [];
   const reads = story
-    ? successful(calls, "ado.wit_work_item", "get").filter((c) => String(c.args["id"] ?? "") === story)
+    ? successful(calls, "ado.wit_work_item", "get").filter(
+        (c) => String(c.args["id"] ?? "") === story,
+      )
     : [];
   const preexisting = [...new Set(reads.flatMap((r) => testedByIds(r.result)))]
     .filter((id) => !created.includes(id))
@@ -160,8 +162,13 @@ export function composeRunReport(
       const reason = String(p["reason"] ?? "");
       if (reason.startsWith("dropped at end of run — ")) bugsDropped.push(reason.slice(24));
       const already = ALREADY_FILED.exec(reason);
-      if (already?.[1] && already[2]) bugsAlreadyFiled.push(`#${already[1]} [${already[2]}] ${already[3] ?? ""}`.trim());
-      if (p["toolName"] === "ado.wit_work_item_write" && p["decision"] === "ask" && p["approvalId"]) {
+      if (already?.[1] && already[2])
+        bugsAlreadyFiled.push(`#${already[1]} [${already[2]}] ${already[3] ?? ""}`.trim());
+      if (
+        p["toolName"] === "ado.wit_work_item_write" &&
+        p["decision"] === "ask" &&
+        p["approvalId"]
+      ) {
         const id = String(p["approvalId"]);
         bugsPerApproval.set(id, (bugsPerApproval.get(id) ?? 0) + 1);
       }
@@ -177,7 +184,9 @@ export function composeRunReport(
   // Did triage write the run off? Read from the latest triage event, which is
   // the same place the verifier reads it, so the two cannot disagree.
   const latestTriage = [...events].reverse().find((e) => e.kind === "triage");
-  const tp = latestTriage ? (latestTriage.payload as unknown as Record<string, unknown>) : undefined;
+  const tp = latestTriage
+    ? (latestTriage.payload as unknown as Record<string, unknown>)
+    : undefined;
   const level = typeof tp?.["runLevel"] === "string" ? String(tp["runLevel"]) : undefined;
   const runLevel = level
     ? {
@@ -264,7 +273,8 @@ export function unexpectedPassesAcrossRuns(results: unknown[]): KnownBugPass[] {
     for (const u of asArray(asRecord(res)?.["unexpectedPasses"])) {
       const rec = asRecord(u) ?? {};
       const title = String(rec["title"] ?? "(untitled)");
-      if (!seen.has(title)) seen.set(title, { title, note: String(rec["note"] ?? "").trim(), markerRemoved: false });
+      if (!seen.has(title))
+        seen.set(title, { title, note: String(rec["note"] ?? "").trim(), markerRemoved: false });
     }
   }
   const last = asRecord(results[results.length - 1]);
@@ -375,7 +385,9 @@ function render(r: Rendered): string {
       // A test that was expected to fail and passed is reported by Playwright
       // outside passed/failed, so the row count and the totals differ. Said,
       // rather than left for the reader to spot.
-      const unexpectedRows = tests.filter((t) => asRecord(t)?.["status"] === "unexpected-pass").length;
+      const unexpectedRows = tests.filter(
+        (t) => asRecord(t)?.["status"] === "unexpected-pass",
+      ).length;
       if (unexpectedRows > 0)
         lines.push(
           "",
@@ -464,7 +476,8 @@ function render(r: Rendered): string {
   if (filed.length + dropped.length + denied.length + already.length > 0) {
     lines.push("");
     lines.push("**Bugs:**");
-    for (const b of filed) lines.push(`- filed${b.id !== undefined ? ` #${b.id}` : ""}: ${b.title}`);
+    for (const b of filed)
+      lines.push(`- filed${b.id !== undefined ? ` #${b.id}` : ""}: ${b.title}`);
     // A defect that reproduced and is already on record. This is the strongest
     // sentence the report can say about a failing test — not "something is
     // wrong" but "this exact defect was filed, is still open, and the suite
@@ -491,7 +504,13 @@ function render(r: Rendered): string {
   }
 
   if (r.agentNote) {
-    lines.push("", "---", "", "**Agent's note** _(its own words — the figures above are counted, this is not):_", "");
+    lines.push(
+      "",
+      "---",
+      "",
+      "**Agent's note** _(its own words — the figures above are counted, this is not):_",
+      "",
+    );
     lines.push(r.agentNote.trim());
   }
 
@@ -529,7 +548,10 @@ function escapePipes(s: string): string {
 export function failureLines(message: string): string {
   // eslint-disable-next-line no-control-regex
   const plain = message.replace(/\u001b\[[0-9;]*[A-Za-z]/g, "").replace(/^…/, "");
-  const all = plain.split("\n").map((l) => l.trim()).filter(Boolean);
+  const all = plain
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
   const head = all[0] ?? "";
   const expectations = all.filter((l) => /^(Expected|Received)\b/.test(l));
   if (expectations.length > 0) {
@@ -538,9 +560,14 @@ export function failureLines(message: string): string {
   // No Expected/Received pair — a thrown value, often JSON (axe reports its
   // violations that way). "Error: [" alone says nothing, so take the opening
   // of the message as one line, and pull out the rule ids when they are there.
-  const ids = [...new Set([...plain.matchAll(/"id"\s*:\s*"([^"]+)"/g)].map((m) => m[1]))].slice(0, 8);
+  const ids = [...new Set([...plain.matchAll(/"id"\s*:\s*"([^"]+)"/g)].map((m) => m[1]))].slice(
+    0,
+    8,
+  );
   const opening = firstLine(all.slice(0, 6).join(" ").replace(/\s+/g, " "));
-  return `\`${opening}\`` + (ids.length > 0 ? ` — rules: ${ids.map((i) => `\`${i}\``).join(", ")}` : "");
+  return (
+    `\`${opening}\`` + (ids.length > 0 ? ` — rules: ${ids.map((i) => `\`${i}\``).join(", ")}` : "")
+  );
 }
 
 function firstLine(s: string): string {

@@ -162,9 +162,4 @@ export { parseFailures, readFailures, reportPath } from "./triage/report.js";
 export type { ParsedFailure } from "./triage/report.js";
 export { runTriage, triageGaps, triageEvents } from "./triage/step.js";
 export { analyzeReport, merge, DEFAULT_SERVICE_TIMEOUT_MS } from "./triage/service.js";
-export type {
-  ServiceOptions,
-  AnalyzedReport,
-  AnalyzedGroup,
-  RetryPlan,
-} from "./triage/service.js";
+export type { ServiceOptions, AnalyzedReport, AnalyzedGroup, RetryPlan } from "./triage/service.js";

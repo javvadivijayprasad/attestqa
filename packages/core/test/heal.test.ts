@@ -28,7 +28,13 @@ function ledgerOf(
       ...base,
       eventId: ++id,
       kind: "observation",
-      payload: { eventIdOfCall: callId, ok: e.ok ?? true, result: e.result ?? {}, artefacts: [], durationMs: 1 },
+      payload: {
+        eventIdOfCall: callId,
+        ok: e.ok ?? true,
+        result: e.result ?? {},
+        artefacts: [],
+        durationMs: 1,
+      },
     } as AnyRunEvent);
   }
   return { runId: "run-1", read: () => events };
@@ -47,7 +53,7 @@ const SNAPSHOT = `
 `;
 
 const TIMEOUT =
-  'TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\'a[href="#/logout"]\')\n';
+  "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('a[href=\"#/logout\"]')\n";
 
 const RED = (over: Record<string, unknown> = {}) => ({
   passed: 4,
@@ -85,7 +91,7 @@ describe("the page at the failure is read by code, not by eye", () => {
   });
 
   it("takes the failed selector from Playwright's own message", () => {
-    expect(selectorFromMessage(TIMEOUT)).toBe('locator(\'a[href="#/logout"]\')');
+    expect(selectorFromMessage(TIMEOUT)).toBe("locator('a[href=\"#/logout\"]')");
     expect(selectorFromMessage("no locator here")).toBeUndefined();
   });
 });
@@ -119,7 +125,9 @@ describe("aqa.heal_locator", () => {
   });
 
   it("refuses to guess when the failure carries no snapshot", async () => {
-    const t = new HealTools(ledgerOf([{ tool: "pw.run_tests", result: RED({ pageAtFailure: undefined }) }]));
+    const t = new HealTools(
+      ledgerOf([{ tool: "pw.run_tests", result: RED({ pageAtFailure: undefined }) }]),
+    );
     const r = await call(t, { test: "session token is cleared" });
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r.result)).toContain("no page snapshot");
@@ -127,7 +135,10 @@ describe("aqa.heal_locator", () => {
 
   it("will not pick between two tests that match the title given", async () => {
     const two = RED();
-    two.failures.push({ ...two.failures[0]!, title: "AC-5: the session token is cleared elsewhere" });
+    two.failures.push({
+      ...two.failures[0]!,
+      title: "AC-5: the session token is cleared elsewhere",
+    });
     const r = await call(new HealTools(ledgerOf([{ tool: "pw.run_tests", result: two }])), {
       test: "session token is cleared",
     });
@@ -146,7 +157,9 @@ describe("aqa.heal_locator", () => {
         },
       ]),
     );
-    const res = (await call(t, { test: "AC-4" })).result as { candidates: Array<{ expression: string }> };
+    const res = (await call(t, { test: "AC-4" })).result as {
+      candidates: Array<{ expression: string }>;
+    };
     expect(res.candidates[0]?.expression).toBe('page.getByRole("button", { name: "Sign out" })');
   });
 });
@@ -173,7 +186,11 @@ describe("a bug may not be proposed while a locator failure is unexplained", () 
   it("allows it once the page has been read for that test", () => {
     const events = ledgerOf([
       ...red,
-      { tool: "aqa.heal_locator", args: { test: "AC-4: the session token is cleared on logout" }, result: {} },
+      {
+        tool: "aqa.heal_locator",
+        args: { test: "AC-4: the session token is cleared on logout" },
+        result: {},
+      },
     ]).read();
     expect(storyRefusal(bug, events)).toBeUndefined();
   });
@@ -266,7 +283,11 @@ describe("a test that catches its own failure is not evidence", () => {
         args: { action: "get", id: 1 },
         result: { id: 1, fields: { "System.Title": "Login", "System.WorkItemType": "User Story" } },
       },
-      { tool: "fs.read_file", args: { path: "tests/epic-42-customer-account-access.spec.ts" }, result: { content: spec } },
+      {
+        tool: "fs.read_file",
+        args: { path: "tests/epic-42-customer-account-access.spec.ts" },
+        result: { content: spec },
+      },
       {
         tool: "pw.run_tests",
         result: {
@@ -332,13 +353,21 @@ describe("a scaffold names the files it wrote", () => {
 
   it("tells a refused re-read where the generated code actually is", () => {
     const events = ledgerOf([
-      { tool: "fs.read_file", args: { path: "tests/epic-42.spec.ts" }, result: { content: "// mine" } },
+      {
+        tool: "fs.read_file",
+        args: { path: "tests/epic-42.spec.ts" },
+        result: { content: "// mine" },
+      },
       {
         tool: "bdd2pw.scaffold",
         args: { feature: "features/epic-42.feature" },
         result: { wrote: ["tests/login.spec.ts", "pages/login.page.ts"] },
       },
-      { tool: "fs.read_file", args: { path: "tests/epic-42.spec.ts" }, result: { content: "// mine" } },
+      {
+        tool: "fs.read_file",
+        args: { path: "tests/epic-42.spec.ts" },
+        result: { content: "// mine" },
+      },
     ]).read();
     const why = storyRefusal(
       { toolName: "fs.read_file", args: { path: "tests/epic-42.spec.ts" } },
@@ -372,7 +401,7 @@ describe("heal refuses to read a snapshot taken after a fallback", () => {
   const TITLE = "Story-a — Signed-in user can log out via the account menu";
   const SPEC_WITH_FALLBACK = [
     "async function clickLogout(page) {",
-    '  const link = page.locator(\'a[href="#/logout"]\');',
+    "  const link = page.locator('a[href=\"#/logout\"]');",
     '  await link.waitFor({ state: "visible" }).catch(async () => { await page.goto("/#/logout"); });',
     "}",
     `test("${TITLE}", async ({ page }) => {`,
@@ -406,7 +435,9 @@ describe("heal refuses to read a snapshot taken after a fallback", () => {
     ]);
 
   it("says what to do instead of naming buttons from the wrong page", async () => {
-    const t = new HealTools(led(SPEC_WITH_FALLBACK, 'expect(received).toBeNull()\nReceived: "eyJ0…"'));
+    const t = new HealTools(
+      led(SPEC_WITH_FALLBACK, 'expect(received).toBeNull()\nReceived: "eyJ0…"'),
+    );
     const r = await t.call("aqa", "heal_locator", { test: TITLE });
     expect(r.ok).toBe(false);
     const res = r.result as { message: string; do: string[] };
@@ -418,7 +449,10 @@ describe("heal refuses to read a snapshot taken after a fallback", () => {
 
   it("still answers when the failure IS a locator error", async () => {
     const t = new HealTools(
-      led(SPEC_WITH_FALLBACK, "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('a[href=\"#/logout\"]')"),
+      led(
+        SPEC_WITH_FALLBACK,
+        "TimeoutError: locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator('a[href=\"#/logout\"]')",
+      ),
     );
     const r = await t.call("aqa", "heal_locator", { test: TITLE });
     expect(r.ok).toBe(true);

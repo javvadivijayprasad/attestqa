@@ -39,7 +39,9 @@ import {
   SLOW_TEST_THRESHOLD_MS,
   isContagious,
   type TriageCategory,
-  type TriagePattern, DECLARED_ENVIRONMENTAL } from "./patterns.js";
+  type TriagePattern,
+  DECLARED_ENVIRONMENTAL,
+} from "./patterns.js";
 
 /**
  * One failing test, as read from an execution report.
@@ -213,8 +215,7 @@ export function classifyFailure(f: FailureSignal): TriageVerdict {
   // Sort by score, then by precedence. Precedence ONLY breaks ties.
   scored.sort(
     (a, b) =>
-      b.value - a.value ||
-      CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category),
+      b.value - a.value || CATEGORY_ORDER.indexOf(a.category) - CATEGORY_ORDER.indexOf(b.category),
   );
 
   // CATEGORY_ORDER is non-empty, so scored is too; the fallback keeps TypeScript
@@ -289,9 +290,7 @@ function evidenceFrom(hits: string[], message: string): string {
     .filter((l) => l.length > 0);
 
   const head = lines[0] ?? "";
-  const values = lines
-    .filter((l) => /^(expected|received|actual)\b/i.test(l))
-    .slice(0, 3);
+  const values = lines.filter((l) => /^(expected|received|actual)\b/i.test(l)).slice(0, 3);
 
   const parts = values.length > 0 ? [head, ...values] : [head];
   const text = parts.join(" · ").trim();
@@ -345,8 +344,7 @@ export function triageRun(failures: FailureSignal[]): TriageResult {
   const runLevel =
     CATEGORY_ORDER.find(
       (c) =>
-        isContagious(c) &&
-        verdicts.some((v) => v.category === c && v.matchedPatterns.length > 0),
+        isContagious(c) && verdicts.some((v) => v.category === c && v.matchedPatterns.length > 0),
     ) ?? null;
 
   const quarantined =

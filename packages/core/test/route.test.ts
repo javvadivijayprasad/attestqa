@@ -25,13 +25,13 @@ const FEATURE = [
 const SPEC = [
   'import { test, expect } from "@playwright/test";',
   'test.describe("Customer account access", () => {',
-  '  // @story:1 @ac:1 @design:D1',
+  "  // @story:1 @ac:1 @design:D1",
   '  test("AC-1 — signs in with correct credentials", async ({ page }) => {',
-  "    await page.goto(\"/#/login\");",
+  '    await page.goto("/#/login");',
   "  });",
-  '  // @story:44 @design:D9',
+  "  // @story:44 @design:D9",
   '  test("Story-a — logs out via the account menu", async ({ page }) => {',
-  "    await page.goto(\"/#/\");",
+  '    await page.goto("/#/");',
   "  });",
   "});",
 ].join("\n");
@@ -137,7 +137,10 @@ describe("on the execute path, a spec may be repaired but scenarios may not be r
   it("refuses a .feature write on path B", async () => {
     const { storyRefusal } = await import("../src/skills/story-rules.js");
     const why = storyRefusal(
-      { toolName: "fs.write_file", args: { path: "features/epic-42.feature", content: "Feature: x" } },
+      {
+        toolName: "fs.write_file",
+        args: { path: "features/epic-42.feature", content: "Feature: x" },
+      },
       events("B"),
     );
     expect(why).toContain("not this run's to rewrite");
@@ -147,7 +150,10 @@ describe("on the execute path, a spec may be repaired but scenarios may not be r
     const { storyRefusal } = await import("../src/skills/story-rules.js");
     expect(
       storyRefusal(
-        { toolName: "fs.write_file", args: { path: "tests/epic-42.spec.ts", content: "// healed" } },
+        {
+          toolName: "fs.write_file",
+          args: { path: "tests/epic-42.spec.ts", content: "// healed" },
+        },
         events("B"),
       ),
     ).toBeUndefined();
@@ -157,7 +163,10 @@ describe("on the execute path, a spec may be repaired but scenarios may not be r
     const { storyRefusal } = await import("../src/skills/story-rules.js");
     expect(
       storyRefusal(
-        { toolName: "fs.write_file", args: { path: "features/epic-42.feature", content: "Feature: x" } },
+        {
+          toolName: "fs.write_file",
+          args: { path: "features/epic-42.feature", content: "Feature: x" },
+        },
         events("A"),
       ),
     ).toBeUndefined();
@@ -218,7 +227,12 @@ describe("a quarantined test may be strengthened, never weakened", () => {
         eventId: 2,
         timestamp: 1,
         kind: "call" as const,
-        payload: { server: "fs", toolName: "read_file", args: { path: "tests/e.spec.ts" }, startedAt: 0 },
+        payload: {
+          server: "fs",
+          toolName: "read_file",
+          args: { path: "tests/e.spec.ts" },
+          startedAt: 0,
+        },
       },
       {
         tool: "agentic-qa" as const,
@@ -244,7 +258,9 @@ describe("a quarantined test may be strengthened, never weakened", () => {
           attempt: 1,
           reportFingerprint: "f",
           runLevel: null,
-          verdicts: [{ test: `tests/e.spec.ts › ${QUARANTINED}`, category: "real-defect", confidence: 0.7 }],
+          verdicts: [
+            { test: `tests/e.spec.ts › ${QUARANTINED}`, category: "real-defect", confidence: 0.7 },
+          ],
           quarantined: [QUARANTINED],
         },
       },

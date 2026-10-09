@@ -31,7 +31,13 @@ function ledgerOf(
       ...base,
       eventId: ++id,
       kind: "observation",
-      payload: { eventIdOfCall: callId, ok: true, result: e.result ?? {}, artefacts: [], durationMs: 1 },
+      payload: {
+        eventIdOfCall: callId,
+        ok: true,
+        result: e.result ?? {},
+        artefacts: [],
+        durationMs: 1,
+      },
     } as AnyRunEvent);
   }
   return events;
@@ -78,7 +84,7 @@ describe("a bug may only claim what the run observed", () => {
   const URL_FAILURE = {
     title: LOGOUT,
     message:
-      "Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /\\/#\\/login/\nReceived string: \"http://localhost:3100/#/\"",
+      'Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /\\/#\\/login/\nReceived string: "http://localhost:3100/#/"',
   };
 
   it("refuses the claim about a check that never ran", () => {
@@ -114,24 +120,44 @@ describe("an accessibility bug needs a scoped scan", () => {
 
   it("refuses a bug from a whole-page scan", () => {
     const why = storyRefusal(
-      bug("Logout flow has WCAG A/AA violations", "axe reported color-contrast and label violations."),
+      bug(
+        "Logout flow has WCAG A/AA violations",
+        "axe reported color-contrast and label violations.",
+      ),
       runWith([A11Y_FAILURE]),
     );
     expect(why).toContain("scans the WHOLE page");
   });
 
   it("allows it once the scan is scoped", () => {
-    const scoped = SPEC.replace("new AxeBuilder({ page })", 'new AxeBuilder({ page }).include("#navbarAccount")');
+    const scoped = SPEC.replace(
+      "new AxeBuilder({ page })",
+      'new AxeBuilder({ page }).include("#navbarAccount")',
+    );
     const events = ledgerOf([
-      { tool: "fs.read_file", args: { path: "tests/epic-42.spec.ts" }, result: { content: scoped } },
+      {
+        tool: "fs.read_file",
+        args: { path: "tests/epic-42.spec.ts" },
+        result: { content: scoped },
+      },
       {
         tool: "pw.run_tests",
-        result: { passed: 8, failed: 1, skipped: 0, flaky: 0, green: false, failures: [A11Y_FAILURE] },
+        result: {
+          passed: 8,
+          failed: 1,
+          skipped: 0,
+          flaky: 0,
+          green: false,
+          failures: [A11Y_FAILURE],
+        },
       },
     ]);
     expect(
       storyRefusal(
-        bug("Logout flow has WCAG A/AA violations", "axe reported color-contrast and label violations."),
+        bug(
+          "Logout flow has WCAG A/AA violations",
+          "axe reported color-contrast and label violations.",
+        ),
         events,
       ),
     ).toBeUndefined();
@@ -140,7 +166,7 @@ describe("an accessibility bug needs a scoped scan", () => {
 
 describe("a heal is not evidence-destruction", () => {
   const TITLE = "Story-a — Signed-in user can log out via the account menu";
-  const CLAIM = '  await expect(page).toHaveURL(/\\/#\\/login/);';
+  const CLAIM = "  await expect(page).toHaveURL(/\\/#\\/login/);";
 
   const specWith = (step: string) =>
     [`test("${TITLE}", async ({ page }) => {`, step, CLAIM, "});"].join("\n");
@@ -196,7 +222,11 @@ describe("a heal is not evidence-destruction", () => {
     const out = triageGaps(
       events(
         specWith('  await page.locator("a").click();'),
-        [`test("${TITLE}", async ({ page }) => {`, '  await page.locator("a").click();', "});"].join("\n"),
+        [
+          `test("${TITLE}", async ({ page }) => {`,
+          '  await page.locator("a").click();',
+          "});",
+        ].join("\n"),
       ),
     );
     expect(out.gaps.map((g) => g.code)).toContain("quarantined-test-modified");
@@ -278,7 +308,7 @@ describe("the baseline for a write is the file, read or not", () => {
 describe("what a test claims includes what it expects", () => {
   it("sees a relaxed pattern as a dropped claim", async () => {
     const { assertionsOf } = await import("../src/design/test-design.js");
-    const strict = 'await expect(page).toHaveURL(/\\/#\\/login/, { timeout: 5000 });';
+    const strict = "await expect(page).toHaveURL(/\\/#\\/login/, { timeout: 5000 });";
     const relaxed = "await expect(page).toHaveURL(/\\/#\\//);";
     // The signature used to be "page.toHaveURL" for both, which is how a
     // retreat passed for a repair (20260925T192122Z).
@@ -366,8 +396,14 @@ describe("one bug per failing test, and only when the test is the same", () => {
             "Accessibility — Logout flow has no WCAG A/AA violations",
           ]),
           tests: [
-            { title: "Story-a — Signed-in user can log out via the account menu", status: "failed" },
-            { title: "Story-c — After logout, navigating to the account page redirects to login", status: "failed" },
+            {
+              title: "Story-a — Signed-in user can log out via the account menu",
+              status: "failed",
+            },
+            {
+              title: "Story-c — After logout, navigating to the account page redirects to login",
+              status: "failed",
+            },
             { title: "Accessibility — Logout flow has no WCAG A/AA violations", status: "failed" },
           ],
         },
@@ -470,7 +506,7 @@ describe("a claim is what an assertion SAYS, not the code around it", () => {
           {
             title: TITLE,
             message:
-              "Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /\\/#\\/login/\nReceived string: \"http://localhost:3100/#/\"",
+              'Error: expect(page).toHaveURL(expected) failed\nExpected pattern: /\\/#\\/login/\nReceived string: "http://localhost:3100/#/"',
           },
         ],
       },
@@ -530,7 +566,11 @@ describe("two bugs about two tests stay two bugs", () => {
           skipped: 0,
           flaky: 0,
           green: false,
-          failures: TESTS.map((title) => ({ title, file: "tests/e.spec.ts", message: "Error: toHaveURL" })),
+          failures: TESTS.map((title) => ({
+            title,
+            file: "tests/e.spec.ts",
+            message: "Error: toHaveURL",
+          })),
           tests: TESTS.map((title) => ({ title, status: "failed" })),
         },
       },
