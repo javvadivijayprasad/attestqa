@@ -348,7 +348,6 @@ export class StoryToTestsVerifier implements Verifier {
     }
 
     // 3. the suite ran and is green ----------------------------------------
-    const runs = successful(calls, "pw.run_tests");
     // Only a run of the whole suite finishes the job; a filtered one is a
     // working step.
     const last = lastFullRun(input.events);

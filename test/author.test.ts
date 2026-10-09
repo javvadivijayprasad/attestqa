@@ -139,7 +139,7 @@ describe("another story's scenarios are not this run's to reword", () => {
     "    Given I am signed in",
   ].join("\n");
 
-  const events = (content: string) =>
+  const events = (_content: string) =>
     ledgerOf([
       STORY,
       { tool: "fs.read_file", args: { path: FEATURE }, result: { content: before } },

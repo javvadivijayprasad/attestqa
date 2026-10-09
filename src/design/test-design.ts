@@ -857,7 +857,7 @@ export function storyTestTitles(spec: string, storyId: number): Set<string> {
       if (ids.length > 0) current = ids;
       continue;
     }
-    const m = /^\s*test(?:\.\w+)?\s*\(\s*(["\'`])([\s\S]*?)\1/.exec(line);
+    const m = /^\s*test(?:\.\w+)?\s*\(\s*(["'`])([\s\S]*?)\1/.exec(line);
     if (m) {
       if (current.includes(storyId)) out.add((m[2] ?? "").trim());
       current = [];

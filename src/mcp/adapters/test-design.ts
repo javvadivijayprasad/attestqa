@@ -11,7 +11,7 @@ import {
 } from "../../design/test-design.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { coverageOf, featurePathFor, renderDesign, specPathFor } from "../../design/test-design.js";
+import { coverageOf, featurePathFor, specPathFor } from "../../design/test-design.js";
 import type { LedgerView } from "./summary.js";
 
 /**

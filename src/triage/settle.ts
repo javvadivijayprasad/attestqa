@@ -107,7 +107,7 @@ export function settleBugs(
         call,
         reason: green
           ? "the suite finished GREEN — the test this bug rests on passed"
-          : "no test of THIS story is failing in the final run (the failures belong to another story in the epic\'s spec)",
+          : "no test of THIS story is failing in the final run (the failures belong to another story in the epic's spec)",
       });
       continue;
     }

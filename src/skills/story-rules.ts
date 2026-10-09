@@ -5,7 +5,7 @@ import { asArray, asRecord, completedCalls, numberField, payloadOf, successful }
 import { acLabels, allFailedTitles } from "../triage/settle.js";
 import { missingImports } from "../framework/survey.js";
 import { assertionsOf, isPartialRead, testsByTitle } from "../design/test-design.js";
-import { CATCHES, LOCATOR_ERROR, stuckAction } from "../heal/locator.js";
+import { CATCHES, stuckAction } from "../heal/locator.js";
 import { routePathOf } from "../route/route.js";
 import { isFullRun, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
 import { hasAgentTag } from "../verify/story-to-tests.js";
@@ -17,7 +17,6 @@ import {
   fileTextFromEvents,
   scenarioStoryTags,
   specPathFor,
-  storiesIn,
   parseDesign,
   storyFacts,
   validateDesign,
@@ -499,7 +498,7 @@ function wrongEpicFile(
   const want = isFeature ? featurePathFor(facts) : specPathFor(facts);
   if (!want || path === want) return;
   return (
-    `this epic\'s tests live in one file: ${featurePathFor(facts)} (and the spec ${specPathFor(facts)} ` +
+    `this epic's tests live in one file: ${featurePathFor(facts)} (and the spec ${specPathFor(facts)} ` +
     `bdd2pw generates from it). Write ${want}, not "${path}" — tests follow the application, not the ` +
     "backlog item, so every story under the epic adds its scenarios to the same file, tagged " +
     "@story:<id>."
@@ -575,9 +574,9 @@ function dropsAnotherStory(
   if (lost.length === 0) return;
   return (
     `this write removes ${lost.length} scenario(s) belonging to another story: ${lost.join("; ")}. ` +
-    "They are that story\'s tests, in the epic\'s shared file. Keep them exactly as they are and add " +
+    "They are that story's tests, in the epic's shared file. Keep them exactly as they are and add " +
     "yours alongside; if one of them looks wrong, say so in your final message — changing it is a " +
-    "person\'s call."
+    "person's call."
   );
 }
 
@@ -597,7 +596,7 @@ function untaggedScenario(
   if (untagged.length === 0) return;
   return (
     `${untagged.length} scenario(s) carry no @story tag: ${untagged.join("; ")}. In a shared epic ` +
-    `file the tag is what separates one story\'s tests from another\'s — tag each scenario you add ` +
+    `file the tag is what separates one story's tests from another's — tag each scenario you add ` +
     `@story:${mine}, and leave the existing tags alone.`
   );
 }
@@ -703,10 +702,10 @@ function wrongSuiteTarget(
   const asked = String(call.args["spec"] ?? "");
   if (asked === want) return;
   return (
-    `run the epic\'s spec: pass spec: "${want}". ` +
+    `run the epic's spec: pass spec: "${want}". ` +
     (asked
       ? `"${asked}" is not it.`
-      : "Running everything in the workspace pulls other epics\' failures into this run\'s triage.")
+      : "Running everything in the workspace pulls other epics' failures into this run's triage.")
   );
 }
 

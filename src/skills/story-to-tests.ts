@@ -10,10 +10,8 @@ import {
   coverageOf,
   featurePathFor,
   parseDesign,
-  renderDesign,
   specPathFor,
 } from "../design/test-design.js";
-import { completedCalls, successful } from "../verify/evidence.js";
 import { nameChanged, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
 
 import { existsSync, readFileSync } from "node:fs";
@@ -864,6 +862,7 @@ export function storyToTestsSkill(
               fresh === 1 ? "that one" : "those"
             } most closely, ${fresh === 1 ? "it is" : "they are"} the work this run will do.`,
       ].join("\n");
+      return { note, covered };
     },
     /**
      * The suite, run by the runtime rather than decided on by the model.

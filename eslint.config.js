@@ -32,6 +32,9 @@ export default tseslint.config(
       "tests/**",
       "pages/**",
       "extension/**",
+      // Generated example output and local scratch, not this package's code.
+      "examples/sample-project/**",
+      "_to_delete/**",
       "*.config.*",
     ],
   },

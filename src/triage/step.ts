@@ -25,7 +25,7 @@ import { NO_SIGNATURE_CONFIDENCE, isContagious, type TriageCategory } from "./pa
 import { readFailures, reportFingerprint, reportMtimeMs, reportPath } from "./report.js";
 import { analyzeReport, merge, type ServiceOptions } from "./service.js";
 import { assertionsOf, testsByTitle } from "../design/test-design.js";
-import { asRecord, completedCalls, successful } from "../verify/evidence.js";
+import { asRecord, completedCalls } from "../verify/evidence.js";
 import { isFullRun } from "../runtime/rerun.js";
 
 export interface TriageStepOptions {
