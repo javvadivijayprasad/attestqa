@@ -23,3 +23,12 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
+      - name: Formatting (packages/core)
+        run: npm run format:check --workspace packages/core
+      - name: Fixture ledger regenerates exactly
+        working-directory: packages/core
+        run: npm run fixture:make && git diff --exit-code -- examples/fixture-ledger/events.jsonl
+      - name: Replay smoke test
+        working-directory: packages/core
+        shell: bash
+        run: node dist/cli.js replay examples/fixture-ledger --out "${{ runner.os == 'Windows' && 'NUL' || '/dev/null' }}"
