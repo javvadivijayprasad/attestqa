@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If you use attestqa, please cite it as below."
+title: "attestqa (formerly agentic-qa): governed agentic end-to-end testing"
+authors:
+  - family-names: Javvadi
+    given-names: Vijay Prasad
+    affiliation: "Independent Researcher, Plainsboro, NJ, USA"
+    orcid: "https://orcid.org/0009-0004-1192-6906"
+license: MIT
+repository-code: "https://github.com/javvadivijayprasad/attestqa"
+doi: 10.5281/zenodo.22758876
+type: software

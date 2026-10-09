@@ -1,0 +1,1 @@
+Changesets collect release notes during the month. Run `npx changeset`, pick the packages you changed, and write one sentence a user would understand. At release time they become each package's CHANGELOG entry and feed the GitHub release notes.

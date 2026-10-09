@@ -1,0 +1,9 @@
+name: Model provider request
+description: A model provider or sign-in method you need.
+labels: [provider]
+body:
+  - type: input
+    attributes: { label: Provider and sign-in, placeholder: "e.g. Google Vertex AI with workload identity" }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Why, description: "What your company uses and why the existing options do not fit." }

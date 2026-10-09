@@ -1,0 +1,56 @@
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:13px/1.45 "Segoe UI",system-ui,sans-serif;color:#1d2330;background:#eef0f4;width:1440px;height:900px;overflow:hidden}
+.app{display:grid;grid-template-columns:64px 1fr;grid-template-rows:44px 1fr 52px;height:900px}
+.rail{grid-row:1/4;background:#1b2130;display:flex;flex-direction:column;align-items:center;padding-top:12px;gap:6px}
+.rail .logo{width:36px;height:36px;border-radius:9px;background:#3b6ef5;color:#fff;font-weight:700;display:grid;place-items:center;margin-bottom:14px}
+.rail a{width:48px;padding:7px 0;border-radius:8px;color:#9aa4ba;font-size:10px;text-align:center;text-decoration:none}
+.rail a b{display:block;font-size:17px;font-weight:400;line-height:1.2}
+.rail a.on{background:#2b3348;color:#fff}
+.policy{grid-column:2;background:#fff;border-bottom:1px solid #dde1e8;display:flex;align-items:center;gap:18px;padding:0 18px;font-size:12px;color:#4a5368}
+.policy .pill{background:#eef2ff;color:#2d4fd1;border-radius:20px;padding:3px 10px;font-weight:600}
+.policy .k{color:#8a92a5;margin-right:4px}
+.policy .right{margin-left:auto;display:flex;gap:14px}
+.policy .warn{color:#b4540a;font-weight:600}
+.policy .ok{color:#1d7a46;font-weight:600}
+main{grid-column:2;overflow:hidden;padding:18px;display:grid;gap:16px;align-content:start}
+.ask{grid-column:2;background:#fff;border-top:1px solid #dde1e8;display:flex;align-items:center;gap:10px;padding:0 18px}
+.ask input{flex:1;border:1px solid #cfd5df;border-radius:8px;padding:8px 12px;font:inherit;color:#68718a;background:#f8f9fb}
+.ask small{color:#8a92a5}
+.card{background:#fff;border:1px solid #dde1e8;border-radius:10px;padding:14px 16px;overflow:hidden}
+h1{font-size:18px;font-weight:600;margin-bottom:2px}
+h2{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:#6b748a;margin-bottom:10px}
+h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.sub{color:#6b748a;font-size:12px}
+.btn{display:inline-block;border-radius:7px;padding:6px 12px;font-weight:600;font-size:12px;border:1px solid #cfd5df;background:#fff;color:#1d2330}
+.btn.pri{background:#3b6ef5;border-color:#3b6ef5;color:#fff}
+.btn.red{background:#fff1f0;border-color:#f1b8b2;color:#a8261b}
+.btn.grn{background:#ecf8f0;border-color:#a9dbbb;color:#1d7a46}
+.tag{display:inline-block;border-radius:5px;padding:1px 7px;font-size:11px;font-weight:600}
+.t-pass{background:#e4f5ea;color:#1d7a46}.t-fail{background:#fde8e6;color:#a8261b}.t-q{background:#fff3df;color:#9a5a00}
+.t-ref{background:#f1e9ff;color:#6230c4}.t-mut{background:#eef0f4;color:#596178}
+code,.mono{font-family:Consolas,"Cascadia Mono",monospace;font-size:12px}
+pre{font-family:Consolas,monospace;font-size:12px;background:#f6f7f9;border:1px solid #e3e6ec;border-radius:7px;padding:10px;white-space:pre-wrap}
+.del{background:#fde8e6;color:#8d1f15;display:block}.add{background:#e4f5ea;color:#155f37;display:block}
+.row{display:flex;gap:8px;align-items:center}
+.list>div{padding:8px 0;border-bottom:1px solid #eef0f4}
+.list>div:last-child{border:0}
+.note{background:#fffaf0;border:1px solid #f0dcb4;border-radius:8px;padding:10px 12px;color:#6a4a10;font-size:12px}
+.callout{background:#f3f0ff;border:1px solid #d8cdfb;border-radius:8px;padding:10px 12px;color:#43218f;font-size:12px}
+.stat{font-size:26px;font-weight:600}
+.muted{color:#8a92a5}
+.seg{display:inline-flex;border:1px solid #cfd5df;border-radius:7px;overflow:hidden;font-size:11.5px}
+.seg span{padding:3px 9px;border-right:1px solid #cfd5df;color:#4a5368}
+.seg span:last-child{border-right:0}
+.seg span.on{background:#1b2130;color:#fff;font-weight:600}
+.seg span.off{color:#b0b6c3;background:#f6f7f9}
+.seg small{font-size:9.5px}
+.grid{border-collapse:collapse;width:100%;font-size:12px}
+.grid th,.grid td{border-bottom:1px solid #eef0f4;padding:7px 8px;text-align:left;vertical-align:top}
+.grid th{color:#6b748a;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.03em}
+.grid td.c{text-align:center}
+.dot{display:inline-block;min-width:22px;padding:1px 6px;border-radius:5px;font-size:11px;font-weight:600;text-align:center}
+.d-ok{background:#e4f5ea;color:#1d7a46}.d-no{background:#eef0f4;color:#8a92a5}.d-fail{background:#fde8e6;color:#a8261b}.d-na{color:#c5cbd8}
+.tabs{display:flex;gap:6px}
+.tabs span{border:1px solid #dde1e8;border-radius:16px;padding:4px 12px;background:#fff;font-size:12px}
+.tabs span.on{background:#eef2ff;border-color:#b9c8fb;color:#2d4fd1;font-weight:600}
+.tabs span.off{color:#b0b6c3}

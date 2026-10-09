@@ -1,0 +1,29 @@
+# dependencies and builds
+node_modules/
+dist/
+out/
+coverage/
+*.tsbuildinfo
+*.vsix
+
+# secrets — never committed (AQ-09 §1)
+.env
+.env.*
+!.env.example
+*.pem
+*.pfx
+
+# run ledgers stay local; study datasets are exported and published separately (AQ-09 §6)
+**/.aqa/
+.aqa-report/
+test-results/
+playwright-report/
+blob-report/
+
+# scratch
+_to_delete/
+Docs/out/
+**/__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db

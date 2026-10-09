@@ -1,0 +1,12 @@
+name: Bug report
+description: Something attestqa did that it should not have, or did not do that it should.
+labels: [bug]
+body:
+  - type: input
+    attributes: { label: attestqa version, placeholder: "v1.0.0" }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: What happened, description: "What you ran, what you expected, what happened instead." }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Ledger excerpt, description: "The relevant events from .aqa/runs/<id>/events.jsonl. Remove anything private first." }

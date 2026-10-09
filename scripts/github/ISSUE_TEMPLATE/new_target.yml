@@ -1,0 +1,10 @@
+name: New practice site
+description: Suggest a public practice site attestqa could be tested against.
+labels: [target]
+body:
+  - type: input
+    attributes: { label: URL }
+    validations: { required: true }
+  - type: textarea
+    attributes: { label: Why it is allowed, description: "Where the site's owner says it may be used for automated testing." }
+    validations: { required: true }
