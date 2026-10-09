@@ -1,7 +1,22 @@
 # agentic-qa — fleet-wide agent config (PLAN §0). Copy to your repo root as
 # ai-quality.config.yaml and pass with `aqa run ... --config ai-quality.config.yaml`.
 agent:
-  model: claude-sonnet-4-6 # overridden by AQA_MODEL if set
+  # Where the model comes from. A bare name means Anthropic. For another
+  # provider, give the mapping — the credential comes from the environment
+  # (ANTHROPIC_API_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY), never from here.
+  # AQA_MODEL, if set, overrides the name and never the provider.
+  #
+  #   model:
+  #     provider: azure-openai         # anthropic | openai | azure-openai | local
+  #     name: gpt-4.1                  # the deployment name on Azure
+  #     endpoint: https://<resource>.openai.azure.com
+  #     api_version: 2024-10-21
+  #
+  #   model:
+  #     provider: local
+  #     name: llama3.1
+  #     endpoint: http://localhost:11434/v1
+  model: claude-sonnet-4-6
   prompt_version: aqa-prompt-v0.1.0
   budgets:
     # A fix → run → fix loop costs roughly 14k tokens per cycle, most of it the
@@ -30,11 +45,7 @@ agent:
     # 1 = the story; 29-34 = closed bugs (defect profile); 42 = its epic;
     # 45-47 = its tasks; 48-50 = the open bugs. Stage-1 context reads are
     # refused for anything outside this list, and reported as refused.
-    # 1, 43, 44 = the epic's stories; 29-34 = closed bugs (defect profile);
-    # 42 = the epic; 45-47 = tasks; 48-50 = open bugs; 69-82 = the test cases the
-    # runtime created for these stories, plus the bugs it filed (filtered out of
-    # context as agent-written, but readable).
-    work_items: ["1", "29-34", "42-50", "69-82"] # exact ids or ranges: "100-199"
+    work_items: ["1", "29-34", "42", "45-50"] # exact ids or ranges: "100-199"
     repos: [] # repo names the agent may write to (none for slice 1)
     # Azure Test Plans the agent may create cases/suites in. Entries are matched
     # against the argument as passed, and the Azure DevOps MCP server uses the

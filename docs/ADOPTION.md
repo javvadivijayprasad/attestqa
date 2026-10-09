@@ -103,7 +103,7 @@ plans and suites are the paid service. The run records what it could not check r
 
 ### QA lead — an hour, once
 
-1. `npm install -g @vijaypjavvadi/agentic-qa`
+1. `npm install -g attestqa`
 2. Write `ai-quality.config.yaml` and commit it **to the repo**, not to someone's laptop. It is the
    team's policy, and it should be reviewed like any other policy.
 3. Create the workspace: a folder with a `playwright.config.ts` whose `baseURL` comes from

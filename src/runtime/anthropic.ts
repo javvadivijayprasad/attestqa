@@ -163,6 +163,7 @@ Rules.
  */
 export class AnthropicModel implements ModelClient {
   readonly model: string;
+  readonly provider = "anthropic";
   readonly promptVersion: string;
   private readonly apiKey: string;
   private readonly maxTokens: number;
@@ -354,7 +355,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 // Prompt assembly
 // ---------------------------------------------------------------------------
 
-function renderRequest(input: ModelInput): string {
+export function renderRequest(input: ModelInput): string {
   return `# Request\n\n${input.request}`;
 }
 

@@ -75,6 +75,8 @@ export interface ModelInput {
 
 export interface ModelClient {
   readonly model: string;
+  /** Which provider serves this client. Absent for the scripted fixture model. */
+  readonly provider?: string;
   readonly promptVersion: string;
   /** Initial outline. Recorded as the `plan` event. */
   plan(input: ModelInput): Promise<{ steps: string[]; usage: ModelUsage }>;

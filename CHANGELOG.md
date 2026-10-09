@@ -6,6 +6,48 @@ config schema, ledger event shapes, approval file mode, artefact paths) is a MAJ
 
 ## [Unreleased]
 
+### Renamed — `@vijaypjavvadi/agentic-qa` is now `attestqa`
+
+- The package is published as **`attestqa`** from 1.1.0. The old name stays on the registry
+  as a shim that depends on `attestqa` and forwards the `aqa` command, so existing installs
+  keep working; it is marked deprecated with a pointer here. The GitHub repository is renamed
+  in place (GitHub redirects the old URL; the Zenodo concept DOI is unchanged).
+- What does NOT change: the `aqa` command (a second `attestqa` command is added beside it),
+  the ledger's `tool: "agentic-qa"` field — the corpus is frozen under that name and every
+  earlier ledger carries it — the config schema, the exit codes and the artefact paths.
+- Why the name: the runtime's distinguishing property is that it attests. Its report is
+  counted from a replayable ledger rather than from the model's account of its own work, and
+  the name should say so. "Agentic" describes the category; "attest" describes the claim.
+
+### Added — the model is a provider, not a dependency
+
+- **`agent.model.provider`** in `ai-quality.config.yaml`: `anthropic` (the default),
+  `openai`, `azure-openai` or `local`. The original string form (`model: claude-sonnet-4-6`)
+  still loads and still means Anthropic, so every existing config and every ledger in the
+  corpus is unchanged. Set once per environment; the credential comes from the environment
+  where the runtime runs — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `AZURE_OPENAI_API_KEY`, or
+  none for `local` — and never from the config file. `AQA_MODEL` overrides the name, never
+  the provider.
+- **`src/runtime/openai.ts`**: one OpenAI-compatible chat-completions adapter for OpenAI,
+  Azure OpenAI and local servers (Ollama, vLLM, LM Studio). Same `renderCycle`, same
+  `RUNTIME_SYSTEM`, same wire names, same `scrub`, same stance: no provider-side
+  conversation — the ledger is the memory whichever model is reading it. No SDK; one `fetch`.
+- **`src/runtime/provider.ts`**: the one place a provider name becomes a model client. A
+  missing credential names the variable, not the symptom.
+- **`inference.provider`** on the ledger (additive, optional): absent on every ledger written
+  before this, which were all Anthropic; present from now on so a corpus run on a second
+  model is distinguishable without reading the model name.
+- Why: every run in the corpus used one provider through one SDK, so "governance works"
+  could be read as "one model respects refusals"; and a company standardised on GitHub
+  Copilot has no Anthropic account. The seam answers both.
+
+### Changed
+
+- `AgentConfig.model` is a `ModelConfig` object rather than a string. The YAML accepts both
+  forms; library callers reading `config.model` directly get `{ provider, name }`.
+- The terminal's credential line names the configured provider's variable rather than
+  assuming `ANTHROPIC_API_KEY`.
+
 ## [1.0.0] - 2026-09-18
 
 First version under the stated contract. `EVENT_KINDS`, the ledger event shapes,

@@ -20,7 +20,7 @@ export const FIXTURE_REQUEST =
   "Write and run tests for AB#1, then record the results in Azure Test Plans.";
 
 export const fixtureConfig: AgentConfig = {
-  model: "claude-sonnet-4-6",
+  model: { provider: "anthropic", name: "claude-sonnet-4-6" },
   prompt_version: "aqa-prompt-v0.1.0",
   budgets: { steps: 40, tokens: 400000 },
   scope: {

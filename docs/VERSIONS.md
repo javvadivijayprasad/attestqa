@@ -12,7 +12,7 @@ Check this table against reality before every release, with the commands below.
 
 | Artefact | Name | Version | Published | Source |
 | --- | --- | --- | --- | --- |
-| Runtime | `@vijaypjavvadi/agentic-qa` | **1.0.0** | npm | `package.json` |
+| Runtime | `attestqa` | **1.0.0** | npm | `package.json` |
 | Extension | `vijaypjavvadi.agentic-qa-vscode` | **1.0.0** | VS Code Marketplace | `extension/package.json` |
 | Archive | `agentic-qa` | 0.1.2 | Zenodo (DOI) | `CITATION.cff` |
 
@@ -45,7 +45,7 @@ bump or it is nothing.
 
 ```bash
 # npm — what the registry has, and what this working tree claims
-npm view @vijaypjavvadi/agentic-qa version
+npm view attestqa version
 node -p "require('./package.json').version"
 
 # the built CLI — catches a stale dist/, which has bitten before

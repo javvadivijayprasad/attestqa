@@ -31,7 +31,7 @@ const good = {
 describe("agentConfigFromObject", () => {
   it("parses a full config and applies default policy for unspecified classes", () => {
     const c = agentConfigFromObject(good);
-    expect(c.model).toBe("claude-sonnet-4-6");
+    expect(c.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4-6" });
     expect(c.budgets).toEqual({ steps: 40, tokens: 400000 });
     expect(c.scope.test_plans).toEqual(["Sandbox Plan"]);
     expect(c.policy).toEqual({
@@ -45,7 +45,7 @@ describe("agentConfigFromObject", () => {
 
   it("applies defaults for model, prompt_version and budgets", () => {
     const c = agentConfigFromObject({ agent: { scope: { work_items: [1] } } });
-    expect(c.model).toBe("claude-sonnet-4-6");
+    expect(c.model).toEqual({ provider: "anthropic", name: "claude-sonnet-4-6" });
     expect(c.prompt_version).toBe("aqa-prompt-v0.1.0");
     expect(c.budgets).toEqual({ steps: 40, tokens: 400000 });
     expect(c.scope.work_items).toEqual(["1"]); // numbers coerced to strings

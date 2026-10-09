@@ -623,6 +623,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
           "inference",
           {
             model: model.model,
+            ...(model.provider ? { provider: model.provider } : {}),
             promptVersion: model.promptVersion,
             toolName: null,
             args: null,
@@ -673,6 +674,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
           "inference",
           {
             model: model.model,
+            ...(model.provider ? { provider: model.provider } : {}),
             promptVersion: model.promptVersion,
             toolName: call.toolName,
             args: call.args,

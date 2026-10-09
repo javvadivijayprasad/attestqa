@@ -24,14 +24,14 @@ organisation has the Test Plans access level; without that licence the scope mak
 ## Install
 
 ```bash
-npm install -g @vijaypjavvadi/agentic-qa
+npm install -g attestqa
 aqa --version
 ```
 
 Or from a clone, which is what you want if you plan to change anything:
 
 ```bash
-git clone https://github.com/javvadivijayprasad/agentic-qa
+git clone https://github.com/javvadivijayprasad/attestqa
 cd agentic-qa && npm ci && npm run build
 node dist/cli.js --help
 ```

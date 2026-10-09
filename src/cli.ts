@@ -12,7 +12,7 @@ import {
 } from "./config.js";
 import { Ledger, newRunId, APPROVALS_DIR } from "./ledger/ledger.js";
 import { runLoop } from "./runtime/loop.js";
-import { AnthropicModel } from "./runtime/anthropic.js";
+import { buildModel, describeModel, CREDENTIAL_VAR } from "./runtime/provider.js";
 import { TerminalApprover, FileApprover } from "./runtime/approvers.js";
 import { storyToTestsSkill } from "./skills/story-to-tests.js";
 import { defectProfileSkill } from "./skills/defect-profile.js";
@@ -314,7 +314,7 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
     });
     io.out(`aqa run --dry-run: "${request}"\n`);
     io.out(
-      `  config: model ${config.model}, budgets ${config.budgets.steps} steps / ${config.budgets.tokens} tokens\n`,
+      `  config: model ${describeModel(config.model)}, budgets ${config.budgets.steps} steps / ${config.budgets.tokens} tokens\n`,
     );
     io.out(
       `  scope: work_items ${config.scope.work_items.join(",") || "(none)"}; repos ${config.scope.repos.join(",") || "(none)"}; test_plans ${config.scope.test_plans.join(",") || "(none)"}; urls ${config.scope.urls.join(",") || "(none)"}\n`,
@@ -365,18 +365,21 @@ async function live(
   // actually built.
   const env = readRuntimeEnv(process.env, { requireAnthropic: false });
 
-  // Say where the credentials came from. A stale ANTHROPIC_API_KEY already in
-  // the shell wins over the file (standard dotenv precedence) and silently
-  // shadows it, which otherwise surfaces only as an unexplained 401.
-  const keySource = loaded.includes("ANTHROPIC_API_KEY")
-    ? envFile
-    : env.anthropicApiKey
-      ? "the shell environment (NOT " + envFile + ")"
-      : "nowhere";
+  // Say where the credential came from — for the provider the config names,
+  // not for Anthropic by assumption. A stale key already in the shell wins
+  // over the file (standard dotenv precedence) and silently shadows it, which
+  // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
+  const credVar = CREDENTIAL_VAR[config.model.provider];
+  const credValue = credVar ? process.env[credVar] ?? "" : "";
+  const keySource = !credVar
+    ? "no credential needed"
+    : loaded.includes(credVar)
+      ? `${credVar} ${mask(credValue)} from ${envFile}`
+      : credValue
+        ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
+        : `${credVar} is not set anywhere`;
   io.err(
-    `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; ANTHROPIC_API_KEY ${mask(
-      env.anthropicApiKey,
-    )} from ${keySource}\n`,
+    `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(config.model)}; ${keySource}\n`,
   );
 
   const approvalMode = flag(args, "--approval") ?? "terminal";
@@ -509,14 +512,13 @@ async function live(
       }),
     ]);
 
-    if (!deps.buildModel && !env.anthropicApiKey)
-      throw new ConfigError("ANTHROPIC_API_KEY is not set");
     const model =
       deps.buildModel?.(env, config) ??
-      new AnthropicModel({
-        apiKey: env.anthropicApiKey,
-        model: env.model ?? config.model,
+      buildModel({
+        config: config.model,
+        env,
         promptVersion: config.prompt_version,
+        ...(env.model ? { modelOverride: env.model } : {}),
         warn: (m) => io.err(`aqa: ${scrub(m).text}\n`),
       });
 

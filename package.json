@@ -1,32 +1,35 @@
 {
-  "name": "@vijaypjavvadi/agentic-qa",
-  "version": "1.0.0",
-  "description": "Standalone agentic QA runtime: a model chooses tools over MCP inside a governance gate; every step is written to a replayable ledger.",
+  "name": "attestqa",
+  "version": "1.1.0",
+  "description": "attestqa: a governed QA runtime. A model chooses tools over MCP inside a governance gate that refuses to weaken a test; every step is written to a replayable ledger, and the report is counted from the ledger, not from the model's account of itself.",
   "license": "MIT",
   "author": "Vijay P. Javvadi <jvijayprasad@gmail.com>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/javvadivijayprasad/agentic-qa.git"
+    "url": "git+https://github.com/javvadivijayprasad/attestqa.git"
   },
-  "homepage": "https://github.com/javvadivijayprasad/agentic-qa#readme",
+  "homepage": "https://github.com/javvadivijayprasad/attestqa#readme",
   "bugs": {
-    "url": "https://github.com/javvadivijayprasad/agentic-qa/issues"
+    "url": "https://github.com/javvadivijayprasad/attestqa/issues"
   },
   "keywords": [
-    "agentic",
     "qa",
     "test-automation",
+    "governance",
     "mcp",
     "model-context-protocol",
     "playwright",
     "azure-devops",
-    "governance"
+    "agentic",
+    "ledger",
+    "attestation"
   ],
   "type": "module",
   "engines": {
     "node": ">=18"
   },
   "bin": {
+    "attestqa": "./dist/cli.js",
     "aqa": "./dist/cli.js"
   },
   "main": "./dist/index.cjs",
@@ -69,7 +72,6 @@
     "release:check": "npm pack --dry-run"
   },
   "devDependencies": {
-    "@axe-core/playwright": "^4.13.0",
     "@eslint/js": "^9.10.0",
     "@playwright/test": "^1.63.0",
     "@types/node": "^20.14.0",
@@ -82,9 +84,9 @@
     "vitest": "^2.0.0"
   },
   "dependencies": {
+    "@vijaypjavvadi/bdd2pw": "^4.3.2",
     "@anthropic-ai/sdk": "^0.125.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
-    "@vijaypjavvadi/bdd2pw": "^4.3.2",
     "yaml": "^2.5.0"
   },
   "publishConfig": {

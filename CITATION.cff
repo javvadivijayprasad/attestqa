@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
 type: software
-title: "agentic-qa: an MCP-based agentic QA runtime with a governance gate and replayable ledger"
+title: "attestqa (formerly agentic-qa): an MCP-based agentic QA runtime with a governance gate and replayable ledger"
 abstract: >-
   A runtime for agentic software testing in which a language model proposes tool
   calls but decides nothing. Every proposed call is classified against a manifest
@@ -22,8 +22,8 @@ authors:
 version: 0.1.0
 date-released: "2026-09-14"
 license: MIT
-repository-code: "https://github.com/javvadivijayprasad/agentic-qa"
-url: "https://github.com/javvadivijayprasad/agentic-qa#readme"
+repository-code: "https://github.com/javvadivijayprasad/attestqa"
+url: "https://github.com/javvadivijayprasad/attestqa#readme"
 doi: 10.5281/zenodo.22758876
 identifiers:
   - type: doi

@@ -77,6 +77,13 @@ export interface ContextPayload {
 
 export interface InferencePayload {
   model: string;
+  /**
+   * Which provider served this inference (additive and optional). Absent on
+   * every ledger written before the provider seam existed; those were all
+   * Anthropic. Recorded so a corpus run on a second model is distinguishable
+   * from the first without reading the model name.
+   */
+  provider?: string;
   promptVersion: string;
   /** `null` when the model declared the goal reached instead of choosing a tool. */
   toolName: string | null;
@@ -365,8 +372,37 @@ export interface CapabilitiesConfig {
 
 export const DEFAULT_CAPABILITIES: CapabilitiesConfig = { test_plans: true };
 
+/**
+ * Where the model comes from.
+ *
+ * ── Why this is a seam and not a string ──
+ * Every run in the corpus used one provider through one SDK, so "governance
+ * works" could be read as "one model happens to respect refusals". And a
+ * company standardised on GitHub Copilot has no Anthropic account and often no
+ * procurement path to one — "add an API key" loses most of the market before
+ * the first run. The provider is therefore configuration, set once per
+ * environment in `ai-quality.config.yaml`, and the runtime does not care which.
+ *
+ * `openai`, `azure-openai` and `local` share one wire format (OpenAI-compatible
+ * chat completions with tools) and differ only in URL and authentication.
+ */
+export type ModelProvider = "anthropic" | "openai" | "azure-openai" | "local";
+
+export interface ModelConfig {
+  provider: ModelProvider;
+  /** The model's name — or, for azure-openai, the DEPLOYMENT name. */
+  name: string;
+  /**
+   * Where to send requests. Required for azure-openai (the resource URL) and
+   * for local (e.g. http://localhost:11434/v1); optional for openai.
+   */
+  endpoint?: string;
+  /** azure-openai only. */
+  api_version?: string;
+}
+
 export interface AgentConfig {
-  model: string;
+  model: ModelConfig;
   prompt_version: string;
   budgets: { steps: number; tokens: number };
   scope: ScopeConfig;

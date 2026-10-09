@@ -2,7 +2,7 @@
 
 How to cut a version and publish it. Written so it can be followed without remembering anything.
 
-`@vijaypjavvadi/agentic-qa` is a **scoped** package, and `package.json` sets
+`attestqa` is a **scoped** package, and `package.json` sets
 `publishConfig.access: "public"` explicitly. Current npm defaults a _new_ package to public anyway,
 so this line is belt-and-braces rather than load-bearing — it matters if a local `.npmrc`, an
 organisation default, or a different registry says otherwise. (Scoped packages defaulting to
@@ -90,7 +90,7 @@ npm install /path/to/vijaypjavvadi-agentic-qa-<version>.tgz
 
 npx aqa --version                         # prints the version
 npx aqa --help                            # prints usage
-npx aqa replay node_modules/@vijaypjavvadi/agentic-qa/examples/fixture-ledger
+npx aqa replay node_modules/attestqa/examples/fixture-ledger
 ```
 
 That last command renders the checked-in fixture ledger to Markdown using nothing but the installed
@@ -117,8 +117,8 @@ That is deliberate friction — an npm version, once published, cannot be replac
 Verify:
 
 ```bash
-npm view @vijaypjavvadi/agentic-qa version
-npm view @vijaypjavvadi/agentic-qa
+npm view attestqa version
+npm view attestqa
 ```
 
 ---
@@ -154,7 +154,7 @@ unpublishing a package others may depend on is bad manners. If a release is brok
 PATCH and `npm deprecate` the bad one:
 
 ```bash
-npm deprecate @vijaypjavvadi/agentic-qa@0.1.0 "broken build; use 0.1.1"
+npm deprecate attestqa@0.1.0 "broken build; use 0.1.1"
 ```
 
 ---

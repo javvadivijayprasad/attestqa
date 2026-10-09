@@ -3,6 +3,8 @@ import { extname, resolve } from "node:path";
 import type {
   AgentConfig,
   CapabilitiesConfig,
+  ModelConfig,
+  ModelProvider,
   PolicyDecision,
   PolicyTable,
   ScopeConfig,
@@ -19,6 +21,8 @@ export class ConfigError extends Error {
 }
 
 const LLM_PROVIDERS = ["anthropic", "openai", "gemini"];
+export const MODEL_PROVIDERS: readonly ModelProvider[] = ["anthropic", "openai", "azure-openai", "local"];
+export const DEFAULT_MODEL_NAME = "claude-sonnet-4-6";
 
 export const DEFAULT_BUDGETS = { steps: 40, tokens: 400_000 };
 
@@ -42,7 +46,7 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
   const agent = raw["agent"];
   if (!isObject(agent)) throw new ConfigError(`${source}: missing "agent:" section`);
 
-  const model = str(agent["model"]) ?? "claude-sonnet-4-6";
+  const model = modelConfig(agent["model"], `${source}: agent.model`);
   const prompt_version = str(agent["prompt_version"]) ?? "aqa-prompt-v0.1.0";
 
   const b = isObject(agent["budgets"]) ? agent["budgets"] : {};
@@ -126,6 +130,56 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
   };
 }
 
+/**
+ * `agent.model`, in either of its two forms.
+ *
+ *   model: claude-sonnet-4-6                 # the original: a name, Anthropic implied
+ *   model:                                   # the seam: a provider, set once per environment
+ *     provider: azure-openai
+ *     name: gpt-4.1                          # deployment name on Azure
+ *     endpoint: https://acme.openai.azure.com
+ *     api_version: 2024-10-21
+ *
+ * The string form is kept so every existing config and every ledger in the
+ * corpus still loads. It means exactly what it always meant.
+ */
+export function modelConfig(raw: unknown, where: string): ModelConfig {
+  if (raw === undefined) return { provider: "anthropic", name: DEFAULT_MODEL_NAME };
+  const asString = str(raw);
+  if (asString !== undefined) return { provider: "anthropic", name: asString };
+  if (!isObject(raw)) throw new ConfigError(`${where} must be a model name or a mapping with provider and name`);
+
+  const provider = str(raw["provider"]);
+  if (provider === undefined || !(MODEL_PROVIDERS as readonly string[]).includes(provider))
+    throw new ConfigError(`${where}.provider must be one of ${MODEL_PROVIDERS.join(", ")}`);
+  const name = str(raw["name"]);
+  if (!name) throw new ConfigError(`${where}.name is required (the model, or on Azure the deployment)`);
+
+  const endpoint = str(raw["endpoint"]);
+  if ((provider === "azure-openai" || provider === "local") && !endpoint)
+    throw new ConfigError(
+      `${where}.endpoint is required for provider ${provider}` +
+        (provider === "azure-openai"
+          ? " (the resource URL, e.g. https://<resource>.openai.azure.com)"
+          : " (e.g. http://localhost:11434/v1)"),
+    );
+  if (endpoint) {
+    try {
+      new URL(endpoint);
+    } catch {
+      throw new ConfigError(`${where}.endpoint is not a URL: ${endpoint}`);
+    }
+  }
+  const api_version = str(raw["api_version"]);
+
+  return {
+    provider: provider as ModelProvider,
+    name,
+    ...(endpoint ? { endpoint } : {}),
+    ...(api_version ? { api_version } : {}),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // .env loader (tiny, dependency-free). Never logs values.
 // ---------------------------------------------------------------------------
@@ -162,6 +216,10 @@ export function loadDotEnv(file = ".env", env: NodeJS.ProcessEnv = process.env):
 /** The environment the runtime needs (PLAN §0.2). Values are never printed. */
 export interface RuntimeEnv {
   anthropicApiKey: string;
+  /** OPENAI_API_KEY — for provider openai, and for local servers that want one. */
+  openaiApiKey?: string;
+  /** AZURE_OPENAI_API_KEY — for provider azure-openai. */
+  azureOpenAiApiKey?: string;
   model?: string;
   azureDevOps?: { orgUrl: string; org: string; pat: string; project: string };
   tcgUrl?: string;
@@ -188,6 +246,8 @@ export function readRuntimeEnv(
     azureDevOps = { orgUrl, org: orgNameFromUrl(orgUrl), pat, project };
   }
   const out: RuntimeEnv = { anthropicApiKey: key ?? "", sandbox: env["AQA_SANDBOX"] === "1" };
+  if (env["OPENAI_API_KEY"]) out.openaiApiKey = env["OPENAI_API_KEY"];
+  if (env["AZURE_OPENAI_API_KEY"]) out.azureOpenAiApiKey = env["AZURE_OPENAI_API_KEY"];
   if (env["AQA_MODEL"]) out.model = env["AQA_MODEL"];
   if (azureDevOps) out.azureDevOps = azureDevOps;
   if (env["TCG_URL"]) out.tcgUrl = env["TCG_URL"];

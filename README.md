@@ -1,6 +1,8 @@
-# agentic-qa
+# attestqa
 
-[![CI](https://github.com/javvadivijayprasad/agentic-qa/actions/workflows/ci.yml/badge.svg)](https://github.com/javvadivijayprasad/agentic-qa/actions/workflows/ci.yml)
+*Formerly `@vijaypjavvadi/agentic-qa`. Same runtime, same ledger format, same `aqa` command; the old package name installs this one.*
+
+[![CI](https://github.com/javvadivijayprasad/attestqa/actions/workflows/ci.yml/badge.svg)](https://github.com/javvadivijayprasad/attestqa/actions/workflows/ci.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22758876.svg)](https://doi.org/10.5281/zenodo.22758876)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
@@ -93,15 +95,15 @@ event shapes in [TECHNICAL.md](docs/TECHNICAL.md).
 Requires Node 18+.
 
 ```bash
-npm install -g @vijaypjavvadi/agentic-qa
+npm install -g attestqa
 aqa --version
 ```
 
 Or run it from a clone:
 
 ```bash
-git clone https://github.com/javvadivijayprasad/agentic-qa
-cd agentic-qa && npm ci && npm run build
+git clone https://github.com/javvadivijayprasad/attestqa
+cd attestqa && npm ci && npm run build
 node dist/cli.js --help
 ```
 
@@ -119,6 +121,21 @@ AQA_APP_USER=test@example.com  # a disposable account in your test environment
 AQA_APP_PASS=…
 AI_GOVERNANCE_URL=http://127.0.0.1:4900  # optional; needed for bdd2pw's LLM fallback
 ```
+
+The model credential matches `agent.model.provider` in the config: `anthropic` (the default)
+reads `ANTHROPIC_API_KEY`, `openai` reads `OPENAI_API_KEY`, `azure-openai` reads
+`AZURE_OPENAI_API_KEY`, and `local` needs none. A company on Azure sets, in the config:
+
+```yaml
+agent:
+  model:
+    provider: azure-openai
+    name: gpt-4.1                        # the deployment name
+    endpoint: https://<resource>.openai.azure.com
+```
+
+and puts `AZURE_OPENAI_API_KEY` in `.env`. Nothing else changes: the gate, the rules, the
+ledger and the report are the same whichever model is reading them.
 
 One `.env` serves both: the runtime reads `ANTHROPIC_API_KEY` for its own model, and
 bdd2pw inherits the same key when it falls back to a model for an unbound step.
