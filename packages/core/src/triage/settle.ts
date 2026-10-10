@@ -1,3 +1,4 @@
+import { hasStoryTag, normId } from "../design/ids.js";
 import type { AnyRunEvent } from "../types.js";
 import type { ProposedCall } from "../runtime/model.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
@@ -246,12 +247,12 @@ const FILTERS = [
 ];
 
 export function ownTestTitles(events: AnyRunEvent[], workItem?: string): Set<string> | undefined {
-  const id = Number(workItem);
-  if (!Number.isFinite(id)) return undefined;
+  const id = normId(workItem);
+  if (id === undefined) return undefined;
   const facts = storyFacts(events);
   const path = facts ? specPathFor(facts) : undefined;
   const text = path ? fileTextFromEvents(events, path) : undefined;
-  if (!text || !/@story:\d+/i.test(text)) return undefined;
+  if (!text || !hasStoryTag(text)) return undefined;
   return storyTestTitles(text, id);
 }
 

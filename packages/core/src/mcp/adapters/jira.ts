@@ -436,9 +436,7 @@ export function acceptanceSection(description: string): string {
   return out.join("\n").trim();
 }
 
-function links(
-  v: unknown,
-): Array<{
+function links(v: unknown): Array<{
   type: string;
   direction: "inward" | "outward";
   key: string;

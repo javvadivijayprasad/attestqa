@@ -23,6 +23,7 @@
  * absent cannot be misused, and a decision made in code can be replayed.
  */
 
+import { includesId } from "../design/ids.js";
 import { existsSync, readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import {
@@ -110,7 +111,7 @@ export function chooseRoute(input: RouteInput): RouteDecision {
     story === undefined
       ? scenarioStoryTags(featureText).map((s) => s.scenario)
       : scenarioStoryTags(featureText)
-          .filter((s) => s.stories.includes(story))
+          .filter((s) => includesId(s.stories, story))
           .map((s) => s.scenario);
 
   if (mine.length === 0)

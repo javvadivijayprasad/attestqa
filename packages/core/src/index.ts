@@ -178,3 +178,9 @@ export type { BuildModelOptions, ProviderFactory, TokenSource, Token } from "./r
 export { OpenAiCompatibleModel, endpointFor } from "./runtime/openai.js";
 export { LEDGER_TOOL, LEDGER_TOOLS } from "./types.js";
 export type { ModelAuth, ModelConfig, ModelProvider, LedgerTool } from "./types.js";
+
+// One tracker interface: Azure DevOps numbers and Jira keys read the same way.
+export { normId, sameId, includesId, isJiraKey, storyTagId, storyTagIds } from "./design/ids.js";
+export type { TrackerId } from "./design/ids.js";
+export { JiraTools, type JiraConnection } from "./mcp/adapters/jira.js";
+export { gatherJiraStoryContext, jiraStateMeaning } from "./skills/jira-story-context.js";

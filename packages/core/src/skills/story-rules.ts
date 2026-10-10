@@ -1,3 +1,4 @@
+import { includesId, normId, sameId, storyTagId, type TrackerId } from "../design/ids.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AnyRunEvent } from "../types.js";
@@ -564,7 +565,7 @@ function scratchInTheSuite(
 }
 
 /** The scenarios in a feature file, by the story each is tagged with. */
-function storyOfScenarios(text: string): Map<string, number[]> {
+function storyOfScenarios(text: string): Map<string, TrackerId[]> {
   return new Map(scenarioStoryTags(text).map((s) => [s.scenario, s.stories]));
 }
 
@@ -584,12 +585,12 @@ function dropsAnotherStory(
   if (!/\.feature$/i.test(path)) return;
   const before = fileTextFromEvents(events, path);
   if (before === undefined) return;
-  const mine = Number(storyFacts(events)?.story?.id);
+  const mine = normId(storyFacts(events)?.story?.id);
   const next = String(call.args["content"] ?? "");
   const kept = storyOfScenarios(next);
   const lost: string[] = [];
   for (const [scenario, stories] of storyOfScenarios(before)) {
-    const others = stories.filter((id) => id !== mine);
+    const others = stories.filter((id) => !sameId(id, mine));
     if (others.length === 0) continue;
     if (!kept.has(scenario)) lost.push(`"${scenario}" (@story:${others.join(",")})`);
   }
@@ -610,8 +611,8 @@ function untaggedScenario(
   if (call.toolName !== "fs.write_file") return;
   const path = String(call.args["path"] ?? "");
   if (!/\.feature$/i.test(path)) return;
-  const mine = Number(storyFacts(events)?.story?.id);
-  if (!Number.isFinite(mine)) return;
+  const mine = normId(storyFacts(events)?.story?.id);
+  if (mine === undefined) return;
   const untagged = scenarioStoryTags(String(call.args["content"] ?? ""))
     .filter((x) => x.stories.length === 0)
     .map((x) => `"${x.scenario}"`);
@@ -1405,7 +1406,7 @@ function rewordsAnotherStory(
   for (const [scenario, b] of was) {
     // Only other stories' scenarios are protected: this story's are this run's
     // to rewrite.
-    if (b.stories.length === 0 || b.stories.includes(story)) continue;
+    if (b.stories.length === 0 || includesId(b.stories, story)) continue;
     const after = now.get(scenario);
     if (after && after.body.replace(/\s+/g, " ") !== b.body.replace(/\s+/g, " "))
       changed.push(scenario);
@@ -1424,8 +1425,8 @@ function rewordsAnotherStory(
 }
 
 /** Each scenario's steps and the stories it is tagged for. */
-function scenarioBodies(feature: string): Map<string, { stories: number[]; body: string }> {
-  const out = new Map<string, { stories: number[]; body: string }>();
+function scenarioBodies(feature: string): Map<string, { stories: TrackerId[]; body: string }> {
+  const out = new Map<string, { stories: TrackerId[]; body: string }>();
   let tags: string[] = [];
   let current: string | undefined;
   let body: string[] = [];
@@ -1447,9 +1448,7 @@ function scenarioBodies(feature: string): Map<string, { stories: number[]; body:
       if (current !== undefined) flush();
       current = (m[1] ?? "").trim();
       out.set(current, {
-        stories: tags
-          .map((t) => Number(/^@story:(\d+)$/i.exec(t)?.[1]))
-          .filter((n) => Number.isFinite(n)),
+        stories: tags.map(storyTagId).filter((n): n is TrackerId => n !== undefined),
         body: "",
       });
       tags = [];

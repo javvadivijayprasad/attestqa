@@ -1,3 +1,4 @@
+import { includesId, normId, sameId, storyTagId, storyTagIds, type TrackerId } from "./ids.js";
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { acLabels } from "../triage/settle.js";
@@ -93,7 +94,7 @@ export interface TestDesign {
 /** What stage 1 established about the story — the ground a design is checked against. */
 export interface StoryFacts {
   acceptanceCriteria: string[];
-  bugs: Array<{ id: number; state: string; title: string }>;
+  bugs: Array<{ id: TrackerId; state: string; title: string }>;
   /**
    * EVERY bug already on this story, including the ones this runtime filed —
    * which `bugs` above deliberately excludes, because a run must not read its
@@ -105,12 +106,12 @@ export interface StoryFacts {
    * third and fourth time. This list exists so `duplicateBug` can refuse that
    * in code. It is never rendered into the prompt.
    */
-  filedBugs?: Array<{ id: number; state: string; title: string; agent: boolean }>;
-  tasks: number[];
+  filedBugs?: Array<{ id: TrackerId; state: string; title: string; agent: boolean }>;
+  tasks: TrackerId[];
   /** The story itself: tests this run adds are tagged with its id. */
-  story?: { id: number; title: string };
+  story?: { id: TrackerId; title: string };
   /** The epic the story sits under — which is what the spec file is named for. */
-  epic?: { id: number; title: string };
+  epic?: { id: TrackerId; title: string };
   /** Stage 0: the framework already in the repository, whose layout the run conforms to. */
   framework?: FrameworkProfile;
 }
@@ -128,14 +129,15 @@ export interface StoryFacts {
  */
 export function epicStem(facts: StoryFacts): string | undefined {
   const e = facts.epic;
-  if (!e || !Number.isFinite(e.id)) return undefined;
+  const id = e ? normId(e.id) : undefined;
+  if (!e || id === undefined) return undefined;
   const slug = e.title
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 48)
     .replace(/-$/, "");
-  return `epic-${e.id}${slug ? `-${slug}` : ""}`;
+  return `epic-${typeof id === "string" ? id.toLowerCase() : id}${slug ? `-${slug}` : ""}`;
 }
 
 /** The one feature file this epic\'s scenarios live in. */
@@ -193,14 +195,17 @@ export function parseDesign(args: Record<string, unknown>): TestDesign {
  * for not excluding it (20260922T230624Z). A rule that is right about the
  * substance and wrong about the punctuation is a rule that blocks the work.
  */
-function bugRef(s: string): number | undefined {
-  const m = /\bbug\s*#?\s*(\d+)\b/i.exec(s) ?? /^\s*#?\s*(\d+)\s*$/.exec(s);
-  return m ? Number(m[1]) : undefined;
+// "bug #48", "bug 48", "#48" — or, from Jira, "bug SHOP-12" and "SHOP-12".
+function bugRef(s: string): TrackerId | undefined {
+  const m =
+    /\bbug\s*#?\s*([A-Za-z][A-Za-z0-9_]+-\d+|\d+)\b/i.exec(s) ??
+    /^\s*#?\s*([A-Za-z][A-Za-z0-9_]+-\d+|\d+)\s*$/.exec(s);
+  return m ? normId(m[1]) : undefined;
 }
 
-function taskRef(s: string): number | undefined {
-  const m = /^\s*task\s*#?\s*(\d+)\s*$/i.exec(s);
-  return m ? Number(m[1]) : undefined;
+function taskRef(s: string): TrackerId | undefined {
+  const m = /^\s*task\s*#?\s*([A-Za-z][A-Za-z0-9_]+-\d+|\d+)\s*$/i.exec(s);
+  return m ? normId(m[1]) : undefined;
 }
 
 /** "AC-3a" → "AC-3": the criterion a sub-scenario belongs to. */
@@ -263,7 +268,7 @@ export function validateDesign(
   const bugs = new Map(facts.bugs.map((b) => [b.id, b]));
   // What an exclusion names, read the same forgiving way: a bug by its id
   // wherever it appears in the text, and a test type by name anywhere in it.
-  const excludedBugs = new Set<number>();
+  const excludedBugs = new Set<TrackerId>();
   const excludedTypes = new Set<string>();
   for (const e of d.excluded) {
     const b = bugRef(e.what);
@@ -411,7 +416,7 @@ export function validateDesign(
 
   // Every open bug is either tested or explicitly left out, with a reason.
   for (const b of facts.bugs) {
-    const tested = d.items.some((it) => bugRef(it.covers) === b.id);
+    const tested = d.items.some((it) => sameId(bugRef(it.covers), b.id));
     if (!tested && !excludedBugs.has(b.id))
       problems.push(
         `bug #${b.id} [${b.state}] is neither tested nor listed in "excluded" with a reason — ` +
@@ -537,7 +542,7 @@ export function renderDesign(
  */
 export function coverageOf(
   design: TestDesign,
-  opts: { featureText?: string; specText?: string; story?: number },
+  opts: { featureText?: string; specText?: string; story?: TrackerId },
 ): Map<string, { scenario: string; how: "criterion" | "bug" | "design id" }> {
   const out = new Map<string, { scenario: string; how: "criterion" | "bug" | "design id" }>();
   const feature = opts.featureText;
@@ -548,7 +553,7 @@ export function coverageOf(
     opts.story === undefined
       ? scenarioStoryTags(feature).map((s) => s.scenario)
       : scenarioStoryTags(feature)
-          .filter((s) => s.stories.includes(opts.story as number))
+          .filter((s) => includesId(s.stories, opts.story))
           .map((s) => s.scenario),
   );
   // An empty string is a spec that was READ and has no tests: different from a
@@ -572,7 +577,7 @@ export function coverageOf(
         out.set(it.id, { scenario: sc.scenario, how: "criterion" });
         break;
       }
-      if (bug !== undefined && sc.bugs.includes(bug)) {
+      if (bug !== undefined && includesId(sc.bugs, bug)) {
         out.set(it.id, { scenario: sc.scenario, how: "bug" });
         break;
       }
@@ -594,8 +599,8 @@ function acLabelNumber(covers: string): number | undefined {
 /** Every scenario with the tags that say what it covers. */
 function scenarioTagsOf(
   feature: string,
-): Array<{ scenario: string; acs: number[]; bugs: number[]; designs: string[] }> {
-  const out: Array<{ scenario: string; acs: number[]; bugs: number[]; designs: string[] }> = [];
+): Array<{ scenario: string; acs: number[]; bugs: TrackerId[]; designs: string[] }> {
+  const out: Array<{ scenario: string; acs: number[]; bugs: TrackerId[]; designs: string[] }> = [];
   let tags: string[] = [];
   for (const raw of feature.split("\n")) {
     const line = raw.trim();
@@ -610,7 +615,9 @@ function scenarioTagsOf(
       out.push({
         scenario: (m[1] ?? "").trim(),
         acs: num(/^@ac:(\d+)/i),
-        bugs: num(/^@bug:(\d+)/i),
+        bugs: tags
+          .map((t) => normId(/^@bug:([A-Za-z][A-Za-z0-9_]+-\d+|\d+)/i.exec(t)?.[1]))
+          .filter((n): n is TrackerId => n !== undefined),
         designs: tags
           .map((t) => /^@design:(D\d+(?:-\d+)?)$/i.exec(t)?.[1]?.toUpperCase())
           .filter((x): x is string => !!x),
@@ -754,12 +761,12 @@ export function traceProblems(
    * logout scenarios as covering story #1's AC-1. A check that cannot be
    * satisfied honestly is a check that teaches dishonesty.
    */
-  story?: number,
+  story?: TrackerId,
 ): { untested: string[]; untagged: string[]; unmarked: string[]; wrongShape: string[] } {
   const all = features.flatMap((f) =>
     scenarioDesignTags(f.text).map((s) => ({ ...s, path: f.path })),
   );
-  const owner = new Map<string, number[]>();
+  const owner = new Map<string, TrackerId[]>();
   for (const f of features)
     for (const s of scenarioStoryTags(f.text)) owner.set(s.scenario, s.stories);
   // A scenario tagged for ANOTHER story is not this design's business. One
@@ -769,7 +776,7 @@ export function traceProblems(
       ? all
       : all.filter((s) => {
           const owns = owner.get(s.scenario) ?? [];
-          return owns.length === 0 || owns.includes(story);
+          return owns.length === 0 || includesId(owns, story);
         });
   const tagged = new Set(scenarios.flatMap((s) => s.designs));
   const known = new Set(design.items.map((i) => i.id));
@@ -863,8 +870,10 @@ export function shapeProblems(item: DesignItem, body: string): string[] {
 }
 
 /** The @story:<id> tags on each scenario of a feature file. */
-export function scenarioStoryTags(feature: string): Array<{ scenario: string; stories: number[] }> {
-  const out: Array<{ scenario: string; stories: number[] }> = [];
+export function scenarioStoryTags(
+  feature: string,
+): Array<{ scenario: string; stories: TrackerId[] }> {
+  const out: Array<{ scenario: string; stories: TrackerId[] }> = [];
   let tags: string[] = [];
   for (const raw of feature.split("\n")) {
     const line = raw.trim();
@@ -876,9 +885,7 @@ export function scenarioStoryTags(feature: string): Array<{ scenario: string; st
     if (m) {
       out.push({
         scenario: (m[1] ?? "").trim(),
-        stories: tags
-          .map((t) => Number(/^@story:(\d+)$/i.exec(t)?.[1]))
-          .filter((n) => Number.isFinite(n)),
+        stories: tags.map(storyTagId).filter((n): n is TrackerId => n !== undefined),
       });
       tags = [];
     } else if (line && !line.startsWith("#")) {
@@ -889,8 +896,8 @@ export function scenarioStoryTags(feature: string): Array<{ scenario: string; st
 }
 
 /** Every story id a feature file\'s scenarios are tagged with. */
-export function storiesIn(feature: string): Set<number> {
-  const out = new Set<number>();
+export function storiesIn(feature: string): Set<TrackerId> {
+  const out = new Set<TrackerId>();
   for (const s of scenarioStoryTags(feature)) for (const id of s.stories) out.add(id);
   return out;
 }
@@ -903,18 +910,18 @@ export function storiesIn(feature: string): Set<number> {
  * this is what separates them. bdd2pw writes a scenario\'s tags as a `// @tag`
  * comment above its test, so the tag survives into the spec.
  */
-export function storyTestTitles(spec: string, storyId: number): Set<string> {
+export function storyTestTitles(spec: string, storyId: TrackerId): Set<string> {
   const out = new Set<string>();
-  let current: number[] = [];
+  let current: TrackerId[] = [];
   for (const line of spec.split("\n")) {
     if (/^\s*\/\//.test(line)) {
-      const ids = [...line.matchAll(/@story:(\d+)/gi)].map((m) => Number(m[1]));
+      const ids = storyTagIds(line);
       if (ids.length > 0) current = ids;
       continue;
     }
     const m = /^\s*test(?:\.\w+)?\s*\(\s*(["'`])([\s\S]*?)\1/.exec(line);
     if (m) {
-      if (current.includes(storyId)) out.add((m[2] ?? "").trim());
+      if (includesId(current, storyId)) out.add((m[2] ?? "").trim());
       current = [];
     }
   }

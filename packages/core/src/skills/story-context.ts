@@ -403,7 +403,7 @@ export async function gatherStoryContext(
   return { toolName: "aqa.story_context", text: out.join("\n"), summary, facts };
 }
 
-const STATE_MEANING: Record<string, string> = {
+export const STATE_MEANING: Record<string, string> = {
   New: "NEW — reported, not confirmed. A claim, not a fact.",
   Active:
     "ACTIVE — known broken and being worked. A test for it is EXPECTED to fail; that failure is not a new defect and must not become a bug.",
@@ -451,14 +451,14 @@ export function isAgentBug(tags: string, text: string): boolean {
   return RUN_ID.test(text);
 }
 
-function clean(v: unknown, max: number): string {
+export function clean(v: unknown, max: number): string {
   const t = stripHtml(str(v))
     .replace(/\n{2,}/g, "\n")
     .trim();
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-function indent(text: string, by = 2): string {
+export function indent(text: string, by = 2): string {
   const pad = " ".repeat(by);
   return text
     .split("\n")
@@ -466,7 +466,7 @@ function indent(text: string, by = 2): string {
     .join("\n");
 }
 
-function str(v: unknown): string {
+export function str(v: unknown): string {
   return typeof v === "string" ? v : typeof v === "number" ? String(v) : "";
 }
 
@@ -478,7 +478,7 @@ function str(v: unknown): string {
  * refusal dressed as an absence, which tells the model there is nothing to know
  * and tells the operator there is nothing to fix.
  */
-function why(result: unknown): string {
+export function why(result: unknown): string {
   const m = str(asRecord(result)?.["message"]);
   if (/not in the allowed work_items/i.test(m)) {
     return `outside agent.scope.work_items (${m}). The governance gate refused it; widen the scope in the config if this item should be read.`;
