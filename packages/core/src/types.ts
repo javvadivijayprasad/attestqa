@@ -433,7 +433,20 @@ export const DEFAULT_CAPABILITIES: CapabilitiesConfig = { test_plans: true };
  * `openai`, `azure-openai` and `local` share one wire format (OpenAI-compatible
  * chat completions with tools) and differ only in URL and authentication.
  */
-export type ModelProvider = "anthropic" | "openai" | "azure-openai" | "local";
+export type ModelProvider = "anthropic" | "openai" | "azure-openai" | "local" | "gateway";
+
+/**
+ * How the credential is obtained. Never the credential itself.
+ *
+ *   key      a key read from the environment (the default)
+ *   none     no credential (a local server, or a gateway that trusts the network)
+ *   entra    a short-lived Microsoft Entra ID token, supplied by @attestqa/auth-azure
+ *   aws-sso  a short-lived AWS SSO credential, supplied by @attestqa/auth-aws
+ *
+ * `entra` and `aws-sso` need a TokenSource passed to buildModel(); without one
+ * the run stops before any model is called, naming the package to install.
+ */
+export type ModelAuth = "key" | "none" | "entra" | "aws-sso";
 
 export interface ModelConfig {
   provider: ModelProvider;
@@ -446,6 +459,14 @@ export interface ModelConfig {
   endpoint?: string;
   /** azure-openai only. */
   api_version?: string;
+  /** How the credential is obtained; default "key". */
+  auth?: ModelAuth;
+  /**
+   * gateway only: extra request headers a company's gateway needs, such as a
+   * team or cost-centre name. Never secrets — config files are committed, so
+   * a header whose name looks like a credential is refused at load time.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface AgentConfig {

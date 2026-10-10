@@ -3,11 +3,12 @@
 agent:
   # Where the model comes from. A bare name means Anthropic. For another
   # provider, give the mapping — the credential comes from the environment
-  # (ANTHROPIC_API_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY), never from here.
+  # (ANTHROPIC_API_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY, AQA_GATEWAY_API_KEY)
+  # or company sign-in, never from here.
   # AQA_MODEL, if set, overrides the name and never the provider.
   #
   #   model:
-  #     provider: azure-openai         # anthropic | openai | azure-openai | local
+  #     provider: azure-openai         # anthropic | openai | azure-openai | local | gateway
   #     name: gpt-4.1                  # the deployment name on Azure
   #     endpoint: https://<resource>.openai.azure.com
   #     api_version: 2024-10-21
@@ -16,6 +17,16 @@ agent:
   #     provider: local
   #     name: llama3.1
   #     endpoint: http://localhost:11434/v1
+  #
+  #   model:                             # your company's own OpenAI-compatible gateway
+  #     provider: gateway
+  #     name: approved-large             # the model name the gateway exposes
+  #     endpoint: https://llm-gateway.example.internal/v1
+  #     headers: { x-team: qa }         # non-secret only; credentials are refused here
+  #
+  #   auth: key (default) | none | entra | aws-sso
+  #     entra and aws-sso use company sign-in instead of a stored key; they need
+  #     @attestqa/auth-azure or @attestqa/auth-aws (from v1.1.0).
   model: claude-sonnet-4-6
   prompt_version: aqa-prompt-v0.1.0
   budgets:

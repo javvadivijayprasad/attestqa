@@ -163,3 +163,18 @@ export type { ParsedFailure } from "./triage/report.js";
 export { runTriage, triageGaps, triageEvents } from "./triage/step.js";
 export { analyzeReport, merge, DEFAULT_SERVICE_TIMEOUT_MS } from "./triage/service.js";
 export type { ServiceOptions, AnalyzedReport, AnalyzedGroup, RetryPlan } from "./triage/service.js";
+
+// Model providers: the seam plug-ins (Bedrock, Entra, AWS SSO) attach to.
+export {
+  buildModel,
+  describeModel,
+  credentialFor,
+  credentialVarFor,
+  CREDENTIAL_VAR,
+  registerProvider,
+  registeredProviderNames,
+} from "./runtime/provider.js";
+export type { BuildModelOptions, ProviderFactory, TokenSource, Token } from "./runtime/provider.js";
+export { OpenAiCompatibleModel, endpointFor } from "./runtime/openai.js";
+export { LEDGER_TOOL, LEDGER_TOOLS } from "./types.js";
+export type { ModelAuth, ModelConfig, ModelProvider, LedgerTool } from "./types.js";

@@ -12,7 +12,7 @@ import {
 } from "./config.js";
 import { Ledger, newRunId, APPROVALS_DIR } from "./ledger/ledger.js";
 import { runLoop } from "./runtime/loop.js";
-import { buildModel, describeModel, CREDENTIAL_VAR } from "./runtime/provider.js";
+import { buildModel, describeModel, credentialVarFor } from "./runtime/provider.js";
 import { TerminalApprover, FileApprover } from "./runtime/approvers.js";
 import { storyToTestsSkill } from "./skills/story-to-tests.js";
 import { defectProfileSkill } from "./skills/defect-profile.js";
@@ -376,7 +376,7 @@ async function live(
   // not for Anthropic by assumption. A stale key already in the shell wins
   // over the file (standard dotenv precedence) and silently shadows it, which
   // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
-  const credVar = CREDENTIAL_VAR[config.model.provider];
+  const credVar = credentialVarFor(config.model);
   const credValue = credVar ? (process.env[credVar] ?? "") : "";
   const keySource = !credVar
     ? "no credential needed"

@@ -9,6 +9,7 @@ import {
   wireTools,
 } from "./anthropic.js";
 import type { ModelClient, ModelDecision, ModelInput, ModelUsage } from "./model.js";
+import { tokenHeaders, type TokenSource } from "./token.js";
 
 /**
  * OpenAI-compatible chat-completions adapter: OpenAI, Azure OpenAI, and any
@@ -97,6 +98,8 @@ export interface OpenAiModelOptions {
   config: ModelConfig;
   /** The credential, when the provider wants one. Local servers may need none. */
   apiKey?: string;
+  /** Company sign-in: a fresh short-lived token for every request, instead of a key. */
+  tokenSource?: TokenSource;
   promptVersion?: string;
   maxTokens?: number;
   timeoutMs?: number;
@@ -133,6 +136,21 @@ export function endpointFor(
         bodyModel: config.name,
       };
     }
+    case "gateway": {
+      // A company's own OpenAI-compatible gateway in front of whatever models it
+      // allows. Its extra headers (team, cost centre) come from config and were
+      // checked at load time not to be credentials; the credential itself, if
+      // any, comes from the environment or a token source.
+      const base = (config.endpoint ?? "").replace(/\/+$/, "");
+      return {
+        url: `${base}/chat/completions`,
+        headers: {
+          ...(config.headers ?? {}),
+          ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}),
+        },
+        bodyModel: config.name,
+      };
+    }
     case "openai":
     default: {
       const base = (config.endpoint ?? "https://api.openai.com/v1").replace(/\/+$/, "");
@@ -151,6 +169,7 @@ export class OpenAiCompatibleModel implements ModelClient {
   readonly promptVersion: string;
   private readonly config: ModelConfig;
   private readonly apiKey: string | undefined;
+  private readonly tokenSource: TokenSource | undefined;
   private readonly maxTokens: number;
   private readonly timeoutMs: number;
   private readonly transport: ChatTransport;
@@ -161,17 +180,25 @@ export class OpenAiCompatibleModel implements ModelClient {
     this.model = opts.config.name;
     this.provider = opts.config.provider;
     this.apiKey = opts.apiKey;
+    this.tokenSource = opts.tokenSource;
     this.promptVersion = opts.promptVersion ?? DEFAULT_PROMPT_VERSION;
     this.maxTokens = opts.maxTokens ?? 8192;
     this.timeoutMs = opts.timeoutMs ?? 300_000;
     this.transport = opts.transport ?? fetchTransport;
     this.warn = opts.warn ?? (() => {});
-    if (opts.config.provider !== "local" && !opts.apiKey)
-      throw new Error(`provider ${opts.config.provider} requires an API key`);
+    const needsNothing = opts.config.provider === "local" || opts.config.auth === "none";
+    if (!needsNothing && !opts.apiKey && !opts.tokenSource)
+      throw new Error(`provider ${opts.config.provider} requires an API key or a token source`);
   }
 
   private async send(body: ChatRequest): Promise<ChatResponse> {
-    const { url, headers, bodyModel } = endpointFor(this.config, this.apiKey);
+    // With a token source the key is never used: the token is fetched now, for
+    // this request, so an expired one is replaced rather than sent.
+    const ep = endpointFor(this.config, this.tokenSource ? undefined : this.apiKey);
+    const headers = this.tokenSource
+      ? { ...ep.headers, ...tokenHeaders(await this.tokenSource.getToken()) }
+      : ep.headers;
+    const { url, bodyModel } = ep;
     const payload: ChatRequest = bodyModel ? { ...body, model: bodyModel } : body;
     const { status, json } = await this.transport(url, headers, payload, this.timeoutMs);
     if (status < 200 || status >= 300 || json.error) {

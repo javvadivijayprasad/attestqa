@@ -3,6 +3,7 @@ import { extname, resolve } from "node:path";
 import type {
   AgentConfig,
   CapabilitiesConfig,
+  ModelAuth,
   ModelConfig,
   ModelProvider,
   PolicyDecision,
@@ -10,6 +11,7 @@ import type {
   ScopeConfig,
 } from "./types.js";
 import { DEFAULT_CAPABILITIES, DEFAULT_POLICY, POLICY_CLASSES } from "./types.js";
+import { isRegisteredProvider, registeredProviderNames } from "./runtime/registry.js";
 
 /**
  * Loads the `agent:` section of `ai-quality.config.yaml` (PLAN §0.3). JSON is
@@ -26,7 +28,17 @@ export const MODEL_PROVIDERS: readonly ModelProvider[] = [
   "openai",
   "azure-openai",
   "local",
+  "gateway",
 ];
+export const MODEL_AUTHS: readonly ModelAuth[] = ["key", "none", "entra", "aws-sso"];
+
+/** A built-in provider, or one a plug-in registered before the config was loaded. */
+export function knownProvider(name: string): boolean {
+  return (MODEL_PROVIDERS as readonly string[]).includes(name) || isRegisteredProvider(name);
+}
+
+/** Header names that carry credentials. They belong in the environment or a vault, never in config. */
+const SECRET_HEADER = /authorization|api[-_]?key|token|secret|password|cookie|^x-.*-key$/i;
 export const DEFAULT_MODEL_NAME = "claude-sonnet-4-6";
 
 export const DEFAULT_BUDGETS = { steps: 40, tokens: 400_000 };
@@ -158,19 +170,23 @@ export function modelConfig(raw: unknown, where: string): ModelConfig {
     throw new ConfigError(`${where} must be a model name or a mapping with provider and name`);
 
   const provider = str(raw["provider"]);
-  if (provider === undefined || !(MODEL_PROVIDERS as readonly string[]).includes(provider))
-    throw new ConfigError(`${where}.provider must be one of ${MODEL_PROVIDERS.join(", ")}`);
+  if (provider === undefined || !knownProvider(provider))
+    throw new ConfigError(
+      `${where}.provider must be one of ${[...MODEL_PROVIDERS, ...registeredProviderNames()].join(", ")}`,
+    );
   const name = str(raw["name"]);
   if (!name)
     throw new ConfigError(`${where}.name is required (the model, or on Azure the deployment)`);
 
   const endpoint = str(raw["endpoint"]);
-  if ((provider === "azure-openai" || provider === "local") && !endpoint)
+  if ((provider === "azure-openai" || provider === "local" || provider === "gateway") && !endpoint)
     throw new ConfigError(
       `${where}.endpoint is required for provider ${provider}` +
         (provider === "azure-openai"
           ? " (the resource URL, e.g. https://<resource>.openai.azure.com)"
-          : " (e.g. http://localhost:11434/v1)"),
+          : provider === "gateway"
+            ? " (your company gateway's OpenAI-compatible base URL, e.g. https://llm-gateway.acme.internal/v1)"
+            : " (e.g. http://localhost:11434/v1)"),
     );
   if (endpoint) {
     try {
@@ -181,11 +197,34 @@ export function modelConfig(raw: unknown, where: string): ModelConfig {
   }
   const api_version = str(raw["api_version"]);
 
+  const auth = str(raw["auth"]);
+  if (auth !== undefined && !(MODEL_AUTHS as readonly string[]).includes(auth))
+    throw new ConfigError(`${where}.auth must be one of ${MODEL_AUTHS.join(", ")}`);
+
+  let headers: Record<string, string> | undefined;
+  if (raw["headers"] !== undefined) {
+    if (provider !== "gateway")
+      throw new ConfigError(`${where}.headers is only for provider gateway`);
+    if (!isObject(raw["headers"]))
+      throw new ConfigError(`${where}.headers must be a mapping of header name to value`);
+    headers = {};
+    for (const [k, v] of Object.entries(raw["headers"])) {
+      if (SECRET_HEADER.test(k))
+        throw new ConfigError(
+          `${where}.headers.${k} looks like a credential. Config files are committed; put credentials in the environment (AQA_GATEWAY_API_KEY) or use auth: entra / aws-sso.`,
+        );
+      if (typeof v !== "string") throw new ConfigError(`${where}.headers.${k} must be a string`);
+      headers[k] = v;
+    }
+  }
+
   return {
     provider: provider as ModelProvider,
     name,
     ...(endpoint ? { endpoint } : {}),
     ...(api_version ? { api_version } : {}),
+    ...(auth ? { auth: auth as ModelAuth } : {}),
+    ...(headers ? { headers } : {}),
   };
 }
 
@@ -229,6 +268,8 @@ export interface RuntimeEnv {
   openaiApiKey?: string;
   /** AZURE_OPENAI_API_KEY — for provider azure-openai. */
   azureOpenAiApiKey?: string;
+  /** AQA_GATEWAY_API_KEY — for provider gateway, when the gateway takes a key. */
+  gatewayApiKey?: string;
   model?: string;
   azureDevOps?: { orgUrl: string; org: string; pat: string; project: string };
   tcgUrl?: string;
@@ -257,6 +298,7 @@ export function readRuntimeEnv(
   const out: RuntimeEnv = { anthropicApiKey: key ?? "", sandbox: env["AQA_SANDBOX"] === "1" };
   if (env["OPENAI_API_KEY"]) out.openaiApiKey = env["OPENAI_API_KEY"];
   if (env["AZURE_OPENAI_API_KEY"]) out.azureOpenAiApiKey = env["AZURE_OPENAI_API_KEY"];
+  if (env["AQA_GATEWAY_API_KEY"]) out.gatewayApiKey = env["AQA_GATEWAY_API_KEY"];
   if (env["AQA_MODEL"]) out.model = env["AQA_MODEL"];
   if (azureDevOps) out.azureDevOps = azureDevOps;
   if (env["TCG_URL"]) out.tcgUrl = env["TCG_URL"];
