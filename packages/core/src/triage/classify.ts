@@ -41,6 +41,10 @@ import {
   type TriageCategory,
   type TriagePattern,
   DECLARED_ENVIRONMENTAL,
+  SETUP_HOOK_FAILURE,
+  TEST_CODE_ERROR,
+  SETUP_HOOK_RATIONALE,
+  TEST_CODE_RATIONALE,
 } from "./patterns.js";
 
 /**
@@ -238,7 +242,33 @@ export function classifyFailure(f: FailureSignal): TriageVerdict {
   // a faithful port of a dashboard classifier has no notion of a test author
   // telling it the answer.
   const declared = score(f.message, stack, DECLARED_ENVIRONMENTAL);
-  if (declared.matched.length > 0) {
+  // Failures that never reached the behaviour under test decide too: a setup
+  // hook that failed (nothing in the test body ran), or test code that is not
+  // valid (an unparseable selector). Neither says anything about the product.
+  const hook = score(f.message, stack, SETUP_HOOK_FAILURE);
+  const code = score(f.message, stack, TEST_CODE_ERROR);
+  let rationaleOverride: string | undefined;
+  if (declared.matched.length === 0 && hook.matched.length > 0) {
+    category = "environmental";
+    confidence = 0.9;
+    matchedCount = hook.matched.length;
+    hits = hook.hits;
+    matched = hook.matched;
+    rationaleOverride =
+      `${SETUP_HOOK_RATIONALE}, so no step of the test was reached and nothing about the ` +
+      "product was observed. Fix the setup (a pop-up in the way, a missing fixture, a page " +
+      "that never loaded) before reading anything into the tests themselves.";
+  } else if (declared.matched.length === 0 && code.matched.length > 0) {
+    category = "flake";
+    confidence = 0.9;
+    matchedCount = code.matched.length;
+    hits = code.hits;
+    matched = code.matched;
+    rationaleOverride =
+      `${TEST_CODE_RATIONALE} (an invalid selector), so the product was never exercised. ` +
+      "This is the test's fault, not a defect and not a flake: it fails the same way every " +
+      "time until the selector is fixed.";
+  } else if (declared.matched.length > 0) {
     category = "environmental";
     confidence = Math.max(confidence, 0.9);
     matchedCount = declared.matched.length;
@@ -260,7 +290,8 @@ export function classifyFailure(f: FailureSignal): TriageVerdict {
     confidence: Math.round(Math.min(1, confidence) * 1000) / 1000,
     matchedPatterns: matched.map((p) => p.source),
     evidence: evidenceFrom(hits, f.message),
-    rationale: `${RATIONALE[category]} ${whatClause(category, matchedCount)}`.trim(),
+    rationale:
+      rationaleOverride ?? `${RATIONALE[category]} ${whatClause(category, matchedCount)}`.trim(),
     triagedBy: "builtin",
   };
 }

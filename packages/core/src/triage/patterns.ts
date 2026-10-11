@@ -223,6 +223,34 @@ export const DECLARED_ENVIRONMENTAL: readonly TriagePattern[] = [
   py(String.raw`(?i)\benv(ironment)? var(iable)?\b.*\bmust be set\b`),
 ];
 
+/**
+ * A failure in a SETUP hook: no step of the test body ran, so nothing about the
+ * behaviour under test was observed. Decides, like DECLARED_ENVIRONMENTAL.
+ *
+ * Run 20261011T214846Z: Juice Shop's welcome banner covered the cookie bar,
+ * the beforeEach dismiss click timed out in all four tests, and the
+ * reproduce-means-defect rule turned four setup failures into four "product
+ * defects held for you" while the agent rewrote test steps that never ran.
+ */
+export const SETUP_HOOK_FAILURE: readonly TriagePattern[] = [
+  py(String.raw`(?i)\bwhile running "(beforeEach|beforeAll)" hook\b`),
+];
+
+/**
+ * The test's own code is invalid — the product was never asked anything. Not a
+ * defect, and not a flake either: it fails the same way every time until the
+ * test is fixed, which is why it must not go through the repetition rule.
+ */
+export const TEST_CODE_ERROR: readonly TriagePattern[] = [
+  py(String.raw`(?i)\bwhile parsing css selector\b`),
+  py(String.raw`(?i)\bis not a valid selector\b`),
+  py(String.raw`(?i)\bUnexpected token\b.{0,40}\bselector\b`),
+];
+
+/** Rationale prefixes the repetition rule and the live line recognise. */
+export const SETUP_HOOK_RATIONALE = "A setup hook failed before the test body ran";
+export const TEST_CODE_RATIONALE = "The test's own code is invalid";
+
 export const PW_FLAKE_PATTERNS: readonly TriagePattern[] = [
   py(String.raw`(?i)\bTimeout\s+\d+\s*ms\s+exceeded\b`),
   py(String.raw`(?i)\bTest timeout of \d+\s*ms exceeded\b`),

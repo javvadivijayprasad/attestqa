@@ -21,7 +21,12 @@
 
 import type { AnyRunEvent, Gap, TriagePayload, VerifierInput } from "../types.js";
 import { triageRun } from "./classify.js";
-import { NO_SIGNATURE_CONFIDENCE, isContagious, type TriageCategory } from "./patterns.js";
+import {
+  NO_SIGNATURE_CONFIDENCE,
+  TEST_CODE_RATIONALE,
+  isContagious,
+  type TriageCategory,
+} from "./patterns.js";
 import { readFailures, reportFingerprint, reportMtimeMs, reportPath } from "./report.js";
 import { analyzeReport, merge, type ServiceOptions } from "./service.js";
 import { assertionsOf, testsByTitle } from "../design/test-design.js";
@@ -362,6 +367,9 @@ export function applyRepetition<
 
   return verdicts.map((v) => {
     if (v.category !== "flake") return v;
+    // Invalid test code repeats by nature; repeating does not make it the
+    // product's fault. It stays the test's to fix.
+    if (v.rationale.startsWith(TEST_CODE_RATIONALE)) return v;
     const repeats = seen.get(`${v.test}\u0000${v.evidence}`) ?? 0;
     if (repeats === 0) return v;
     return {

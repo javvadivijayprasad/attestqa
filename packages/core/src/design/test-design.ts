@@ -584,17 +584,28 @@ export function coverageOf(
   for (const it of design.items) {
     const ac = acLabelNumber(it.covers);
     const bug = bugRef(it.covers);
+    // A match only counts when the scenario is the same TYPE of test (when it
+    // says): run 20261011T214846Z reported a security item (token removed from
+    // storage) "already tested" by the AC-1 functional test, which never looks
+    // at storage. Design ids are renumbered every run, so they stay the last
+    // resort, never the first.
     for (const sc of tagged) {
       if (!isReal(sc.scenario)) continue;
-      if (ac !== undefined && sc.acs.includes(ac)) {
+      const sameType = sc.types.length === 0 || sc.types.includes(it.type);
+      if (ac !== undefined && sc.acs.includes(ac) && sameType) {
         out.set(it.id, { scenario: sc.scenario, how: "criterion" });
         break;
       }
-      if (bug !== undefined && includesId(sc.bugs, bug)) {
+      if (bug !== undefined && includesId(sc.bugs, bug) && sameType) {
         out.set(it.id, { scenario: sc.scenario, how: "bug" });
         break;
       }
-      if (ac === undefined && bug === undefined && sc.designs.includes(it.id.toUpperCase())) {
+      if (
+        ac === undefined &&
+        bug === undefined &&
+        sameType &&
+        sc.designs.includes(it.id.toUpperCase())
+      ) {
         out.set(it.id, { scenario: sc.scenario, how: "design id" });
         break;
       }
@@ -610,10 +621,20 @@ function acLabelNumber(covers: string): number | undefined {
 }
 
 /** Every scenario with the tags that say what it covers. */
-function scenarioTagsOf(
-  feature: string,
-): Array<{ scenario: string; acs: number[]; bugs: TrackerId[]; designs: string[] }> {
-  const out: Array<{ scenario: string; acs: number[]; bugs: TrackerId[]; designs: string[] }> = [];
+function scenarioTagsOf(feature: string): Array<{
+  scenario: string;
+  acs: number[];
+  bugs: TrackerId[];
+  designs: string[];
+  types: string[];
+}> {
+  const out: Array<{
+    scenario: string;
+    acs: number[];
+    bugs: TrackerId[];
+    designs: string[];
+    types: string[];
+  }> = [];
   let tags: string[] = [];
   for (const raw of feature.split("\n")) {
     const line = raw.trim();
@@ -633,6 +654,9 @@ function scenarioTagsOf(
           .filter((n): n is TrackerId => n !== undefined),
         designs: tags
           .map((t) => /^@design:(D\d+(?:-\d+)?)$/i.exec(t)?.[1]?.toUpperCase())
+          .filter((x): x is string => !!x),
+        types: tags
+          .map((t) => /^@type:([a-z][a-z-]*)$/i.exec(t)?.[1]?.toLowerCase())
           .filter((x): x is string => !!x),
       });
       tags = [];

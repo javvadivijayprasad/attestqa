@@ -19,6 +19,12 @@ export default defineConfig({
   reporter: process.env["CI"] ? "line" : "list",
   use: {
     baseURL: process.env["AQA_APP_URL"] ?? "http://localhost:3100",
+    // Juice Shop opens a welcome banner over a cookie bar on every fresh
+    // browser; the banner swallows clicks meant for anything under it. Both
+    // remember "dismissed" in a cookie, so every test starts with those two
+    // cookies set and neither pop-up appears. Environment setup, not a test
+    // step: nothing here changes what a test checks.
+    storageState: "juice-shop.storage.json",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

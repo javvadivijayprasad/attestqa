@@ -1,3 +1,4 @@
+import { NO_SIGNATURE_CONFIDENCE, TEST_CODE_RATIONALE } from "./triage/patterns.js";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -48,6 +49,27 @@ import type { ToolClient } from "./runtime/tools.js";
  * both `dist/cli.js` and `src/cli.ts`, so the same path resolves from a build, from
  * a global install, and from `tsx`.
  */
+/** The bdd2pw this package depends on: its CLI path and version, or undefined. */
+export function ownBdd2pw(): { cli: string; version: string } | undefined {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkgPath = require.resolve("@vijaypjavvadi/bdd2pw/package.json");
+    const pkg = require(pkgPath) as { version?: unknown; bin?: unknown };
+    const bin =
+      typeof pkg.bin === "string"
+        ? pkg.bin
+        : typeof pkg.bin === "object" && pkg.bin !== null
+          ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
+          : undefined;
+    if (typeof bin !== "string") return undefined;
+    const cli = join(dirname(pkgPath), bin);
+    if (!existsSync(cli)) return undefined;
+    return { cli, version: typeof pkg.version === "string" ? pkg.version : "?" };
+  } catch {
+    return undefined;
+  }
+}
+
 function packageVersion(): string {
   try {
     const require = createRequire(import.meta.url);
@@ -276,13 +298,20 @@ async function buildTooling(
               "aqa: agent.llm_fallback is set but AI_GOVERNANCE_URL is not — bdd2pw will run " +
                 "rules-only and unbound steps will land as TODO\n",
             );
+          // The bdd2pw attestqa depends on, run directly with this Node —
+          // not `npx bdd2pw`, which resolves from the WORKSPACE and so could
+          // start a global or stale copy, or none, depending on where the
+          // tests live. A fix shipped in bdd2pw then reaches every run.
+          const own = ownBdd2pw();
+          if (own) io.err(`aqa: bdd2pw ${own.version} (attestqa's own dependency)\n`);
+          else io.err("aqa: bdd2pw not found in attestqa's dependencies — falling back to npx\n");
           clients.push(
-            new Bdd2PwTools(
-              workspace,
-              governed && llmFallback && env.governanceUrl
+            new Bdd2PwTools(workspace, {
+              ...(own ? { command: process.execPath, args: [own.cli] } : {}),
+              ...(governed && llmFallback && env.governanceUrl
                 ? { llm: llmFallback, governanceUrl: env.governanceUrl }
-                : {},
-            ),
+                : {}),
+            }),
           );
           if (governed)
             io.err(`aqa: bdd2pw LLM fallback ${llmFallback}, governed by the sidecar\n`);
@@ -709,7 +738,7 @@ if (isEntry) {
  * operator is actually waiting for — did the suite run, and what did triage
  * make of it — under thirty reads of the same file.
  */
-function liveLine(e: AnyRunEvent): string {
+export function liveLine(e: AnyRunEvent): string {
   const p = e.payload as unknown as Record<string, unknown>;
   switch (e.kind) {
     // A call the RUNTIME decided on, not the model. Ordinary calls stay silent —
@@ -802,7 +831,7 @@ function liveLine(e: AnyRunEvent): string {
       const runLevel = p["runLevel"];
       if (typeof runLevel === "string") {
         return runLevel === "environmental"
-          ? "aqa: nothing in this run measured the product — the environment failed before the tests reached it (application down, or the test fixture missing)\n"
+          ? "aqa: nothing in this run measured the product — it failed before the tests reached it (application down, a test fixture missing, or a setup step such as a pop-up in the way)\n"
           : `aqa: nothing in this run measured the product — the test runner itself failed (${runLevel})\n`;
       }
       const verdicts = Array.isArray(p["verdicts"]) ? p["verdicts"] : [];
@@ -810,7 +839,15 @@ function liveLine(e: AnyRunEvent): string {
         return "aqa: suite is green — the earlier failures are gone, nothing is held for you\n";
       const by = new Map<string, number>();
       for (const v of verdicts) {
-        const c = String((v as Record<string, unknown>)["category"] ?? "?");
+        const r = v as Record<string, unknown>;
+        let c = String(r["category"] ?? "?");
+        const rationale = String(r["rationale"] ?? "");
+        // Say what the classifier actually knows. A real-defect at the
+        // no-pattern confidence is a default, not a judgement, and a "flake"
+        // that is invalid test code is the test's fault.
+        if (rationale.startsWith(TEST_CODE_RATIONALE)) c = "test-defect";
+        else if (c === "real-defect" && Number(r["confidence"] ?? 1) <= NO_SIGNATURE_CONFIDENCE)
+          c = "unrecognised";
         by.set(c, (by.get(c) ?? 0) + 1);
       }
       // In words, not in the classifier's vocabulary. "4 flake" told an
@@ -821,7 +858,9 @@ function liveLine(e: AnyRunEvent): string {
         flake: (n) => `${n} may be flaky — re-running to find out`,
         "test-defect": (n) =>
           `${n} look${n === 1 ? "s" : ""} like the test's fault — the agent fixes ${n === 1 ? "it" : "them"}`,
-        environmental: (n) => `${n} could not reach the application`,
+        environmental: (n) => `${n} never reached the product (setup or environment failed)`,
+        unrecognised: (n) =>
+          `${n} matched no known failure pattern — held for you as possible defect${n === 1 ? "" : "s"}, at low confidence (0.1)`,
       };
       const parts = [...by]
         .map(([c, n]) => (say[c] ? (say[c] as (x: number) => string)(n) : `${n} ${c}`))

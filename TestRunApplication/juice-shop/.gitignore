@@ -9,3 +9,4 @@ playwright/.cache/
 .idea/
 .vscode/
 .aqa-report/
+.bdd2pw/
