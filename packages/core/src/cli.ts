@@ -26,6 +26,8 @@ import { azureDevOpsServer, playwrightServer } from "./mcp/servers.js";
 import { FsTools } from "./mcp/adapters/fs.js";
 import { Bdd2PwTools } from "./mcp/adapters/bdd2pw.js";
 import { PwTools } from "./mcp/adapters/pw.js";
+import { JiraTools } from "./mcp/adapters/jira.js";
+import { normId, TRACKERS, type Tracker } from "./design/ids.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
 import { HealTools } from "./mcp/adapters/heal.js";
@@ -59,12 +61,14 @@ function packageVersion(): string {
 export const VERSION = packageVersion();
 
 /** In-process adapters, by `--servers` name. */
-export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata"];
+export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira"];
 /**
  * `tcg` and `synthdata` are site-specific (they need TCG_URL / SYNTHDATA_CMD),
  * so they are opt-in rather than on by default.
  */
 export const DEFAULT_SERVERS = "ado,playwright,fs,bdd2pw,pw";
+/** The same set for a Jira story: Jira in place of Azure DevOps. */
+export const JIRA_SERVERS = "jira,playwright,fs,bdd2pw,pw";
 
 const USAGE = `aqa — agentic QA runtime
 
@@ -80,12 +84,15 @@ Usage:
   aqa run "<request>" --config <ai-quality.config.yaml> [--ledger .aqa]
           [--approval terminal|file] [--approval-timeout <seconds>]
           [--skill story-to-tests|defect-profile] [--work-item <id>] [--dry-run]
-          [--servers ...] [--workspace .] [--env .env]
+          [--tracker ado|jira] [--servers ...] [--workspace .] [--env .env]
       Run the agent loop. For story-to-tests (the default) the work item comes from
       the request ("AB#1") unless --work-item says otherwise, and must be in
       agent.scope.work_items. defect-profile takes no work item: it reads the
       project's closed bugs and writes .aqa-profile/defects.json in the workspace,
       which story-to-tests then reads to aim its test design.
+      --tracker: where the story lives. Default: from the work item — a Jira key
+      (SHOP-12) means Jira and needs JIRA_BASE_URL with JIRA_EMAIL + JIRA_API_TOKEN
+      (Cloud) or JIRA_PAT (Data Center) in .env; a number means Azure DevOps.
       --dry-run: load config, connect servers, list tools with their gate class,
       make no model or tool calls, exit 0.
       --approval file: each batch is written to <ledger>/runs/<id>/approvals/<approvalId>.json
@@ -192,6 +199,8 @@ async function buildTooling(
    * with AI_GOVERNANCE_URL — see below.
    */
   llmFallback?: AgentConfig["llm_fallback"],
+  /** Servers when --servers is not given: DEFAULT_SERVERS, or JIRA_SERVERS for a Jira story. */
+  defaultServers: string = DEFAULT_SERVERS,
 ): Promise<{
   specs: ServerSpec[];
   tools: ToolClient;
@@ -201,7 +210,7 @@ async function buildTooling(
   loadDotEnv(flag(args, "--env") ?? ".env");
   const env = readRuntimeEnv(process.env, { requireAnthropic: false });
   const workspace = resolve(flag(args, "--workspace") ?? ".");
-  const wanted = (flag(args, "--servers") ?? DEFAULT_SERVERS)
+  const wanted = (flag(args, "--servers") ?? defaultServers)
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
@@ -214,19 +223,39 @@ async function buildTooling(
           "--servers includes ado but AZURE_DEVOPS_ORG_URL/PAT/PROJECT are not set",
         );
       specs.push(azureDevOpsServer(env));
-    } else if (w === "playwright") specs.push(playwrightServer({ allowedOrigins: scopeUrls }));
+    } else if (w === "playwright")
+      specs.push(
+        playwrightServer({
+          allowedOrigins: scopeUrls,
+          // AQA_BROWSER picks another installed browser (msedge, firefox, …);
+          // the default is the Chrome most teams already run.
+          ...(process.env["AQA_BROWSER"] ? { browser: process.env["AQA_BROWSER"] } : {}),
+        }),
+      );
     else if (w === "tcg" && !env.tcgUrl)
       throw new ConfigError("--servers includes tcg but TCG_URL is not set");
     else if (w === "synthdata" && !env.synthdataCmd)
       throw new ConfigError("--servers includes synthdata but SYNTHDATA_CMD is not set");
+    else if (w === "jira" && !env.jira)
+      throw new ConfigError(
+        "--servers includes jira but JIRA_BASE_URL and its credential (JIRA_EMAIL + JIRA_API_TOKEN, or JIRA_PAT) are not set",
+      );
     else if (!LOCAL_SERVERS.includes(w))
       throw new ConfigError(
         `unknown server "${w}" (known: ado, playwright, ${LOCAL_SERVERS.join(", ")})`,
       );
   }
-  if (env.azureDevOps)
+  if (env.azureDevOps && wanted.includes("ado"))
     io.err(
       `aqa: Azure DevOps org ${env.azureDevOps.org}, project ${env.azureDevOps.project}, PAT ${mask(env.azureDevOps.pat)}\n`,
+    );
+  if (env.jira && wanted.includes("jira"))
+    io.err(
+      `aqa: Jira ${env.jira.baseUrl} (REST v${env.jira.apiVersion ?? 3}), ${
+        env.jira.auth.kind === "basic"
+          ? `${env.jira.auth.email}, API token ${mask(env.jira.auth.token)}`
+          : `PAT ${mask(env.jira.auth.token)}`
+      }\n`,
     );
 
   const built = deps.buildTools
@@ -259,6 +288,7 @@ async function buildTooling(
             io.err(`aqa: bdd2pw LLM fallback ${llmFallback}, governed by the sidecar\n`);
         }
         if (wanted.includes("pw")) clients.push(new PwTools(workspace));
+        if (wanted.includes("jira") && env.jira) clients.push(new JiraTools(env.jira));
         if (wanted.includes("tcg") && env.tcgUrl) clients.push(new TcgTools(env.tcgUrl));
         if (wanted.includes("synthdata") && env.synthdataCmd)
           clients.push(new SynthdataTools(env.synthdataCmd, workspace));
@@ -307,12 +337,25 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
   const config = await loadAgentConfig(configPath);
 
   if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
+  // The same tracker choice the real run makes, so a dry run checks the
+  // servers and tools that run would actually use.
+  loadDotEnv(flag(args, "--env") ?? ".env");
+  const picked = pickTracker(
+    args,
+    request,
+    readRuntimeEnv(process.env, { requireAnthropic: false }),
+  );
+  if ("error" in picked) {
+    io.err(picked.error);
+    return 1;
+  }
   const { tools, close } = await buildTooling(
     args,
     io,
     deps,
     config.scope.urls,
     config.llm_fallback,
+    picked.tracker === "jira" ? JIRA_SERVERS : DEFAULT_SERVERS,
   );
   try {
     const list = await tools.listTools();
@@ -320,6 +363,7 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
       sandbox: process.env["AQA_SANDBOX"] === "1",
     });
     io.out(`aqa run --dry-run: "${request}"\n`);
+    io.out(`  tracker: ${picked.tracker === "jira" ? "Jira" : "Azure DevOps"}\n`);
     io.out(
       `  config: model ${describeModel(config.model)}, budgets ${config.budgets.steps} steps / ${config.budgets.tokens} tokens\n`,
     );
@@ -404,6 +448,19 @@ async function live(
   // defect-profile queries a project's bug history, so the project name is not
   // optional for it. Checked here, before a token is spent, rather than left to
   // fail somewhere inside the run.
+  const picked = pickTracker(args, request, env);
+  if ("error" in picked) {
+    io.err(picked.error);
+    return 1;
+  }
+  const { tracker, explicitRef, jiraRef } = picked;
+  if (tracker === "jira" && skillName === "defect-profile") {
+    io.err(
+      "aqa run: --skill defect-profile reads Azure DevOps bug history; it has no Jira version yet.\n",
+    );
+    return 1;
+  }
+
   const adoProject = env.azureDevOps?.project;
   if (skillName === "defect-profile" && !adoProject) {
     io.err(
@@ -421,11 +478,18 @@ async function live(
   if (skillName === "story-to-tests") {
     // Refuse before spending a token if the request names a work item the
     // config does not allow.
-    const ref = flag(args, "--work-item") ?? parseWorkItemRef(request);
+    const raw = explicitRef ?? (tracker === "jira" ? jiraRef : parseWorkItemRef(request));
+    // A Jira key is case-insensitive in Jira; it is carried upper-case so the
+    // scope list, the @story tag and the ledger all spell it one way.
+    const ref = raw !== undefined && tracker === "jira" ? String(normId(raw) ?? raw) : raw;
     if (!ref) {
       io.err(
-        'aqa run: no work item in the request. Write it as "AB#1", or pass --work-item <id>.\n',
+        'aqa run: no work item in the request. Write it as "AB#1" or as a Jira key like SHOP-12, or pass --work-item <id>.\n',
       );
+      return 1;
+    }
+    if (tracker === "jira" && typeof normId(ref) !== "string") {
+      io.err(`aqa run: ${ref} is not a Jira issue key (expected something like SHOP-12).\n`);
       return 1;
     }
     if (!matchesAny(ref, config.scope.work_items, env.sandbox)) {
@@ -465,7 +529,14 @@ async function live(
     tools: mcpTools,
     close,
     workspace,
-  } = await buildTooling(args, io, deps, config.scope.urls, config.llm_fallback);
+  } = await buildTooling(
+    args,
+    io,
+    deps,
+    config.scope.urls,
+    config.llm_fallback,
+    tracker === "jira" ? JIRA_SERVERS : DEFAULT_SERVERS,
+  );
   try {
     const planName = config.scope.test_plans[0];
     // An account without the Test Plans access level cannot create a plan or a
@@ -480,6 +551,7 @@ async function live(
         ? defectProfileSkill({ project: adoProject ?? "" })
         : storyToTestsSkill({
             workItem,
+            ...(tracker === "jira" ? { tracker } : {}),
             ...(adoProject ? { project: adoProject } : {}),
             ...(canCreatePlans && planName ? { testPlan: planName } : {}),
             ...(canCreatePlans ? {} : { requireSuiteMembership: false }),
@@ -508,7 +580,7 @@ async function live(
       new HealTools(ledger),
       new SummaryTools(ledger, {
         workItem,
-        ...(canCreatePlans
+        ...(canCreatePlans || tracker === "jira"
           ? {}
           : {
               limitations: [
@@ -532,7 +604,9 @@ async function live(
     io.err(`aqa run ${ledger.runId}: "${request}"\n`);
     io.err(
       `aqa: skill ${skill.name}, ${
-        workItem ? `work item ${workItem}` : `project ${adoProject ?? "?"}`
+        workItem
+          ? `${tracker === "jira" ? "Jira issue" : "work item"} ${workItem}`
+          : `project ${adoProject ?? "?"}`
       }, model ${model.model}, approval ${approvalMode}\n`,
     );
     if (skillName === "defect-profile")
@@ -540,7 +614,12 @@ async function live(
         "aqa: bug reads are scope-checked per work item — ids outside agent.scope.work_items " +
           "are refused and recorded as out of scope, not classified\n",
       );
-    if (skillName === "story-to-tests" && !canCreatePlans)
+    if (skillName === "story-to-tests" && tracker === "jira")
+      io.err(
+        "aqa: Jira keeps no test cases — the feature file's @story tags are the record; " +
+          "the run report stays with the run and is not posted to the issue\n",
+      );
+    else if (skillName === "story-to-tests" && !canCreatePlans)
       io.err(
         "aqa: capabilities.test_plans is false — cases will be created and linked, " +
           "but no plan or suite (this account has no Test Plans access level)\n",
@@ -798,4 +877,48 @@ function liveLine(e: AnyRunEvent): string {
 
 function num(v: unknown): number {
   return typeof v === "number" ? v : 0;
+}
+
+/**
+ * The first Jira issue key in a request, upper-case only: free text is full of
+ * lower-case word-dash-number shapes ("utf-8", "covid-19") that are not keys.
+ */
+export function parseJiraKey(text: string): string | undefined {
+  return /\b([A-Z][A-Z0-9_]+-\d+)\b/.exec(text)?.[1];
+}
+
+/**
+ * Which tracker a run's story lives in: --tracker, else the work item's own
+ * shape (SHOP-12 is Jira, 44 is Azure DevOps). Jira is never guessed from a key
+ * in the request text unless Jira is configured. Shared by the real run and the
+ * dry run, so the two can never disagree about which servers to connect.
+ */
+export function pickTracker(
+  args: string[],
+  request: string,
+  env: RuntimeEnv,
+):
+  | { tracker: Tracker; explicitRef: string | undefined; jiraRef: string | undefined }
+  | { error: string } {
+  const trackerFlag = flag(args, "--tracker");
+  if (trackerFlag !== undefined && !(TRACKERS as readonly string[]).includes(trackerFlag))
+    return { error: `aqa run: --tracker must be one of ${TRACKERS.join(", ")}\n` };
+  const explicitRef = flag(args, "--work-item");
+  const jiraRef = env.jira ? parseJiraKey(request) : undefined;
+  const tracker: Tracker =
+    (trackerFlag as Tracker | undefined) ??
+    (explicitRef !== undefined
+      ? typeof normId(explicitRef) === "string"
+        ? "jira"
+        : "ado"
+      : !parseWorkItemRef(request) && jiraRef
+        ? "jira"
+        : "ado");
+  if (tracker === "jira" && !env.jira)
+    return {
+      error:
+        "aqa run: this is a Jira story, but JIRA_BASE_URL and its credential are not set " +
+        "(JIRA_EMAIL + JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center) in the environment or .env.\n",
+    };
+  return { tracker, explicitRef, jiraRef };
 }

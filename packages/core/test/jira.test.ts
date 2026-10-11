@@ -18,14 +18,23 @@ import { DEFAULT_POLICY } from "../src/types.js";
  * prompt can reach those actions.
  */
 
-type Call = { url: string; method: string; headers: Record<string, string>; body: string };
+type Call = { url: string; method: string; headers: Record<string, string>; body?: string };
 
 function fake(
   routes: Record<string, { status?: number; body: unknown }>,
   calls: Call[] = [],
 ): FetchLike {
   return async (url, init) => {
-    calls.push({ url, method: init.method, headers: init.headers, body: init.body });
+    // Behave like Node's fetch: a GET or HEAD with any body, even "", throws.
+    // The first fake accepted one, and the first real run left its story unread.
+    if ((init.method === "GET" || init.method === "HEAD") && init.body !== undefined)
+      throw new TypeError("Request with GET/HEAD method cannot have body.");
+    calls.push({
+      url,
+      method: init.method,
+      headers: init.headers,
+      ...(init.body !== undefined ? { body: init.body } : {}),
+    });
     const hit = Object.entries(routes).find(([k]) => url.includes(k));
     const r = hit?.[1] ?? { status: 404, body: { errorMessages: ["not found"] } };
     return {
@@ -185,7 +194,7 @@ describe("reading", () => {
     });
     const r = await t.call("jira", "search", { jql: "sprint in openSprints()", maxResults: 500 });
     expect(r.ok).toBe(true);
-    expect(JSON.parse(calls[0]!.body)).toMatchObject({
+    expect(JSON.parse(calls[0]!.body ?? "null")).toMatchObject({
       jql: "sprint in openSprints()",
       maxResults: 100,
     });
@@ -229,11 +238,11 @@ describe("the one write: a Bug, linked to its story", () => {
       issuetype: "Story",
     });
     expect(r.ok).toBe(true);
-    const created = JSON.parse(calls[0]!.body);
+    const created = JSON.parse(calls[0]!.body ?? "null");
     expect(created.fields.issuetype).toEqual({ name: "Bug" });
     expect(created.fields.labels).toContain("agentic-qa");
     expect(created.fields.description.type).toBe("doc");
-    expect(JSON.parse(calls[1]!.body)).toEqual({
+    expect(JSON.parse(calls[1]!.body ?? "null")).toEqual({
       type: { name: "Relates" },
       inwardIssue: { key: "QA-20" },
       outwardIssue: { key: "QA-12" },

@@ -213,7 +213,11 @@ function baseLabel(label: string): string {
   return label.replace(/[A-Z]$/, "");
 }
 
-const SOURCE = /\b(AC[- ]?\d+[a-z]?|task\s*#?\d+|bug\s*#?\d+|comment|epic)\b/i;
+// Task and bug references in either tracker: "task #46" / "bug 48" (Azure
+// DevOps) or "task SCRUM-9" / "bug SCRUM-12" (Jira). Run 20261011T210750Z
+// refused "task SCRUM-9" as having no source — a Jira key the rule never knew.
+const SOURCE =
+  /\b(AC[- ]?\d+[a-z]?|task\s*#?(?:[A-Za-z][A-Za-z0-9_]+-)?\d+|bug\s*#?(?:[A-Za-z][A-Za-z0-9_]+-)?\d+|comment|epic)\b/i;
 
 /**
  * A story with NO acceptance criteria recorded.
@@ -228,7 +232,7 @@ const SOURCE = /\b(AC[- ]?\d+[a-z]?|task\s*#?\d+|bug\s*#?\d+|comment|epic)\b/i;
  * and every such item is marked derived, so nobody later mistakes a reading of
  * a description for a stated requirement.
  */
-const DERIVED_SOURCE = /\b(story|description|AB#\d+|acceptance criteria)\b/i;
+const DERIVED_SOURCE = /\b(story|description|AB#\d+|[A-Z][A-Z0-9_]+-\d+|acceptance criteria)\b/i;
 
 /**
  * The shapes a hedged expectation takes. Deliberately narrow: "or" inside a
@@ -447,7 +451,7 @@ export function storyFacts(events: AnyRunEvent[]): StoryFacts | undefined {
     bugs: asArray(f["bugs"]).map((b) => {
       const r = asRecord(b) ?? {};
       return {
-        id: Number(r["id"]),
+        id: idOf(r["id"]),
         state: String(r["state"] ?? ""),
         title: String(r["title"] ?? ""),
       };
@@ -455,22 +459,31 @@ export function storyFacts(events: AnyRunEvent[]): StoryFacts | undefined {
     filedBugs: asArray(f["filedBugs"]).map((b) => {
       const r = asRecord(b) ?? {};
       return {
-        id: Number(r["id"]),
+        id: idOf(r["id"]),
         state: String(r["state"] ?? ""),
         title: String(r["title"] ?? ""),
         agent: r["agent"] === true,
       };
     }),
-    tasks: asArray(f["tasks"]).map(Number),
+    tasks: asArray(f["tasks"]).map(idOf),
     ...(asRecord(f["story"]) ? { story: asStub(f["story"]) } : {}),
     ...(asRecord(f["epic"]) ? { epic: asStub(f["epic"]) } : {}),
     ...(asRecord(f["framework"]) ? { framework: f["framework"] as FrameworkProfile } : {}),
   };
 }
 
-function asStub(v: unknown): { id: number; title: string } {
+/**
+ * An id read back from the ledger. A Jira key stays a key; an Azure DevOps id
+ * stays a number; anything else is NaN, as `Number()` made it before Jira, so
+ * the checks that skip a missing id still skip it.
+ */
+function idOf(v: unknown): TrackerId {
+  return normId(v) ?? Number.NaN;
+}
+
+function asStub(v: unknown): { id: TrackerId; title: string } {
   const r = asRecord(v) ?? {};
-  return { id: Number(r["id"]), title: String(r["title"] ?? "") };
+  return { id: idOf(r["id"]), title: String(r["title"] ?? "") };
 }
 
 /** The design in force: the last one a person approved and the runtime recorded. */

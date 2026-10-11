@@ -1,3 +1,4 @@
+import type { TrackerId } from "../../design/ids.js";
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
 import type { AnyRunEvent } from "../../types.js";
 import {
@@ -100,7 +101,7 @@ export function composeRunReport(
   suite: Record<string, unknown> | null;
   createdCaseIds: number[];
   preexistingCaseIds: number[];
-  bugsFiled: Array<{ id?: number; title: string }>;
+  bugsFiled: Array<{ id?: TrackerId; title: string }>;
   bugsDropped: string[];
   bugsDenied: string[];
   knownBugsNotReproduced: KnownBugPass[];
@@ -135,10 +136,22 @@ export function composeRunReport(
   const specs = artefacts(calls).filter((p) => /\.(spec|test)\.[cm]?[jt]sx?$/i.test(p));
 
   // The bug decision, as it actually went.
-  const bugsFiled = successful(calls, "ado.wit_work_item_write", "create").map((c) => {
+  const bugsFiled: Array<{ id?: TrackerId; title: string }> = successful(
+    calls,
+    "ado.wit_work_item_write",
+    "create",
+  ).map((c) => {
     const id = numberField(c.result, "id");
     return { ...(id !== undefined ? { id } : {}), title: bugTitleOf(c.args) };
   });
+  // Jira bugs are counted the same way; their id is the issue key.
+  for (const c of successful(calls, "jira.create_bug")) {
+    const key = asRecord(c.result)?.["key"];
+    bugsFiled.push({
+      ...(typeof key === "string" ? { id: key } : {}),
+      title: String(c.args["summary"] ?? "(untitled)"),
+    });
+  }
   const bugsDropped: string[] = [];
   const bugsDenied: string[] = [];
   // Defects this run reproduced that Azure DevOps already has a record of.
@@ -165,7 +178,7 @@ export function composeRunReport(
       if (already?.[1] && already[2])
         bugsAlreadyFiled.push(`#${already[1]} [${already[2]}] ${already[3] ?? ""}`.trim());
       if (
-        p["toolName"] === "ado.wit_work_item_write" &&
+        (p["toolName"] === "ado.wit_work_item_write" || p["toolName"] === "jira.create_bug") &&
         p["decision"] === "ask" &&
         p["approvalId"]
       ) {
@@ -234,7 +247,7 @@ export function composeRunReport(
  * coupling is real, so the shape is asserted in test/report.test.ts against the
  * rule's own output rather than against a copy of this string.
  */
-const ALREADY_FILED = /^#(\d+) \[([^\]]+)\] already says this: "([^"]*)"/;
+const ALREADY_FILED = /^#([A-Za-z][A-Za-z0-9_]+-\d+|\d+) \[([^\]]+)\] already says this: "([^"]*)"/;
 
 /** The first line of error text a contagious verdict matched on — the reason, in the suite's own words. */
 function firstEvidence(verdicts: unknown[], level: string): string {
@@ -306,7 +319,7 @@ interface Rendered {
   preexisting: number[];
   specs: string[];
   limitations: string[];
-  bugsFiled?: Array<{ id?: number; title: string }>;
+  bugsFiled?: Array<{ id?: TrackerId; title: string }>;
   bugsDropped?: string[];
   bugsDenied?: string[];
   bugsAlreadyFiled?: string[];
@@ -477,7 +490,9 @@ function render(r: Rendered): string {
     lines.push("");
     lines.push("**Bugs:**");
     for (const b of filed)
-      lines.push(`- filed${b.id !== undefined ? ` #${b.id}` : ""}: ${b.title}`);
+      lines.push(
+        `- filed${b.id === undefined ? "" : typeof b.id === "number" ? ` #${b.id}` : ` ${b.id}`}: ${b.title}`,
+      );
     // A defect that reproduced and is already on record. This is the strongest
     // sentence the report can say about a failing test — not "something is
     // wrong" but "this exact defect was filed, is still open, and the suite

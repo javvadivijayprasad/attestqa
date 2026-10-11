@@ -1,0 +1,94 @@
+{
+  "project": "SCRUM",
+  "label": "aqa-seed",
+  "target": "OWASP Juice Shop, run locally (http://localhost:3100)",
+  "note": "Mirrors the Customer account access epic used in the Azure DevOps sandbox (AB#42/AB#44), so one story can be run from both trackers and the facts compared.",
+  "epic": {
+    "ref": "epic",
+    "summary": "Customer account access",
+    "description": [
+      "Everything a customer does to get into and out of their Juice Shop account: registering, signing in and signing out.",
+      "Target: OWASP Juice Shop running locally at http://localhost:3100. Test accounts only."
+    ],
+    "key": "SCRUM-5"
+  },
+  "stories": [
+    {
+      "ref": "login",
+      "summary": "Customer signs in with email and password",
+      "description": [
+        "As a registered customer I want to sign in with my email and password so that I can see my basket and orders.",
+        "The login page is at /#/login and is reached from Account > Login."
+      ],
+      "acceptance": [
+        "AC-1: A registered customer who enters a correct email and password is signed in and taken to the product list.",
+        "AC-2: A wrong password shows the message \"Invalid email or password.\" and the customer stays on the login page.",
+        "AC-3: The Log in button stays disabled until both email and password have been entered."
+      ],
+      "subtasks": [
+        {
+          "summary": "Show an error message when the credentials are wrong",
+          "key": "SCRUM-7"
+        }
+      ],
+      "key": "SCRUM-6"
+    },
+    {
+      "ref": "logout",
+      "summary": "Customer signs out",
+      "description": [
+        "As a signed-in customer I want to sign out so that nobody else using this browser can act as me."
+      ],
+      "acceptance": [
+        "AC-1: Choosing Account > Logout signs the customer out; the Account menu then offers Login again.",
+        "AC-2: After logout the browser returns to the storefront home page."
+      ],
+      "subtasks": [
+        {
+          "summary": "Remove the authentication token from the browser on logout",
+          "key": "SCRUM-9"
+        }
+      ],
+      "comments": [
+        "Product owner: returning to the storefront home page after logout is intended. Do not treat it as a defect; the login page is not where a signed-out customer should land."
+      ],
+      "key": "SCRUM-8"
+    },
+    {
+      "ref": "register",
+      "summary": "New customer registers an account",
+      "description": [
+        "As a new customer I want to create an account so that I can place orders.",
+        "The registration page is at /#/register and is reached from the login page (\"Not yet a customer?\")."
+      ],
+      "acceptance": [
+        "AC-1: A new customer who fills in email, password, repeat password, a security question and its answer can register and is sent to the login page.",
+        "AC-2: The Register button stays disabled while the password and the repeated password differ.",
+        "AC-3: Registering with an email that already has an account is refused with a message saying so."
+      ],
+      "key": "SCRUM-10",
+      "subtasks": [
+        {
+          "summary": "Check that password and repeat password match before enabling Register",
+          "key": "SCRUM-11"
+        }
+      ]
+    }
+  ],
+  "bugs": [
+    {
+      "ref": "token",
+      "summary": "Session token is still accepted after logout",
+      "story": "logout",
+      "status": "In Progress",
+      "description": [
+        "Steps: sign in, copy the token from the browser, sign out, call GET /rest/basket/<id> with the copied token.",
+        "EXPECTED: 401, because the customer has signed out.",
+        "ACTUAL: 200 with the basket contents. The token is only removed from the browser; the server still accepts it.",
+        "Filed by a person, not by attestqa."
+      ],
+      "key": "SCRUM-12"
+    }
+  ],
+  "created": "2026-10-10, entered by hand in https://jvijayprasad.atlassian.net (space attestqa, key SCRUM); keys recorded here"
+}

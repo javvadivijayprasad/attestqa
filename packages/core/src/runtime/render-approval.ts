@@ -1,3 +1,5 @@
+import { asAdoBug, isBugCreate } from "../governance/bug-view.js";
+import { isJiraKey } from "../design/ids.js";
 import { parseDesign, renderDesign } from "../design/test-design.js";
 import type { ProposedCall } from "./model.js";
 
@@ -90,8 +92,7 @@ function groupByKind(calls: ProposedCall[]): Map<string, ProposedCall[]> {
 function kindOf(c: ProposedCall): string {
   if (c.toolName === "aqa.test_design") return "test design";
   if (c.toolName === "ado.testplan_test_case_write") return "test case";
-  if (c.toolName === "ado.wit_work_item_write" && str(c.args["workItemType"]) === "Bug")
-    return "BUG";
+  if (isBugCreate(c)) return "BUG";
   if (c.toolName === "ado.wit_work_item_comment_write") return "comment";
   if (c.toolName.startsWith("ado.testplan_test_suite_write")) return "suite change";
   if (c.toolName.startsWith("ado.testplan_test_plan_write")) return "test plan";
@@ -103,7 +104,7 @@ function renderCall(n: number, c: ProposedCall, opts: RenderOptions = {}): strin
     case "test case":
       return renderTestCase(n, c);
     case "BUG":
-      return renderBug(n, c);
+      return renderBug(n, asAdoBug(c));
     case "test design":
       // Stage 2: the design as a tester reads it — one line per test, its type
       // and technique, and what it expects, with where that expectation came from.
@@ -202,7 +203,7 @@ function renderBug(n: number, c: ProposedCall): string[] {
   out.push(
     parent === undefined
       ? "   ⚠ NOT linked to any story"
-      : `   linked to story AB#${String(parent)}${inProject(c.args)}`,
+      : `   linked to story ${isJiraKey(parent) ? String(parent) : `AB#${String(parent)}`}${inProject(c.args)}`,
   );
 
   const tags = f["System.Tags"] ?? str(c.args["tags"]) ?? "";

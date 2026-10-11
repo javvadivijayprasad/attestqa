@@ -17,6 +17,8 @@ import {
   type StoryFacts,
 } from "../src/design/test-design.js";
 import { gatherJiraStoryContext, jiraStateMeaning } from "../src/skills/jira-story-context.js";
+import { storyFacts, validateDesign } from "../src/design/test-design.js";
+import type { AnyRunEvent } from "../src/types.js";
 import type { PreflightRead } from "../src/types.js";
 
 /**
@@ -227,5 +229,79 @@ describe("gatherJiraStoryContext", () => {
     expect(jiraStateMeaning("to do")).toMatch(/^NEW/);
     expect(jiraStateMeaning("Ready for QA")).toMatch(/^RESOLVED/);
     expect(jiraStateMeaning("Parked")).toMatch(/not recognised/);
+  });
+});
+
+describe("facts read back from the ledger", () => {
+  it("keeps Jira keys as keys and Azure DevOps ids as numbers", async () => {
+    const { read } = fakeJira();
+    const d = await gatherJiraStoryContext(read, { workItem: "SHOP-12" });
+    const base = { tool: "attestqa", runId: "r", timestamp: 1 };
+    const events = [
+      {
+        ...base,
+        eventId: 1,
+        kind: "call",
+        payload: { server: "aqa", toolName: "story_context", args: {}, startedAt: 0 },
+      },
+      {
+        ...base,
+        eventId: 2,
+        kind: "observation",
+        payload: {
+          eventIdOfCall: 1,
+          ok: true,
+          result: {
+            kind: "preflight",
+            summary: d.summary,
+            text: d.text,
+            facts: JSON.parse(JSON.stringify(d.facts)),
+          },
+          artefacts: [],
+          durationMs: 1,
+        },
+      },
+    ] as unknown as AnyRunEvent[];
+    const f = storyFacts(events);
+    expect(f?.story?.id).toBe("SHOP-12");
+    expect(f?.epic?.id).toBe("SHOP-1");
+    expect(f?.tasks).toEqual(["SHOP-13"]);
+    expect(f?.filedBugs?.map((b) => b.id)).toEqual(["SHOP-20", "SHOP-21", "SHOP-22"]);
+  });
+});
+
+describe("a design may cite Jira tasks and bugs as its source", () => {
+  it("accepts task SCRUM-9 and bug SCRUM-12 the way it accepts task #46", () => {
+    const facts = {
+      acceptanceCriteria: ["AC-1"],
+      bugs: [],
+      tasks: ["SCRUM-9"],
+      story: { id: "SCRUM-8", title: "Customer signs out" },
+    };
+    const design = {
+      items: [
+        {
+          id: "D1",
+          covers: "AC-1",
+          type: "functional",
+          technique: "state-transition",
+          conditions: ["signed in"],
+          expected: "Login offered again",
+          source: "AC-1",
+        },
+        {
+          id: "D2",
+          covers: "task SCRUM-9",
+          type: "functional",
+          technique: "state-transition",
+          conditions: ["signed in"],
+          expected: "token removed from storage",
+          source: "task SCRUM-9",
+        },
+      ],
+      excluded: [],
+    };
+    const problems = validateDesign(design as never, facts as never, ["functional"]);
+    expect(problems.filter((p) => /names no criterion/.test(p))).toEqual([]);
   });
 });

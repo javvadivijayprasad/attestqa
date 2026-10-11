@@ -309,6 +309,11 @@ describe("server specs", () => {
   it("playwright spec is headless by default", () => {
     expect(playwrightServer().args).toContain("--headless");
     expect(playwrightServer({ headless: false }).args).not.toContain("--headless");
+    // The installed Chrome by default; another browser only when asked.
+    const chrome = playwrightServer().args;
+    expect(chrome[chrome.indexOf("--browser") + 1]).toBe("chrome");
+    const edge = playwrightServer({ browser: "msedge" }).args;
+    expect(edge[edge.indexOf("--browser") + 1]).toBe("msedge");
   });
 });
 

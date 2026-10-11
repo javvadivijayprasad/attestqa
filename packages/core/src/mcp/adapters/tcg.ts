@@ -2,7 +2,9 @@ import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools
 
 export type FetchLike = (
   url: string,
-  init: { method: string; headers: Record<string, string>; body: string; signal?: AbortSignal },
+  // body is optional: a GET or HEAD must not carry one at all — Node's fetch
+  // rejects even an empty string ("Request with GET/HEAD method cannot have body").
+  init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal },
 ) => Promise<{ ok: boolean; status: number; text(): Promise<string> }>;
 
 export interface TcgOptions {

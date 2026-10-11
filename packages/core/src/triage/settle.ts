@@ -1,3 +1,4 @@
+import { asAdoBug } from "../governance/bug-view.js";
 import { hasStoryTag, normId } from "../design/ids.js";
 import type { AnyRunEvent } from "../types.js";
 import type { ProposedCall } from "../runtime/model.js";
@@ -268,6 +269,7 @@ export function falseClaims(
   events: AnyRunEvent[],
   workspaceDir?: string,
 ): string[] {
+  call = asAdoBug(call);
   const text = stripHtml(fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "");
   if (!text) return [];
   const facts = storyFacts(events);
@@ -316,6 +318,7 @@ const DOUBT: Array<[RegExp, string]> = [
 ];
 
 function selfDoubt(call: ProposedCall): string | undefined {
+  call = asAdoBug(call);
   const text = stripHtml(fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "");
   for (const [re, said] of DOUBT) if (re.test(text)) return said;
   return undefined;
@@ -360,6 +363,7 @@ function testKey(call: ProposedCall, candidates: string[]): string {
 }
 
 export function bugTitle(call: ProposedCall): string {
+  call = asAdoBug(call);
   return fieldValue(call, "System.Title") ?? String(call.args["title"] ?? "(untitled)");
 }
 

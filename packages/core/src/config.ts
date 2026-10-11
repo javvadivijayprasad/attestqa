@@ -1,3 +1,4 @@
+import type { JiraConnection } from "./mcp/adapters/jira.js";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import type {
@@ -272,6 +273,12 @@ export interface RuntimeEnv {
   gatewayApiKey?: string;
   model?: string;
   azureDevOps?: { orgUrl: string; org: string; pat: string; project: string };
+  /**
+   * Jira, from JIRA_BASE_URL plus either JIRA_EMAIL + JIRA_API_TOKEN (Cloud,
+   * basic auth) or JIRA_PAT (Data Center, bearer). Read-only except Bug
+   * creation; see mcp/adapters/jira.ts.
+   */
+  jira?: JiraConnection;
   tcgUrl?: string;
   governanceUrl?: string;
   synthdataCmd?: string;
@@ -301,9 +308,63 @@ export function readRuntimeEnv(
   if (env["AQA_GATEWAY_API_KEY"]) out.gatewayApiKey = env["AQA_GATEWAY_API_KEY"];
   if (env["AQA_MODEL"]) out.model = env["AQA_MODEL"];
   if (azureDevOps) out.azureDevOps = azureDevOps;
+  const jira = readJiraEnv(env);
+  if (jira) out.jira = jira;
   if (env["TCG_URL"]) out.tcgUrl = env["TCG_URL"];
   if (env["AI_GOVERNANCE_URL"]) out.governanceUrl = env["AI_GOVERNANCE_URL"];
   if (env["SYNTHDATA_CMD"]) out.synthdataCmd = env["SYNTHDATA_CMD"];
+  return out;
+}
+
+/**
+ * The Jira connection from the environment, or undefined when JIRA_BASE_URL is
+ * not set. Credentials come from the environment (normally the git-ignored
+ * .env) and nowhere else — never from the config file, a work item or an
+ * argument.
+ */
+export function readJiraEnv(env: NodeJS.ProcessEnv): JiraConnection | undefined {
+  const baseUrl = env["JIRA_BASE_URL"];
+  if (!baseUrl) return undefined;
+  let u: URL;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    throw new ConfigError(`JIRA_BASE_URL is not a URL: ${baseUrl}`);
+  }
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && local))
+    throw new ConfigError(
+      "JIRA_BASE_URL must be https (plain http is accepted only for localhost) — the token travels on every request",
+    );
+  const pat = env["JIRA_PAT"];
+  const email = env["JIRA_EMAIL"];
+  const token = env["JIRA_API_TOKEN"];
+  if (pat && token)
+    throw new ConfigError(
+      "set JIRA_PAT (Data Center) or JIRA_EMAIL + JIRA_API_TOKEN (Cloud), not both",
+    );
+  let auth: JiraConnection["auth"];
+  if (pat) auth = { kind: "bearer", token: pat };
+  else if (email && token) auth = { kind: "basic", email, token };
+  else
+    throw new ConfigError(
+      "JIRA_BASE_URL is set but no credential is: set JIRA_EMAIL and JIRA_API_TOKEN (Cloud) " +
+        "or JIRA_PAT (Data Center)",
+    );
+  const versionRaw = env["JIRA_API_VERSION"];
+  let apiVersion: 2 | 3 = pat ? 2 : 3;
+  if (versionRaw) {
+    if (versionRaw !== "2" && versionRaw !== "3")
+      throw new ConfigError(`JIRA_API_VERSION must be 2 or 3, not "${versionRaw}"`);
+    apiVersion = versionRaw === "2" ? 2 : 3;
+  }
+  const out: JiraConnection = { baseUrl: baseUrl.replace(/\/+$/, ""), auth, apiVersion };
+  const ac = env["JIRA_AC_FIELD"];
+  if (ac) {
+    if (!/^customfield_\d+$/.test(ac))
+      throw new ConfigError(`JIRA_AC_FIELD must look like customfield_10042, not "${ac}"`);
+    out.acceptanceCriteriaField = ac;
+  }
   return out;
 }
 

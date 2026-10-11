@@ -13,6 +13,11 @@
  */
 export type TrackerId = number | string;
 
+/** Where requirements come from. */
+export type Tracker = "ado" | "jira";
+
+export const TRACKERS: readonly Tracker[] = ["ado", "jira"];
+
 /** A Jira issue key: a project key of two or more characters, a dash, a number. */
 const JIRA_KEY = /^[A-Za-z][A-Za-z0-9_]+-\d+$/;
 

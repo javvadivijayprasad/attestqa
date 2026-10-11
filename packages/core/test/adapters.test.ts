@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Bdd2PwTools, repoForFeature } from "../src/mcp/adapters/bdd2pw.js";
+import { Bdd2PwTools, countLane, repoForFeature, specStemFor } from "../src/mcp/adapters/bdd2pw.js";
 import { PwTools, summarise, MAX_TESTS_RECORDED, stripAnsi } from "../src/mcp/adapters/pw.js";
 import { TcgTools, type FetchLike } from "../src/mcp/adapters/tcg.js";
 import { SynthdataTools } from "../src/mcp/adapters/synthdata.js";
@@ -82,6 +82,47 @@ describe("bdd2pw adapter", () => {
     // A feature at the workspace root means the workspace IS the Playwright
     // repo, so the repo argument is "." — as it always was.
     expect(cmd.slice(cmd.indexOf("--repo"), cmd.indexOf("--repo") + 2)).toEqual(["--repo", "."]);
+    // The spec is named after the feature file (bdd2pw 4.4+ --spec-name), so
+    // an epic's feature and spec share one stem.
+    expect(cmd.slice(cmd.indexOf("--spec-name"), cmd.indexOf("--spec-name") + 2)).toEqual([
+      "--spec-name",
+      "login",
+    ]);
+  });
+
+  it("names the spec for the feature and counts where each step came from", async () => {
+    const ws = workspaceWithFeature();
+    writeFileSync(join(ws, "features", "epic-scrum-5-customer-account-access.feature"), FEATURE);
+    const spec = [
+      'test("Signs out", async () => {',
+      '  await test.step("Given I am signed in", async () => {',
+      "    // @bdd2pw lane=rule rule=auth-01 pack=web",
+      "  });",
+      '  await test.step("When I log out", async () => {',
+      "    // @bdd2pw lane=llm provider=anthropic model=claude-sonnet-4-6 cached=false governance=sanitised",
+      "  });",
+      '  await test.step("Then the menu offers Login", async () => {',
+      "    // @bdd2pw lane=todo",
+      "    // TODO: no rule matched",
+      "  });",
+      "});",
+    ].join("\n");
+    const fn: CommandRunner = async () => {
+      mkdirSync(join(ws, "tests"), { recursive: true });
+      writeFileSync(join(ws, "tests", "epic-scrum-5-customer-account-access.spec.ts"), spec);
+      return { code: 0, stdout: "wrote 1 spec", stderr: "" };
+    };
+    const t = new Bdd2PwTools(ws, { runner: fn });
+    const out = await t.call("bdd2pw", "scaffold", {
+      feature: "features/epic-scrum-5-customer-account-access.feature",
+      url: "http://localhost:3100/#/login",
+    });
+    expect(out.ok).toBe(true);
+    expect(out.result).toMatchObject({ provenance: { rule: 1, llm: 1, todo: 1 } });
+    expect(specStemFor("features\\epic-scrum-5-customer-account-access.feature")).toBe(
+      "epic-scrum-5-customer-account-access",
+    );
+    expect(countLane("  // @bdd2pw lane=rule rule=x\n// @bdd2pw lane=ruler", "rule")).toBe(1);
   });
 
   it("roots the repo where the feature lives, not where the process started", async () => {
@@ -304,7 +345,7 @@ describe("tcg generate_cases", () => {
   it("posts the story and unwraps { cases } or a bare array", async () => {
     let sent: unknown;
     const fetchImpl: FetchLike = async (url, init) => {
-      sent = { url, body: JSON.parse(init.body) };
+      sent = { url, body: JSON.parse(init.body ?? "null") };
       return {
         ok: true,
         status: 200,

@@ -69,12 +69,19 @@ export interface PlaywrightServerOptions {
   allowedOrigins?: string[];
   /** Fresh profile per session (default). Keeps runs reproducible. */
   isolated?: boolean;
+  /**
+   * Which browser the agent looks through: "chrome" (default — the Chrome a
+   * team already has installed, no separate download), "msedge", "firefox",
+   * "webkit" or "chromium" (Playwright's bundled build).
+   */
+  browser?: string;
 }
 
 export function playwrightServer(opts: PlaywrightServerOptions = {}): ServerSpec {
   const args = ["-y", `@playwright/mcp@${PINNED_VERSIONS.playwright}`];
   if (opts.headless !== false) args.push("--headless");
   if (opts.isolated !== false) args.push("--isolated");
+  args.push("--browser", opts.browser ?? "chrome");
   const origins = originsOf(opts.allowedOrigins ?? []);
   if (origins.length > 0) args.push("--allowed-origins", origins.join(";"));
   return { name: "playwright", command: npxCommand(), args };

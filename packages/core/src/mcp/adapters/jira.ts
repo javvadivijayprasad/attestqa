@@ -296,7 +296,9 @@ export class JiraTools implements ToolClient {
       const res = await this.fetchImpl(`${this.api}${path}`, {
         method,
         headers,
-        body: body === undefined ? "" : JSON.stringify(body),
+        // No body at all on a GET: real fetch refuses one, even "" (observed in
+        // run 20261011T174437Z-e9488af3, where it left the story unread).
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         signal: controller.signal,
       });
       const text = await res.text();

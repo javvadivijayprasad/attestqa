@@ -1,6 +1,8 @@
 import type { Skill } from "../types.js";
 import { StoryToTestsVerifier, type StoryToTestsOptions } from "../verify/story-to-tests.js";
 import { gatherStoryContext } from "./story-context.js";
+import { gatherJiraStoryContext } from "./jira-story-context.js";
+import type { Tracker } from "../design/ids.js";
 import { makeStoryRefusal } from "./story-rules.js";
 import { composeRunReport } from "../mcp/adapters/summary.js";
 import { asRecord } from "../verify/evidence.js";
@@ -99,6 +101,34 @@ export const STORY_TO_TESTS_SOURCES = [
  * skill's view when the account has no Test Plans access level, so the model is
  * not shown a capability it would spend the budget discovering it lacks.
  */
+/**
+ * The same skill against Jira: the Azure DevOps tools out, the four Jira tools
+ * in. There is no test-case or comment tool to swap in, because Jira has no
+ * test cases and this runtime does not comment on Jira issues.
+ */
+export const JIRA_TRACKER_TOOLS = [
+  "jira.get_issue",
+  "jira.list_comments",
+  "jira.search",
+  // Bug creation only, after a person approves it; the adapter links it to the
+  // story and labels it agentic-qa.
+  "jira.create_bug",
+];
+
+export function trackerTools(tracker: Tracker, tools: readonly string[]): string[] {
+  if (tracker === "ado") return [...tools];
+  const firstAdo = tools.findIndex((x) => x.startsWith("ado."));
+  const rest = tools.filter((x) => !x.startsWith("ado."));
+  rest.splice(firstAdo < 0 ? 0 : firstAdo, 0, ...JIRA_TRACKER_TOOLS);
+  return rest;
+}
+
+export function trackerSources(tracker: Tracker): string[] {
+  return trackerTools(tracker, STORY_TO_TESTS_SOURCES).filter(
+    (x) => tracker === "ado" || !["jira.list_comments", "jira.create_bug"].includes(x),
+  );
+}
+
 const TEST_PLAN_TOOLS = [
   "ado.testplan",
   "ado.testplan_test_plan_write",
@@ -110,14 +140,21 @@ export function storyToTestsInstructions(
   testPlan?: string,
   canCreatePlans = true,
   testTypes: readonly string[] = [],
+  tracker: Tracker = "ado",
 ): string {
   const design = testTypes.length > 0 ? testDesignStep(testTypes) : "";
+  const jira = tracker === "jira";
   return `You are the test-authoring agent for one user story: work item ${workItem}.
 
 GOAL
 Turn that story's acceptance criteria into executable Playwright tests that pass,
-and record the resulting test cases in Azure DevOps Test Plans, linked back to the
-story.
+${
+  jira
+    ? `with every scenario tagged to the Jira story it covers. Jira holds no test
+cases; the feature file is the record.`
+    : `and record the resulting test cases in Azure DevOps Test Plans, linked back to the
+story.`
+}
 
 DEFINITION OF DONE — you do not decide this
 A verifier reads the run ledger and checks, from what actually happened:
@@ -126,7 +163,11 @@ A verifier reads the run ledger and checks, from what actually happened:
   3. the suite was run and came back green — zero failures AND zero skipped —
      OR every remaining failure has been triaged as a product defect, which is
      a run that has finished its work rather than one that failed at it;
-  4. at least one test case is linked to the story — created now OR already
+${
+  jira
+    ? `  4. every scenario this run added is tagged @story:${workItem}.
+Jira keeps no test cases, so nothing about cases or suites is checked.`
+    : `  4. at least one test case is linked to the story — created now OR already
      there from an earlier run — at one case per acceptance criterion;
   4b. if you created any, you read the existing ones first;
   5. every created case carries testsWorkItemId = ${workItem};${
@@ -135,7 +176,8 @@ A verifier reads the run ledger and checks, from what actually happened:
   6. the cases were added to a test suite.`
       : `
 Suite membership is NOT checked in this environment (see step 6).`
-  }
+  }`
+}
 Saying you are finished does not make you finished. When you believe the work is
 done, stop calling tools and the verifier will check. If it finds gaps you will
 be given them and one more attempt.
@@ -156,9 +198,15 @@ METHOD
    twelve run reports, and three open bugs the agent had filed itself — one for a
    failure later shown to be an unregistered test account.)
 
-   If test cases are already linked, read them with ado.wit_work_item action
+${
+  jira
+    ? `   Jira keeps no test cases. What is already tested is in the epic's feature
+   file: read it before you add to it.
+`
+    : `   If test cases are already linked, read them with ado.wit_work_item action
    "get_batch" before you create any, so you know what is covered.
-
+`
+}
 1a. SAY WHAT THE CONTEXT TOLD YOU THAT THE ACCEPTANCE CRITERIA DID NOT.
    A story is a summary written for people who already have the context. The
    endpoint, the constraint, the decision not to build something — those live in
@@ -513,8 +561,13 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
 5. Run the suite with pw.run_tests. Fix what fails and run again. "green" is
    false while anything is skipped, so an unimplemented test blocks the run just
    as a failing one does.
-6. Record the cases once the suite is green — or once the only failures left
-   are quarantined defect candidates.
+${
+  jira
+    ? `6. You are done once the suite is green — or once the only failures left
+   are quarantined defect candidates.`
+    : `6. Record the cases once the suite is green — or once the only failures left
+   are quarantined defect candidates.`
+}
 
    THAT SECOND CASE IS NOT A LOOPHOLE, AND IT MATTERS. Failure triage runs
    after every suite execution and classifies each failure. When it calls one a
@@ -526,10 +579,16 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    bug — which is the opposite of what finding a bug should cost. (Observed: a
    run with four passing tests and one defect candidate recorded nothing at all.)
 
-   So when that happens: record the cases as usual, including the case for the
+${
+  jira
+    ? `   So when that happens: leave the quarantined test exactly as it is. It is a
+   correct test, and it stays in the feature file whatever the application
+   currently does.`
+    : `   So when that happens: record the cases as usual, including the case for the
    criterion whose test is failing. A quarantined test is a correct test; its
    case is valid test design and belongs in Azure DevOps whatever the
-   application currently does. Then stop and report the defect candidate. Do NOT
+   application currently does.`
+} Then stop and report the defect candidate. Do NOT
    file a bug — that is a human's decision and not yours to make.
 
    Green is still the goal, and a failure triaged as a flake or as anything
@@ -587,7 +646,26 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    it is not a defect is worse than silence, because someone has to read it to
    find that out.)
 
-   For each test still failing, call ado.wit_work_item_write with action
+${
+  jira
+    ? `   For each test still failing, call jira.create_bug with projectKey (the
+   prefix of ${workItem}), storyKey ${workItem}, summary and description. The
+   adapter links the Bug to the story with "Relates" and adds the label
+   "agentic-qa" itself, which is how a later run tells a bug an agent proposed
+   from one a person filed. A human is shown what you propose and approves or
+   denies it. If they deny, that is the end of it — say so and stop; do not
+   reword it and try again.
+
+   Only Bugs. There is no tool to edit, transition or comment on a Jira issue,
+   so the story's acceptance criteria stay a human's to write.
+
+   What each bug must contain:
+     - summary: the failing behaviour in the user's words, not the test's.
+       "Login does not redirect after valid credentials", never "AC-1 fails".
+     - description: the steps from the test, then EXPECTED and ACTUAL taken
+       from the failure itself — the real values, not a paraphrase.
+`
+    : `   For each test still failing, call ado.wit_work_item_write with action
    "create", workItemType "Bug", and parentId ${workItem} — the bug MUST be
    linked to the story it was found against. An unlinked bug lands in the
    backlog with nothing connecting it to the feature, the test or the run, and
@@ -614,7 +692,8 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
        "Login does not redirect after valid credentials", never "AC-1 fails".
      - Microsoft.VSTS.TCM.ReproSteps: the steps from the test, then EXPECTED and
        ACTUAL taken from the failure itself — the real values, not a paraphrase.
-     - What KIND of failure it was, in the first line, because the reviewer is
+`
+}     - What KIND of failure it was, in the first line, because the reviewer is
        being asked a different question in each case. An application that was
        unreachable on both runs is probably an environment problem and probably
        not a bug; a failing assertion on a reachable page probably is one. Say
@@ -649,7 +728,14 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    Never file a bug for a test you wrote badly. If the re-run shows your own
    selector or assumption was wrong, fix the test — that is not a defect.
 
-   THE GRAIN IS ONE CASE PER ACCEPTANCE CRITERION — exactly one, whatever
+${
+  jira
+    ? `   NOTHING ELSE IS RECORDED IN JIRA. Jira keeps no test cases: the scenarios
+   tagged @story:${workItem} in the epic's feature file are the record of what
+   is tested, and coverage is read from them. There is no test-case tool; do
+   not look for one.
+`
+    : `   THE GRAIN IS ONE CASE PER ACCEPTANCE CRITERION — exactly one, whatever
    number of tests that criterion needed. A criterion covered by two tests is
    still ONE case; put both tests' steps in it and say which test covers which
    part. Never create a case per test. A story with four criteria has four
@@ -692,11 +778,18 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    list is empty, stop and report that no test plan is in scope — creating one
    is not something you may choose unilaterally.`
    }
-7. DO NOT POST A RUN REPORT — THE RUNTIME DOES.
-   When the run is over — after the final suite result and after any bug
+`
+}7. DO NOT POST A RUN REPORT — THE RUNTIME DOES.
+${
+  jira
+    ? `   When the run is over the runtime composes the report from the ledger and
+   keeps it with the run. Nothing is posted to the Jira story: this runtime
+   cannot comment on Jira issues at all.`
+    : `   When the run is over — after the final suite result and after any bug
    decision — the runtime composes the report from the ledger and posts it to
    the story itself, once, and only if there is something a reader needs. A
-   comment you post starting "## agentic-qa run" is refused.
+   comment you post starting "## agentic-qa run" is refused.`
+}
 
    It used to be your last step, and it was never actually last: the verifier
    could send you back for another attempt, and the story then carried a report
@@ -709,15 +802,26 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    story: the story gets only what the ledger counted.
 
 CALLING CONVENTION
-Most Azure DevOps tools multiplex several operations behind one name and take an
+${
+  jira
+    ? `The Jira tools take named arguments and no "action": jira.get_issue and
+jira.list_comments take a key, jira.search takes jql, jira.create_bug takes
+projectKey, storyKey, summary and description. The story context has already
+been read for you; you rarely need any of them except jira.create_bug.`
+    : `Most Azure DevOps tools multiplex several operations behind one name and take an
 "action" argument — ado.wit_work_item does "get", "get_batch", "list_comments",
 "get_type". Always pass "action". Only the actions named in these instructions
 are permitted; anything else is refused by the governance gate, and a refusal
-costs you a step without advancing the work.
+costs you a step without advancing the work.`
+}
 
 WORKING RULES
-- Writes to Azure DevOps need human approval. Batch the case creations into one
-  cycle so the reviewer sees one request rather than four.
+${
+  jira
+    ? `- A Bug in Jira needs human approval; nothing else in Jira can be written.`
+    : `- Writes to Azure DevOps need human approval. Batch the case creations into one
+  cycle so the reviewer sees one request rather than four.`
+}
 - If a call is refused, read the reason and adapt. Proposing the same call again
   wastes the budget; the gate's decision will not change.
 - Some failures are about the operation, not the arguments. When a call comes
@@ -761,7 +865,8 @@ export function storyToTestsSkill(
   },
 ): Skill {
   const { project, ...options } = input;
-  const canCreatePlans = options.requireSuiteMembership !== false;
+  const tracker: Tracker = options.tracker ?? "ado";
+  const canCreatePlans = tracker === "ado" && options.requireSuiteMembership !== false;
   return {
     name: "story-to-tests",
     workItem: options.workItem,
@@ -800,6 +905,9 @@ export function storyToTestsSkill(
         r.bugsFiled.length + r.bugsDropped.length + r.bugsDenied.length > 0 ||
         r.knownBugsNotReproduced.length > 0;
       if (!newsworthy) return undefined;
+      // Jira: the report stays with the run. There is no tool that comments on
+      // a Jira issue, by design — so there is nothing to post with.
+      if (tracker === "jira") return undefined;
       return {
         toolName: "ado.wit_work_item_comment_write",
         args: { action: "add", workItemId: Number(options.workItem), text: r.text },
@@ -809,11 +917,16 @@ export function storyToTestsSkill(
     // tasks, its comments and the open bugs are read before the first turn,
     // filtered of anything this runtime wrote, and handed over as one digest.
     preflight: (read) =>
-      gatherStoryContext(read, {
-        workItem: options.workItem,
-        ...(project ? { project } : {}),
-        ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
-      }),
+      tracker === "jira"
+        ? gatherJiraStoryContext(read, {
+            workItem: options.workItem,
+            ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
+          })
+        : gatherStoryContext(read, {
+            workItem: options.workItem,
+            ...(project ? { project } : {}),
+            ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
+          }),
     /**
      * What the reviewer sees above a proposed test design: which of its items are
      * already covered by tests in the epic file.
@@ -922,15 +1035,19 @@ export function storyToTestsSkill(
       options.testPlan,
       canCreatePlans,
       options.testTypes ?? [],
+      tracker,
     ),
     allowedTools: [
-      ...(canCreatePlans
-        ? [...STORY_TO_TESTS_TOOLS]
-        : STORY_TO_TESTS_TOOLS.filter((t) => !TEST_PLAN_TOOLS.includes(t))),
+      ...trackerTools(
+        tracker,
+        canCreatePlans
+          ? STORY_TO_TESTS_TOOLS
+          : STORY_TO_TESTS_TOOLS.filter((t) => !TEST_PLAN_TOOLS.includes(t)),
+      ),
       // Stage 2's one tool, shown only when the project has test types in scope.
       ...(options.testTypes && options.testTypes.length > 0 ? ["aqa.test_design"] : []),
     ],
-    sourceTools: [...STORY_TO_TESTS_SOURCES],
+    sourceTools: trackerSources(tracker),
     verifier: new StoryToTestsVerifier(options),
   };
 }

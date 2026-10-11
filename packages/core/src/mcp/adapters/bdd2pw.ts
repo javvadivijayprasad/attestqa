@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
 import { FsTools } from "./fs.js";
@@ -191,6 +191,11 @@ export class Bdd2PwTools implements ToolClient {
 
     if (name === "scaffold") {
       extra.push("--repo", repoForFeature(feature));
+      // The spec is named after the FEATURE file, not the page object
+      // (bdd2pw 4.4+). One feature file per epic means one spec per epic, at
+      // the path every rule and the verifier expect — run 20260925T151945Z
+      // spent its budget looking for a spec bdd2pw had named after the page.
+      extra.push("--spec-name", specStemFor(feature));
       for (const [flag, key] of [
         ["--page", "page"],
         ["--pages", "pages"],
@@ -261,6 +266,15 @@ export class Bdd2PwTools implements ToolClient {
               // it expected. A generated file nobody can find is a generated
               // file that does not exist.
               wrote: changedSince(this.workspace, repo, before ?? new Map()),
+              // Where each step's code came from, counted from bdd2pw's own
+              // `// @bdd2pw lane=…` comments (4.4.1 contract): a rule, the
+              // governed LLM fallback, or nothing yet (TODO).
+              provenance: provenanceOf(
+                this.workspace,
+                changedSince(this.workspace, repo, before ?? new Map()).filter((f) =>
+                  /\.spec\.[cm]?[jt]s$/.test(f),
+                ),
+              ),
             }
           : {}),
         // Whether the LLM fallback was available at all, so a run that left
@@ -335,4 +349,38 @@ function tail(s: string, max = 4000): string {
 
 function fail(message: string): ToolResult {
   return { ok: false, result: { message }, artefacts: [] };
+}
+
+/** `features/epic-scrum-5-x.feature` → `epic-scrum-5-x`. */
+export function specStemFor(feature: string): string {
+  const base = feature.split(/[\\/]/).pop() ?? feature;
+  return base.replace(/\.feature$/i, "");
+}
+
+/**
+ * Counts of bdd2pw's per-step provenance lanes in the given spec files, read
+ * from the `// @bdd2pw lane=rule|llm|todo …` comment bdd2pw writes as the first
+ * line of each step (docs/PROVENANCE_CONTRACT.md in bdd2pw, SemVer-covered).
+ */
+export function provenanceOf(
+  workspace: string,
+  specs: string[],
+): { rule: number; llm: number; todo: number } {
+  const out = { rule: 0, llm: 0, todo: 0 };
+  for (const f of specs) {
+    let text = "";
+    try {
+      text = readFileSync(join(workspace, f), "utf8");
+    } catch {
+      continue;
+    }
+    out.rule += countLane(text, "rule");
+    out.llm += countLane(text, "llm");
+    out.todo += countLane(text, "todo");
+  }
+  return out;
+}
+
+export function countLane(text: string, lane: "rule" | "llm" | "todo"): number {
+  return [...text.matchAll(new RegExp(`^\\s*//\\s*@bdd2pw\\s+lane=${lane}\\b`, "gm"))].length;
 }

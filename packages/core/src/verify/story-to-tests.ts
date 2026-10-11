@@ -1,3 +1,4 @@
+import { normId, sameId as sameTrackerId, type Tracker } from "../design/ids.js";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Gap, TriagePayload, Verifier, VerifierInput, VerifyPayload } from "../types.js";
@@ -67,6 +68,13 @@ export interface StoryToTestsOptions {
    * marked expected-to-fail.
    */
   testTypes?: readonly TestType[];
+  /**
+   * Where the story lives. Default "ado". With "jira" the story is read with
+   * jira.get_issue, bugs are filed with jira.create_bug, and the test-case and
+   * suite checks do not apply: Jira keeps no test cases, so the feature file's
+   * @story tags are the whole record.
+   */
+  tracker?: Tracker;
 }
 
 /**
@@ -96,9 +104,12 @@ export class StoryToTestsVerifier implements Verifier {
   readonly name = "story-to-tests";
   private readonly opts: Omit<
     Required<StoryToTestsOptions>,
-    "testPlan" | "defectAnalysisUrl" | "testTypes" | "workspaceDir"
+    "testPlan" | "defectAnalysisUrl" | "testTypes" | "workspaceDir" | "tracker"
   > &
-    Pick<StoryToTestsOptions, "testPlan" | "defectAnalysisUrl" | "testTypes" | "workspaceDir">;
+    Pick<
+      StoryToTestsOptions,
+      "testPlan" | "defectAnalysisUrl" | "testTypes" | "workspaceDir" | "tracker"
+    >;
 
   constructor(options: StoryToTestsOptions) {
     this.opts = {
@@ -130,15 +141,17 @@ export class StoryToTestsVerifier implements Verifier {
     const triage = triageGaps(input.events);
 
     // 1. the story was read -------------------------------------------------
-    const reads = successful(calls, "ado.wit_work_item", "get").filter((c) =>
-      sameId(c.args["id"], this.opts.workItem),
-    );
+    const jira = this.opts.tracker === "jira";
+    const storyTool = jira ? "jira.get_issue" : "ado.wit_work_item";
+    const reads = jira
+      ? successful(calls, storyTool).filter((c) => sameTrackerId(c.args["key"], this.opts.workItem))
+      : successful(calls, storyTool, "get").filter((c) => sameId(c.args["id"], this.opts.workItem));
     if (reads.length === 0) {
       gaps.push(
         gap(
           "story-not-read",
           `work item ${this.opts.workItem} was never read, so the acceptance criteria are unknown`,
-          { attempted: attempts(calls, "ado.wit_work_item"), refused: refusedNames(refused) },
+          { attempted: attempts(calls, storyTool), refused: refusedNames(refused) },
         ),
       );
     }
@@ -286,13 +299,7 @@ export class StoryToTestsVerifier implements Verifier {
         const specTexts = present
           .map((p) => ({ path: p, text: readIfPresent(input.workspaceDir, p) }))
           .filter((f): f is { path: string; text: string } => f.text !== undefined);
-        const storyId = Number(this.opts.workItem);
-        const t = traceProblems(
-          design,
-          features,
-          specTexts,
-          Number.isFinite(storyId) ? storyId : undefined,
-        );
+        const t = traceProblems(design, features, specTexts, normId(this.opts.workItem));
         if (features.length === 0) {
           gaps.push(
             gap(
@@ -436,10 +443,12 @@ export class StoryToTestsVerifier implements Verifier {
     // Cases the story ALREADY had count. Requiring creation every run is what
     // produced four sets of duplicates in the sandbox: the agent had no reason
     // to look first, and the verifier would have failed it if it had.
-    const created = successful(calls, "ado.testplan_test_case_write", "create");
-    const preexisting = reads.flatMap((r) => testedByIds(r.result));
+    // Jira keeps no test cases: none are created, none are linked, and asking
+    // for one would fail every Jira run for a reason the agent cannot act on.
+    const created = jira ? [] : successful(calls, "ado.testplan_test_case_write", "create");
+    const preexisting = jira ? [] : reads.flatMap((r) => testedByIds(r.result));
     const total = created.length + preexisting.length;
-    if (total < this.opts.minCases) {
+    if (!jira && total < this.opts.minCases) {
       gaps.push(
         gap(
           "no-test-cases",
@@ -500,6 +509,11 @@ export class StoryToTestsVerifier implements Verifier {
           }),
         );
       }
+    } else if (jira) {
+      limitations.push(
+        "test cases were not checked: Jira keeps no test cases, so the scenarios tagged " +
+          `@story:${this.opts.workItem} in the epic's feature file are the record of what is tested.`,
+      );
     } else if (!this.opts.requireSuiteMembership) {
       limitations.push(
         "suite membership was not checked: agent.capabilities.test_plans is false, so this " +
@@ -539,6 +553,20 @@ export class StoryToTestsVerifier implements Verifier {
             'a bug was created without the "agentic-qa" tag, so a later run cannot tell this ' +
               "unconfirmed proposal from a defect a human investigated and filed — and will " +
               "read it back as established product knowledge",
+            { args: b.args },
+          ),
+        );
+      }
+    }
+    // Jira: the adapter links and labels every Bug itself, so the one thing
+    // left to get wrong is which story it is linked to.
+    for (const b of successful(calls, "jira.create_bug")) {
+      if (!sameTrackerId(b.args["storyKey"], this.opts.workItem)) {
+        gaps.push(
+          gap(
+            "bug-not-linked-to-story",
+            `a bug was created with storyKey ${String(b.args["storyKey"] ?? "(none)")} rather than ` +
+              `${this.opts.workItem}, so it is linked to the wrong story`,
             { args: b.args },
           ),
         );

@@ -1,3 +1,4 @@
+import { asAdoBug } from "../governance/bug-view.js";
 import { includesId, normId, sameId, storyTagId, type TrackerId } from "../design/ids.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -59,6 +60,9 @@ export function storyRefusal(
   // otherwise a healer could drop an assertion through the edit tool that the
   // write tool would have refused.
   call = asWrite(call, events, opts.workspaceDir);
+  // Likewise a Jira bug is judged as the Azure DevOps bug it amounts to, so
+  // every bug rule below applies to both trackers without being copied.
+  call = asAdoBug(call);
   return (
     duplicateTestCase(call, events) ??
     duplicateBug(call, events) ??

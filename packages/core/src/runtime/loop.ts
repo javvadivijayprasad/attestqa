@@ -1,3 +1,4 @@
+import { isBugCreate } from "../governance/bug-view.js";
 import { Ledger, sha256 } from "../ledger/ledger.js";
 import { renderMarkdown } from "../ledger/replay.js";
 import type { Gate, GateVerdict } from "../governance/policy.js";
@@ -1052,9 +1053,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
  * recognising the same shape so it can keep the question separate.
  */
 function isBugCreation(call: ProposedCall): boolean {
-  if (call.toolName !== "ado.wit_work_item_write") return false;
-  const a = call.args;
-  return a["action"] === "create" && a["workItemType"] === "Bug";
+  // Either tracker: a Jira bug is held and asked about exactly like an ADO one.
+  return isBugCreate(call);
 }
 
 /**
