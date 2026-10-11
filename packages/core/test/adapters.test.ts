@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest";
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Bdd2PwTools, countLane, repoForFeature, specStemFor } from "../src/mcp/adapters/bdd2pw.js";
+import {
+  Bdd2PwTools,
+  countEmptyLocators,
+  countLane,
+  repoForFeature,
+  specStemFor,
+} from "../src/mcp/adapters/bdd2pw.js";
 import { PwTools, summarise, MAX_TESTS_RECORDED, stripAnsi } from "../src/mcp/adapters/pw.js";
 import { TcgTools, type FetchLike } from "../src/mcp/adapters/tcg.js";
 import { SynthdataTools } from "../src/mcp/adapters/synthdata.js";
@@ -123,6 +129,11 @@ describe("bdd2pw adapter", () => {
       "epic-scrum-5-customer-account-access",
     );
     expect(countLane("  // @bdd2pw lane=rule rule=x\n// @bdd2pw lane=ruler", "rule")).toBe(1);
+    expect(
+      countEmptyLocators(
+        'this.a = page.locator("");\nthis.b = page.locator(\'\');\nthis.c = page.locator("#x");',
+      ),
+    ).toBe(2);
   });
 
   it("roots the repo where the feature lives, not where the process started", async () => {

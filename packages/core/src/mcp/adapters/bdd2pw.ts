@@ -275,6 +275,14 @@ export class Bdd2PwTools implements ToolClient {
                   /\.spec\.[cm]?[jt]s$/.test(f),
                 ),
               ),
+              // Locators bdd2pw could not resolve and wrote as `locator("")`.
+              // Run 20261011T222522Z: a re-scaffold without a browser blanked all
+              // 53 page-object locators, and every test that used one failed on
+              // an unparseable selector. Said here so nobody has to find it.
+              ...emptyLocatorReport(
+                this.workspace,
+                changedSince(this.workspace, repo, before ?? new Map()),
+              ),
             }
           : {}),
         // Whether the LLM fallback was available at all, so a run that left
@@ -383,4 +391,37 @@ export function provenanceOf(
 
 export function countLane(text: string, lane: "rule" | "llm" | "todo"): number {
   return [...text.matchAll(new RegExp(`^\\s*//\\s*@bdd2pw\\s+lane=${lane}\\b`, "gm"))].length;
+}
+
+/** `locator("")` / `locator('')` in generated files: selectors bdd2pw left empty. */
+export function countEmptyLocators(text: string): number {
+  return [...text.matchAll(/\blocator\(\s*(""|'')\s*\)/g)].length;
+}
+
+function emptyLocatorReport(
+  workspace: string,
+  files: string[],
+): { emptyLocators?: Record<string, number>; warning?: string } {
+  const found: Record<string, number> = {};
+  for (const f of files) {
+    if (!/\.[cm]?[jt]s$/.test(f)) continue;
+    let text = "";
+    try {
+      text = readFileSync(join(workspace, f), "utf8");
+    } catch {
+      continue;
+    }
+    const n = countEmptyLocators(text);
+    if (n > 0) found[f] = n;
+  }
+  const total = Object.values(found).reduce((a, b) => a + b, 0);
+  if (total === 0) return {};
+  return {
+    emptyLocators: found,
+    warning:
+      `${total} locator(s) were written EMPTY (locator("")) in ${Object.keys(found).join(", ")}. ` +
+      "Any step that uses one fails with 'while parsing css selector \"\"' — that is the " +
+      "generator, not the application. Do not use those fields; find the element with " +
+      "aqa.heal_locator or the page snapshot and use a getByRole / getByLabel locator instead.",
+  };
 }
