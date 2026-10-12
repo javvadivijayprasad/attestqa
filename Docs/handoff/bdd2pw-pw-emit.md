@@ -5,12 +5,15 @@ Date: 2026-10-11
 Target: attestqa v1.0.0 on 15 Nov 2026. Anything below should be released on npm
 by about 8 Nov so attestqa can raise its range and test before the freeze.
 
-## Status (2026-10-11)
+## Status (2026-10-12)
 
 Shipped: --spec-name (bdd2pw 4.4.0), provenance comments + contract (4.4.1),
-fixtures via pw-emit `emitFixtures` (bdd2pw 4.5.0 / pw-emit 1.4.0). attestqa
-now depends on bdd2pw ^4.5.0 and passes --spec-name. **Still open: ask 0,
-`--browser-channel` (bdd2pw discovery still launches bundled Chromium).**
+fixtures via pw-emit `emitFixtures` (bdd2pw 4.5.0 / pw-emit 1.4.0), Bugs A and
+B fixed (4.5.1, strong default); 4.5.2 (HTTP worker forwards the new
+discovery flags) is published. attestqa depends on bdd2pw ^4.5.2 and reports
+exit 4 as `cause: "discovery-failed"`. **Still open: ask 0, `--browser-channel`
+— not in 4.5.2 (bdd2pw discovery still launches bundled Chromium). attestqa
+will pass `--browser-channel chrome` as soon as a published version has it.**
 
 ## New bugs from attestqa run 20261011T222522Z (2026-10-11) — please fix first
 

@@ -48,6 +48,17 @@ describe("triage: failures that never reached the product", () => {
     expect(again?.category).toBe("flake"); // not upgraded to real-defect
   });
 
+  it("calls a page torn down mid-action a stale flake, not a defect (pw-self-heal's stale class)", () => {
+    const v = classifyFailure({
+      testId: "AC-2: home after logout",
+      message:
+        "page.evaluate: Execution context was destroyed, most likely because of a navigation",
+    });
+    expect(v.category).toBe("flake");
+    expect(v.confidence).toBeGreaterThanOrEqual(0.85);
+    expect(v.rationale).toMatch(/^The page or element was torn down mid-action/);
+  });
+
   it("still upgrades an ordinary repeating timeout to a defect candidate", () => {
     const v = classifyFailure({
       testId: "t",

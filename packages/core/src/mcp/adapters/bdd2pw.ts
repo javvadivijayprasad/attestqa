@@ -232,9 +232,23 @@ export class Bdd2PwTools implements ToolClient {
 
     const output = tail(r.stdout || r.stderr);
     if (r.code !== 0) {
+      // bdd2pw >= 4.5.1 exits 4 when it cannot read the live page, and writes
+      // no page object — where 4.5.0 warned, carried on with an empty element
+      // list and blanked the POM (bdd2pw Bug B, found by this runtime). Say
+      // what it means, so the agent fixes the environment instead of the feature.
+      const discovery = r.code === 4;
       return {
         ok: false,
-        result: { message: `bdd2pw ${name} failed (exit ${r.code})`, output },
+        result: {
+          message: discovery
+            ? `bdd2pw ${name} could not read the application's pages (exit 4), so it wrote no page ` +
+              "object. This is the environment, not the feature file: check that the application " +
+              "is running at the configured URL and that the browser is installed, then try again. " +
+              "Do not edit the feature or the spec to get past it."
+            : `bdd2pw ${name} failed (exit ${r.code})`,
+          ...(discovery ? { cause: "discovery-failed" } : {}),
+          output,
+        },
         artefacts: [],
       };
     }

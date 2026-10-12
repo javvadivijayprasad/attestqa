@@ -69,6 +69,24 @@ describe("bdd2pw adapter", () => {
     expect(tools.find((t) => t.name === "analyze")?.policyClass).toBe("read");
   });
 
+  it("says a discovery failure (bdd2pw 4.5.1 exit 4) is the environment, not the feature", async () => {
+    const r = runner({
+      code: 4,
+      stdout: "",
+      stderr: "discovery failed: net::ERR_CONNECTION_REFUSED",
+    });
+    const t = new Bdd2PwTools(workspaceWithFeature(), { runner: r.fn });
+    const out = await t.call("bdd2pw", "scaffold", {
+      feature: "features/login.feature",
+      url: "http://localhost:3100/#/login",
+      page: "LoginPage",
+    });
+    expect(out.ok).toBe(false);
+    const res = out.result as Record<string, unknown>;
+    expect(res["cause"]).toBe("discovery-failed");
+    expect(String(res["message"])).toMatch(/wrote no page object/);
+  });
+
   it("builds a scaffold command against the workspace as the repo", async () => {
     const r = runner({ code: 0, stdout: "wrote 1 spec" });
     const ws = workspaceWithFeature();

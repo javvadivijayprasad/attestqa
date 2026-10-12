@@ -2,6 +2,7 @@ import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools
 import { asArray, asRecord, completedCalls, successful } from "../../verify/evidence.js";
 import { CATCHES, rankCandidates, selectorFromMessage, stuckAction } from "../../heal/locator.js";
 import { isPartialRead } from "../../design/test-design.js";
+import { secondOpinion } from "../../heal/second-opinion.js";
 import type { LedgerView } from "./summary.js";
 
 /**
@@ -163,12 +164,18 @@ export class HealTools implements ToolClient {
 
     const best = candidates[0];
     const matched = best && best.score >= 10;
+    // pw-self-heal ranks the same candidates independently. It is recorded,
+    // and shown to the agent, but the verdict below is still attestqa's own:
+    // the comparison is evidence to collect, not yet a reason to change which
+    // ranker decides.
+    const second = await secondOpinion(failedSelector, candidates, best);
     return {
       ok: true,
       result: {
         test: hit.title,
         failedSelector: failedSelector || "(not named in the error message)",
         candidates,
+        ...(second ? { secondOpinion: second } : {}),
         verdict: matched
           ? `The control this test was looking for IS on the page, as ${best?.role}` +
             (best?.name ? ` "${best.name}"` : "") +
@@ -236,8 +243,8 @@ function swallows(title: string, events: Parameters<typeof completedCalls>[0]): 
       c.toolName === "fs.write_file"
         ? String(c.args["content"] ?? "")
         : typeof asRecord(c.result)?.["content"] === "string"
-          ? String(asRecord(c.result)?.["content"])
-          : "";
+        ? String(asRecord(c.result)?.["content"])
+        : "";
     if (!text) continue;
     const body = bodyOf(text, title);
     if (body !== undefined && CATCHES.test(body)) return true;

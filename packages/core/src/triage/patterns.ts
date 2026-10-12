@@ -250,6 +250,7 @@ export const TEST_CODE_ERROR: readonly TriagePattern[] = [
 /** Rationale prefixes the repetition rule and the live line recognise. */
 export const SETUP_HOOK_RATIONALE = "A setup hook failed before the test body ran";
 export const TEST_CODE_RATIONALE = "The test's own code is invalid";
+export const STALE_RATIONALE = "The page or element was torn down mid-action";
 
 export const PW_FLAKE_PATTERNS: readonly TriagePattern[] = [
   py(String.raw`(?i)\bTimeout\s+\d+\s*ms\s+exceeded\b`),

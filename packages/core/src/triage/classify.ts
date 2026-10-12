@@ -29,6 +29,7 @@
  * misunderstand the classifier's disposition.
  */
 
+import { isStaleError } from "@vijaypjavvadi/pw-self-heal";
 import {
   BANKS,
   PW_BANKS,
@@ -43,6 +44,7 @@ import {
   DECLARED_ENVIRONMENTAL,
   SETUP_HOOK_FAILURE,
   TEST_CODE_ERROR,
+  STALE_RATIONALE,
   SETUP_HOOK_RATIONALE,
   TEST_CODE_RATIONALE,
 } from "./patterns.js";
@@ -268,6 +270,21 @@ export function classifyFailure(f: FailureSignal): TriageVerdict {
       `${TEST_CODE_RATIONALE} (an invalid selector), so the product was never exercised. ` +
       "This is the test's fault, not a defect and not a flake: it fails the same way every " +
       "time until the selector is fixed.";
+  } else if (declared.matched.length === 0 && isStaleError(new Error(f.message))) {
+    // pw-self-heal's stale class: the page, frame or element the action held
+    // was destroyed under it — a navigation, a reload, a re-render. Before
+    // this, "Execution context was destroyed" matched no signature and was
+    // called a real defect at 0.1 confidence. The product did not answer
+    // wrongly; the test asked a page that no longer existed.
+    category = "flake";
+    confidence = 0.85;
+    matchedCount = 1;
+    hits = [];
+    matched = [];
+    rationaleOverride =
+      `${STALE_RATIONALE} (a navigation, reload or re-render destroyed what the step held), ` +
+      "so the product's answer was never read. Wait for the page the step needs before acting " +
+      "on it; if it happens on every run, the test is racing a navigation the product makes.";
   } else if (declared.matched.length > 0) {
     category = "environmental";
     confidence = Math.max(confidence, 0.9);
