@@ -1,6 +1,12 @@
 import { replayRules } from "./replay/rules.js";
+import {
+  renderCoverage,
+  storyCoverage,
+  type Ledger as RunLedger,
+  type SourceFile,
+} from "./report/coverage.js";
 import { NO_SIGNATURE_CONFIDENCE, TEST_CODE_RATIONALE } from "./triage/patterns.js";
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { readLedgerFile, LEDGER_FILE } from "./ledger/ledger.js";
@@ -106,6 +112,13 @@ Usage:
       got, and whether the run's end point leaves any way to write a missing design
       item's test. Exit 0 when no run ends in a rule deadlock, 2 when one does.
 
+  aqa coverage --workspace <playwright-project> [--ledger .aqa] [--story <id>] [--out <file>] [--json]
+      Per story: what the last approved test design asked for, which scenario and test
+      implement each item, and the last recorded result — read offline from the run
+      ledgers and the feature/spec files (no model, no tracker, no browser). Exit 0
+      when every design item has a test that passes or reproduces its known bug, 3
+      when anything is missing, failing or not run.
+
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
       Reads .env for credentials. Makes NO tool calls — listTools() only.
@@ -145,6 +158,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "replay") return replay(rest, io);
     if (cmd === "discover") return await discover(rest, io);
     if (cmd === "check-rules") return await checkRules(rest, io);
+    if (cmd === "coverage") return coverage(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -997,6 +1011,83 @@ export function pickTracker(
 }
 
 /** `aqa check-rules`: today's rules against recorded runs. See USAGE. */
+/** Feature and spec files under a workspace, skipping what is never source. */
+function sourceFiles(root: string): { features: SourceFile[]; specs: SourceFile[] } {
+  const features: SourceFile[] = [];
+  const specs: SourceFile[] = [];
+  const skip = new Set([
+    "node_modules",
+    ".git",
+    ".aqa",
+    ".aqa-report",
+    "test-results",
+    "playwright-report",
+    ".bdd2pw",
+    "dist",
+  ]);
+  const walk = (dir: string, depth: number) => {
+    if (depth > 6) return;
+    for (const name of readdirSync(dir)) {
+      if (skip.has(name)) continue;
+      const full = join(dir, name);
+      const st = statSync(full);
+      if (st.isDirectory()) walk(full, depth + 1);
+      else if (name.endsWith(".feature"))
+        features.push({ path: relativeTo(root, full), text: readFileSync(full, "utf8") });
+      else if (/\.(spec|test)\.[cm]?[jt]sx?$/.test(name))
+        specs.push({ path: relativeTo(root, full), text: readFileSync(full, "utf8") });
+    }
+  };
+  walk(root, 0);
+  return { features, specs };
+}
+
+function relativeTo(root: string, full: string): string {
+  return full
+    .slice(root.length + 1)
+    .split("\\")
+    .join("/");
+}
+
+export function coverage(args: string[], io: CliIo): number {
+  const workspace = flag(args, "--workspace");
+  if (!workspace) {
+    io.err("aqa coverage: --workspace <playwright-project> is required\n");
+    return 1;
+  }
+  const root = resolve(workspace);
+  const ledgerRoot = resolve(flag(args, "--ledger") ?? ".aqa");
+  const runsDir = join(ledgerRoot, "runs");
+  const ledgers: RunLedger[] = existsSync(runsDir)
+    ? readdirSync(runsDir)
+        .filter((d) => existsSync(join(runsDir, d, LEDGER_FILE)))
+        .map((d) => ({ runId: d, events: readLedgerFile(join(runsDir, d, LEDGER_FILE)) }))
+    : [];
+  const story = flag(args, "--story");
+  const storyId = story === undefined ? undefined : normId(story);
+  const stories = storyCoverage(
+    ledgers,
+    sourceFiles(root),
+    storyId === undefined ? {} : { story: storyId },
+  );
+  const text = args.includes("--json")
+    ? JSON.stringify(stories, null, 2) + "\n"
+    : renderCoverage(stories);
+  const out = flag(args, "--out");
+  if (out) {
+    mkdirSync(dirname(resolve(out)), { recursive: true });
+    writeFileSync(resolve(out), text, "utf8");
+    io.out(`aqa coverage: wrote ${out}\n`);
+  } else io.out(text);
+  const complete = stories.every(
+    (s) =>
+      s.designRun !== undefined &&
+      s.uncoveredCriteria.length === 0 &&
+      s.items.every((i) => i.state === "passing" || i.state === "known bug reproduced"),
+  );
+  return complete ? 0 : 3;
+}
+
 export async function checkRules(args: string[], io: CliIo): Promise<number> {
   const dirs = positional(args);
   const configPath = flag(args, "--config");

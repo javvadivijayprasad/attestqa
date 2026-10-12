@@ -184,3 +184,5 @@ export { normId, sameId, includesId, isJiraKey, storyTagId, storyTagIds } from "
 export type { TrackerId } from "./design/ids.js";
 export { JiraTools, type JiraConnection } from "./mcp/adapters/jira.js";
 export { gatherJiraStoryContext, jiraStateMeaning } from "./skills/jira-story-context.js";
+export { storyCoverage, renderCoverage, specTests } from "./report/coverage.js";
+export type { StoryCoverage, ItemCoverage, ItemState } from "./report/coverage.js";
