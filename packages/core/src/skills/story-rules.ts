@@ -81,6 +81,7 @@ export function storyRefusal(
     unlinkedBug(call, events) ??
     unhealedLocator(call, events) ??
     swallowedFailure(call, events) ??
+    fallbackInATest(call, events, opts.workspaceDir) ??
     unobservedClaim(call, events) ??
     unscopedAccessibilityBug(call, events) ??
     editorialOnly(call, events, opts.workspaceDir) ??
@@ -140,7 +141,9 @@ function invalidDesign(
     return "no story context was read this run, so there is nothing to check a design against";
   const problems = validateDesign(parseDesign(call.args), facts, types);
   if (problems.length === 0) return;
-  return `the test design has ${problems.length} problem(s) — fix them and submit again:\n- ${problems.join("\n- ")}`;
+  return `the test design has ${
+    problems.length
+  } problem(s) — fix them and submit again:\n- ${problems.join("\n- ")}`;
 }
 
 /**
@@ -196,7 +199,9 @@ function duplicateTestCase(
     const existing = covered.get(label);
     if (existing) {
       return (
-        `${label} already has test case ${existing.id ? `#${existing.id} ` : ""}("${existing.title}"). ` +
+        `${label} already has test case ${existing.id ? `#${existing.id} ` : ""}("${
+          existing.title
+        }"). ` +
         "A test case is per acceptance criterion, and a second one for the same criterion is a " +
         "duplicate someone has to find and delete. If the existing case is out of date, say so in " +
         "your final report — changing it is a person's call."
@@ -216,7 +221,7 @@ export function coveredCriteria(
   // Test cases READ this run — the preflight reads the story's existing ones.
   for (const c of successful(calls, "ado.wit_work_item", "get_batch")) {
     const rec = asRecord(c.result);
-    const items = asArray(rec ? (rec["value"] ?? rec["workItems"]) : payloadOf(c.result));
+    const items = asArray(rec ? rec["value"] ?? rec["workItems"] : payloadOf(c.result));
     for (const w of items) {
       const f = asRecord(asRecord(w)?.["fields"]) ?? {};
       if (f["System.WorkItemType"] !== "Test Case") continue;
@@ -538,7 +543,9 @@ function wrongEpicFile(
   const want = isFeature ? featurePathFor(facts) : specPathFor(facts);
   if (!want || path === want) return;
   return (
-    `this epic's tests live in one file: ${featurePathFor(facts)} (and the spec ${specPathFor(facts)} ` +
+    `this epic's tests live in one file: ${featurePathFor(facts)} (and the spec ${specPathFor(
+      facts,
+    )} ` +
     `bdd2pw generates from it). Write ${want}, not "${path}" — tests follow the application, not the ` +
     "backlog item, so every story under the epic adds its scenarios to the same file, tagged " +
     "@story:<id>."
@@ -613,7 +620,9 @@ function dropsAnotherStory(
   }
   if (lost.length === 0) return;
   return (
-    `this write removes ${lost.length} scenario(s) belonging to another story: ${lost.join("; ")}. ` +
+    `this write removes ${lost.length} scenario(s) belonging to another story: ${lost.join(
+      "; ",
+    )}. ` +
     "They are that story's tests, in the epic's shared file. Keep them exactly as they are and add " +
     "yours alongside; if one of them looks wrong, say so in your final message — changing it is a " +
     "person's call."
@@ -635,7 +644,9 @@ function untaggedScenario(
     .map((x) => `"${x.scenario}"`);
   if (untagged.length === 0) return;
   return (
-    `${untagged.length} scenario(s) carry no @story tag: ${untagged.join("; ")}. In a shared epic ` +
+    `${untagged.length} scenario(s) carry no @story tag: ${untagged.join(
+      "; ",
+    )}. In a shared epic ` +
     `file the tag is what separates one story's tests from another's — tag each scenario you add ` +
     `@story:${mine}, and leave the existing tags alone.`
   );
@@ -888,9 +899,9 @@ function unlinkedBug(
       'System.Tags: "agentic-qa" — how a later run knows this bug came from a runtime and not from a person',
     );
   if (problems.length === 0) return;
-  return `this bug is missing ${problems.length === 1 ? "one thing" : "two things"}: ${problems.join("; ")}. Add ${
-    problems.length === 1 ? "it" : "them"
-  } and propose it again.`;
+  return `this bug is missing ${
+    problems.length === 1 ? "one thing" : "two things"
+  }: ${problems.join("; ")}. Add ${problems.length === 1 ? "it" : "them"} and propose it again.`;
 }
 
 /**
@@ -1052,7 +1063,9 @@ function unhealedLocator(
   if (unexplained.length === 0) return;
   return (
     `a locator in this run matched nothing and the page at that failure has not been read: ` +
-    `${unexplained.map((t) => `"${t}"`).join(", ")}. Call aqa.heal_locator with that test's title first. ` +
+    `${unexplained
+      .map((t) => `"${t}"`)
+      .join(", ")}. Call aqa.heal_locator with that test's title first. ` +
     "It says whether the control was on the page. If it was, this is a test defect and there is no bug to " +
     "file; if it was not, the answer it gives is the evidence this bug needs."
   );
@@ -1111,11 +1124,51 @@ function swallowedFailure(
   return (
     `the failing test${swallowing.length > 1 ? "s" : ""} this bug rests on ` +
     `catch${swallowing.length > 1 ? "" : "es"} its own failure and carry on: ` +
-    `${swallowing.map((t) => `"${t}"`).join(", ")}. A step wrapped in try/catch or .catch() does not fail ` +
+    `${swallowing
+      .map((t) => `"${t}"`)
+      .join(", ")}. A step wrapped in try/catch or .catch() does not fail ` +
     "where it broke — it recovers and lets the test report something about the product that was never " +
     "measured. Remove the fallback in the spec (the locator line may change; the assertions may not), " +
     "run the test again, and repair whatever then fails — a locator error heals with aqa.heal_locator. " +
     "Propose a bug only from a failure that reached its assertion honestly."
+  );
+}
+
+/**
+ * A spec write that wraps a step of a test in a fallback.
+ *
+ * 20261012T144711Z: D3 read the token before the app had stored it, so the
+ * agent added a wait — the right fix — and then put `.catch(() => {})` on it.
+ * The suite went green, and the verifier refused the run at the very end with
+ * "the test catches its own failure and carries on". The agent had one retry
+ * left and spent it elsewhere. The rule was right; it was just in the wrong
+ * place. Judged here, the write is refused the moment it is proposed, while the
+ * agent still has the file in front of it.
+ *
+ * Only a fallback the write INTRODUCES is refused. A test that already carried
+ * one may be written again — removing it is exactly the repair that is wanted.
+ */
+export function fallbackInATest(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  const path = specWrite(call);
+  if (!path) return;
+  const after = testsByTitle(String(call.args["content"] ?? ""));
+  const beforeText = lastKnownContent(path, events, workspaceDir);
+  const before = beforeText === undefined ? new Map<string, string>() : testsByTitle(beforeText);
+  const added = [...after]
+    .filter(([title, body]) => CATCHES.test(body) && !CATCHES.test(before.get(title) ?? ""))
+    .map(([title]) => title);
+  if (added.length === 0) return;
+  return (
+    `${added.map((t) => `"${t}"`).join(", ")} would catch ${
+      added.length > 1 ? "their" : "its"
+    } own ` +
+    "failure and carry on (try/catch or .catch()). A wait or an assertion that cannot be met must fail " +
+    "THERE, saying so: if a wait is needed, keep the wait and drop the .catch — a timeout is the honest " +
+    "result. Write the spec again without the fallback."
   );
 }
 
@@ -1140,7 +1193,9 @@ function unobservedClaim(
 ): string | undefined {
   if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
   if (String(call.args["workItemType"] ?? "") !== "Bug") return;
-  const text = `${bugTitleOf(call)} ${stripTags(fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "")}`;
+  const text = `${bugTitleOf(call)} ${stripTags(
+    fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "",
+  )}`;
   if (!text.trim()) return;
 
   const specs = specTextsFromEvents(events);
@@ -1799,7 +1854,9 @@ function weakensAQuarantinedTest(
       return (
         `"${title}" is quarantined as a defect candidate, and this write drops ${
           lost.length === 1 ? "the claim" : "claims"
-        } it made: ${lost.map((x) => `expect(${x})`).join("; ")}. Repair the locator by all means — that is ` +
+        } it made: ${lost
+          .map((x) => `expect(${x})`)
+          .join("; ")}. Repair the locator by all means — that is ` +
         "what the page snapshot is for — and add any check you need, but the claim the test already " +
         "makes is not yours to soften or reword. If the expectation itself is wrong, say so in your " +
         "final message; changing it is a person's call."
@@ -1851,7 +1908,9 @@ export function appendOnlyAfterReroute(
     return (
       `this run may only ADD scenarios for the new design items (${missing.join(", ")}); ` +
       `${changed.length} scenario(s) that existed before would change or disappear: ` +
-      `${changed.map((s) => `"${s}"`).join("; ")}. Keep them exactly as they are and add the new ones after them.`
+      `${changed
+        .map((s) => `"${s}"`)
+        .join("; ")}. Keep them exactly as they are and add the new ones after them.`
     );
 
   // 2. One scenario per new design item — a second is a draft that was not removed.
@@ -1861,7 +1920,9 @@ export function appendOnlyAfterReroute(
   );
   if (dupes.length > 0)
     return (
-      `${dupes.join(", ")} would have more than one scenario. Each new design item gets exactly one: ` +
+      `${dupes.join(
+        ", ",
+      )} would have more than one scenario. Each new design item gets exactly one: ` +
       "replace the draft you wrote instead of adding another beside it."
     );
 
@@ -1872,7 +1933,9 @@ export function appendOnlyAfterReroute(
   const allWritten = missing.every((id) => had.some((s) => s.designs.includes(id.toUpperCase())));
   if (allWritten && !analyzedSinceLastFeatureWrite(events, path))
     return (
-      `the scenario for ${missing.join(", ")} is already written. The next step is bdd2pw.analyze ` +
+      `the scenario for ${missing.join(
+        ", ",
+      )} is already written. The next step is bdd2pw.analyze ` +
       "on this feature (it says which steps it can bind), then bdd2pw.scaffold. Change the scenario " +
       "only if analyze reports a step it cannot bind."
     );
@@ -2016,7 +2079,9 @@ export function appendOnlySpec(
           ? `${lost.length} would disappear (${lost.map((x) => `"${x}"`).join("; ")})`
           : "",
         weakened.length
-          ? `${weakened.length} would lose an assertion (${weakened.map((x) => `"${x}"`).join("; ")})`
+          ? `${weakened.length} would lose an assertion (${weakened
+              .map((x) => `"${x}"`)
+              .join("; ")})`
           : "",
       ]
         .filter(Boolean)
@@ -2033,8 +2098,12 @@ export function appendOnlySpec(
     });
   if (untagged.length > 0)
     return (
-      `new test(s) ${untagged.map((x) => `"${x}"`).join("; ")} carry no @design tag for the item(s) ` +
-      `being completed (${missing.join(", ")}). Put the scenario's tags above the test as comments, ` +
+      `new test(s) ${untagged
+        .map((x) => `"${x}"`)
+        .join("; ")} carry no @design tag for the item(s) ` +
+      `being completed (${missing.join(
+        ", ",
+      )}). Put the scenario's tags above the test as comments, ` +
       "the way bdd2pw does: // @story:… // @design:D5 // @bug:… — they are how the test is traced."
     );
   return undefined;

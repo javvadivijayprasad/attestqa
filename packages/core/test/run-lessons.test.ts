@@ -9,6 +9,7 @@ import { isKnownBroken } from "../src/design/ids.js";
 import {
   appendOnlyAfterReroute,
   appendOnlySpec,
+  fallbackInATest,
   knownBugMarkers,
   lockedScenarios,
   misattributedKnownBug,
@@ -60,7 +61,7 @@ describe("triage: failures that never reached the product", () => {
 
 describe("the live line says what triage actually knows", () => {
   const ev = (verdicts: unknown[]) =>
-    ({ kind: "triage", payload: { verdicts } }) as unknown as AnyRunEvent;
+    ({ kind: "triage", payload: { verdicts } } as unknown as AnyRunEvent);
 
   it("does not present a no-pattern default as a product defect", () => {
     const line = liveLine(ev([{ category: "real-defect", confidence: 0.1, rationale: "x" }]));
@@ -279,7 +280,7 @@ describe("completing the design after a re-route: add once, then scaffold", () =
         because: { appendOnly: true, missing: ["D5"], locked: lockedScenarios(OLD) },
         denied: [],
       },
-    }) as unknown as AnyRunEvent;
+    } as unknown as AnyRunEvent);
   const call = (toolName: string, args: Record<string, unknown>): AnyRunEvent[] => {
     const callId = ++id;
     const [server, name] = toolName.split(".");
@@ -416,5 +417,67 @@ describe("a step is not a test", () => {
     const tests = testsByTitle(spec);
     expect([...tests.keys()]).toEqual(["AC-1: token removed", "AC-2: home page"]);
     expect(tests.get("AC-1: token removed")).toContain("expect(token).not.toBeNull()");
+  });
+});
+
+describe("a wait or an assertion may not catch its own failure", () => {
+  const PATH = "tests/epic-scrum-5-customer-account-access.spec.ts";
+  const spec = (tail: string) =>
+    [
+      'import { test, expect } from "@playwright/test";',
+      "  // @story:SCRUM-8",
+      "  // @design:D3",
+      '  test("AC-1: After logout the authentication token is removed", async ({ page }) => {',
+      "    await page.waitForFunction(",
+      '      () => window.localStorage.getItem("token") !== null,',
+      "      { timeout: 5000 }",
+      `    )${tail};`,
+      '    const token = await page.evaluate(() => window.localStorage.getItem("token"));',
+      "    expect(token).not.toBeNull();",
+      "  });",
+    ].join("\n");
+  const write = (content: string) => ({ toolName: "fs.write_file", args: { path: PATH, content } });
+  const ledger = (content: string): AnyRunEvent[] =>
+    [
+      {
+        eventId: 1,
+        kind: "call",
+        payload: {
+          server: "fs",
+          toolName: "write_file",
+          args: { path: PATH, content },
+          startedAt: 0,
+        },
+      },
+      {
+        eventId: 2,
+        kind: "observation",
+        payload: { eventIdOfCall: 1, ok: true, result: {}, artefacts: [], durationMs: 1 },
+      },
+    ] as unknown as AnyRunEvent[];
+
+  it("refuses the .catch(() => {}) the D3 fix put on its wait (20261012T144711Z)", () => {
+    expect(fallbackInATest(write(spec(".catch(() => {})")), [])).toMatch(/drop the \.catch/);
+  });
+
+  it("allows the wait without the catch", () => {
+    expect(fallbackInATest(write(spec("")), [])).toBeUndefined();
+  });
+
+  it("allows rewriting a test that already had a fallback (removing one is the repair)", () => {
+    const old = spec(".catch(() => {})");
+    expect(fallbackInATest(write(old + "\n// touched"), ledger(old))).toBeUndefined();
+  });
+
+  it("ignores files that are not specs", () => {
+    expect(
+      fallbackInATest(
+        {
+          toolName: "fs.write_file",
+          args: { path: "pages/login.page.ts", content: "x.catch(() => {})" },
+        },
+        [],
+      ),
+    ).toBeUndefined();
   });
 });
