@@ -31,6 +31,7 @@ import {
   scenarioStoryTags,
   specPathFor,
   storyTestTitles,
+  testsByTitle,
   type StoryFacts,
 } from "../design/test-design.js";
 
@@ -114,10 +115,26 @@ export function chooseRoute(input: RouteInput): RouteDecision {
           .filter((s) => includesId(s.stories, story))
           .map((s) => s.scenario);
 
+  // Tests other stories already have in the shared epic spec. bdd2pw cannot be
+  // run over that file (it regenerates the spec from the feature and would
+  // blank them), so this story's tests are added by hand beside them — and the
+  // rules that insist on "scaffold first" must know that.
+  //
+  // 20261012T192216Z: SCRUM-6 appended its scenarios to SCRUM-8's feature
+  // file, scaffold was refused (5 implemented tests would be regenerated), a
+  // hand-written test was refused ("no spec has been generated this run"),
+  // and the run ended in a loop with nowhere to go.
+  const sharedTests = specText === undefined ? 0 : implementedTests(specText);
+
   if (mine.length === 0)
     return {
       path: "A2",
-      because: { ...base, featureExists: true, storyScenarios: 0 },
+      because: {
+        ...base,
+        featureExists: true,
+        storyScenarios: 0,
+        ...(sharedTests > 0 ? { specExists: true, sharedSpec: true, sharedTests } : {}),
+      },
       reason: `the feature file exists but has no scenario tagged @story:${story ?? "?"}`,
       deny: [],
     };
@@ -143,6 +160,7 @@ export function chooseRoute(input: RouteInput): RouteDecision {
         storyScenarios: mine.length,
         specExists: true,
         implemented: 0,
+        ...(sharedTests > 0 ? { sharedSpec: true, sharedTests } : {}),
       },
       reason: `the spec exists but implements no test tagged @story:${story ?? "?"}`,
       deny: [],
@@ -162,6 +180,13 @@ export function chooseRoute(input: RouteInput): RouteDecision {
       "executing them, writing nothing",
     deny: [...AUTHORING_TOOLS],
   };
+}
+
+/** Tests in a spec that are written (an expect, no TODO) — what a scaffold would destroy. */
+function implementedTests(spec: string): number {
+  return [...testsByTitle(spec).values()].filter(
+    (body) => !/TODO/.test(body) && /expect\s*\(/.test(body),
+  ).length;
 }
 
 function read(workspaceDir: string | undefined, path: string | undefined): string | undefined {
@@ -200,8 +225,9 @@ export function testsPreExisted(events: Array<{ kind: string; payload: unknown }
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (e?.kind !== "route") continue;
-    const p = e.payload as { path?: unknown; because?: { from?: unknown } };
-    return p.path === "B" || p.because?.from === "B";
+    const p = e.payload as { path?: unknown; because?: { from?: unknown; sharedSpec?: unknown } };
+    // …or a new story whose tests go into a spec other stories' tests already fill.
+    return p.path === "B" || p.because?.from === "B" || p.because?.sharedSpec === true;
   }
   return false;
 }

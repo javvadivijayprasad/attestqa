@@ -6,6 +6,7 @@ import { liveLine } from "../src/cli.js";
 import { askedFor, rankCandidates } from "../src/heal/locator.js";
 import { shapeProblems, testsByTitle, validateDesign } from "../src/design/test-design.js";
 import { isKnownBroken } from "../src/design/ids.js";
+import { testsPreExisted } from "../src/route/route.js";
 import {
   appendOnlyAfterReroute,
   appendOnlySpec,
@@ -588,5 +589,62 @@ describe("appending another story's scenarios to a shared feature (20261012T1857
       ORIGINAL +
       "\n  # ---- SCRUM-6 ----\n  @story:SCRUM-6 @design:D1\n  Scenario: Sign in\n    When I sign in\n";
     expect(writesMaskedValue(write(added), ledger)).toBeUndefined();
+  });
+});
+
+describe("a new story in a spec other stories already fill (20261012T192216Z)", () => {
+  it("counts as tests pre-existing, so scaffold-first does not apply", () => {
+    const route = (because: Record<string, unknown>) =>
+      [{ kind: "route", payload: { path: "A2", because } }] as unknown as AnyRunEvent[];
+    expect(testsPreExisted(route({ story: "SCRUM-6", sharedSpec: true, sharedTests: 5 }))).toBe(
+      true,
+    );
+    expect(testsPreExisted(route({ story: "SCRUM-6", storyScenarios: 0 }))).toBe(false);
+  });
+
+  it("asks a new test to carry this story's tag and a design id, and keeps the others' tests", () => {
+    const PATH = "tests/epic-scrum-5-customer-account-access.spec.ts";
+    const OLD = [
+      "  // @story:SCRUM-8",
+      "  // @design:D1",
+      '  test("Logout", async ({ page }) => {',
+      "    expect(1).toBe(1);",
+      "  });",
+    ].join("\n");
+    const events = [
+      {
+        kind: "route",
+        payload: { path: "A2", because: { story: "SCRUM-6", sharedSpec: true, sharedTests: 1 } },
+      },
+      {
+        eventId: 1,
+        kind: "call",
+        payload: { server: "fs", toolName: "read_file", args: { path: PATH }, startedAt: 0 },
+      },
+      {
+        eventId: 2,
+        kind: "observation",
+        payload: {
+          eventIdOfCall: 1,
+          ok: true,
+          result: { path: PATH, content: OLD },
+          artefacts: [],
+          durationMs: 1,
+        },
+      },
+    ] as unknown as AnyRunEvent[];
+    const write = (content: string) => ({
+      toolName: "fs.write_file",
+      args: { path: PATH, content },
+    });
+    const added = (tags: string) =>
+      OLD + `\n${tags}\n  test("Sign in", async ({ page }) => {\n    expect(2).toBe(2);\n  });`;
+    expect(
+      appendOnlySpec(write(added("  // @story:SCRUM-6\n  // @design:D6")), events),
+    ).toBeUndefined();
+    expect(appendOnlySpec(write(added("  // @design:D6")), events)).toMatch(/@story:SCRUM-6/);
+    expect(appendOnlySpec(write(OLD.replace("    expect(1).toBe(1);\n", "")), events)).toMatch(
+      /lose an assertion/,
+    );
   });
 });

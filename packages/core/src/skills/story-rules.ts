@@ -1491,7 +1491,8 @@ function scaffoldWouldOverwrite(
     "implemented. bdd2pw.scaffold REGENERATES a spec from its feature file, so this call would " +
     "replace working tests with empty TODO steps. Add the new scenarios to the feature file for " +
     "the record, then write the new tests into the existing spec beside the ones already there — " +
-    "and leave those alone."
+    "and leave those alone. Writing them by hand IS the next step here: no scaffold is coming. " +
+    "Add each test with fs.replace_in_file after the spec's last test, tagged like the others."
   );
 }
 
@@ -2096,7 +2097,11 @@ export function appendOnlySpec(
   const path = String(call.args["path"] ?? "");
   if (!/\.(spec|test)\.[cm]?[jt]sx?$/i.test(path)) return;
   const because = lastRouteBecause(events);
-  if (routePathOf(events) !== "A2" || because?.["appendOnly"] !== true) return;
+  // Completing a re-routed story, or adding a new story to a spec other
+  // stories already fill: either way the tests that are there stay as they are.
+  if (routePathOf(events) !== "A2") return;
+  const shared = because?.["sharedSpec"] === true;
+  if (because?.["appendOnly"] !== true && !shared) return;
   const before = lastKnownContent(path, events, workspaceDir);
   if (before === undefined) return;
   const after = String(call.args["content"] ?? "");
@@ -2137,13 +2142,23 @@ export function appendOnlySpec(
       ". Add the new test beside them; repair an existing one only by changing a locator."
     );
 
-  const missing = asArray(because["missing"]).map((x) => String(x).toUpperCase());
+  const missing = asArray(because?.["missing"]).map((x) => String(x).toUpperCase());
+  const story = String(because?.["story"] ?? "").toUpperCase();
   const untagged = [...now.keys()]
     .filter((title) => !was.has(title))
     .filter((title) => {
       const tags = tagsAbove(after, title);
+      // A new story in a shared spec: each new test names this story and a design item.
+      if (missing.length === 0)
+        return !(tags.includes(`@STORY:${story}`) && tags.some((t) => t.startsWith("@DESIGN:")));
       return !missing.some((id) => tags.includes(`@DESIGN:${id}`));
     });
+  if (untagged.length > 0 && missing.length === 0)
+    return (
+      `new test(s) ${untagged.map((x) => `"${x}"`).join("; ")} need their tags above them as ` +
+      `comments, the way bdd2pw writes them: // @story:${story} // @design:D… (and @bug:… for a ` +
+      "bug's test) — they are how each test is traced to the design that was approved."
+    );
   if (untagged.length > 0)
     return (
       `new test(s) ${untagged
