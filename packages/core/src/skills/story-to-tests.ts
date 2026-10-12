@@ -1,9 +1,10 @@
+import { routePathOf } from "../route/route.js";
 import type { Skill } from "../types.js";
 import { StoryToTestsVerifier, type StoryToTestsOptions } from "../verify/story-to-tests.js";
 import { gatherStoryContext } from "./story-context.js";
 import { gatherJiraStoryContext } from "./jira-story-context.js";
 import type { Tracker } from "../design/ids.js";
-import { makeStoryRefusal } from "./story-rules.js";
+import { lockedScenarios, makeStoryRefusal } from "./story-rules.js";
 import { composeRunReport } from "../mcp/adapters/summary.js";
 import { asRecord } from "../verify/evidence.js";
 import { chooseRoute } from "../route/route.js";
@@ -1028,6 +1029,45 @@ export function storyToTestsSkill(
         because: d.because,
         deny: d.deny,
         ...(d.stop ? { stop: d.stop } : {}),
+      };
+    },
+    // Once a design is approved on path B, items no scenario covers yet mean
+    // the run must add those scenarios — and only those. Switches once.
+    reroute: (events) => {
+      if (routePathOf(events) !== "B") return undefined;
+      const design = approvedDesign(events);
+      const facts = storyFacts(events);
+      if (!design || !facts || !options.workspaceDir) return undefined;
+      const featurePath = featurePathFor(facts);
+      const specPath = specPathFor(facts);
+      const read = (p?: string) => {
+        if (!p) return undefined;
+        const full = join(options.workspaceDir as string, p);
+        return existsSync(full) ? readFileSync(full, "utf8") : undefined;
+      };
+      const featureText = read(featurePath);
+      const specText = read(specPath);
+      const covered = coverageOf(design, {
+        ...(featureText !== undefined ? { featureText } : {}),
+        ...(specText !== undefined ? { specText } : {}),
+        ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
+      });
+      const missing = design.items.filter((it) => !covered.has(it.id)).map((it) => it.id);
+      if (missing.length === 0) return undefined;
+      return {
+        path: "A2",
+        reason:
+          `the approved design adds ${missing.length} item(s) no scenario covers yet ` +
+          `(${missing.join(", ")}) — add their scenarios and scaffold; every existing scenario stays as it is`,
+        // What is locked is what existed at THIS moment. Scenarios the run
+        // adds afterwards for the new items stay its own to correct.
+        because: {
+          from: "B",
+          appendOnly: true,
+          missing,
+          locked: lockedScenarios(featureText ?? ""),
+        },
+        deny: [],
       };
     },
     instructions: storyToTestsInstructions(

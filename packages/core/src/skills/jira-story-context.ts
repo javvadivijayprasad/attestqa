@@ -2,7 +2,7 @@ import type { PreflightDigest, PreflightRead } from "../types.js";
 import { asArray, asRecord } from "../verify/evidence.js";
 import { acLabels } from "../triage/settle.js";
 import { featurePathFor, specPathFor, type StoryFacts } from "../design/test-design.js";
-import { normId, type TrackerId } from "../design/ids.js";
+import { KNOWN_BROKEN_STATE, normId, type TrackerId } from "../design/ids.js";
 import { renderProfile, surveyFramework } from "../framework/survey.js";
 import {
   STATE_MEANING,
@@ -51,7 +51,7 @@ const MAX_BUGS = 50;
 /** Jira status names, by what they ask of a tester. */
 const JIRA_STATE: Array<[RegExp, keyof typeof STATE_MEANING]> = [
   [/^(to do|open|new|backlog|selected for development|reported|triage)$/i, "New"],
-  [/^(in progress|reopened|in development|in review|code review|blocked)$/i, "Active"],
+  [KNOWN_BROKEN_STATE, "Active"],
   [/^(resolved|done|fixed|ready for qa|in qa|in test(ing)?|ready for test(ing)?)$/i, "Resolved"],
 ];
 

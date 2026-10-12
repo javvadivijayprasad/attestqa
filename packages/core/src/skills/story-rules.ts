@@ -13,9 +13,14 @@ import {
 } from "../verify/evidence.js";
 import { acLabels, allFailedTitles } from "../triage/settle.js";
 import { missingImports } from "../framework/survey.js";
-import { assertionsOf, isPartialRead, testsByTitle } from "../design/test-design.js";
+import {
+  assertionsOf,
+  isPartialRead,
+  scenarioDesignTags,
+  testsByTitle,
+} from "../design/test-design.js";
 import { CATCHES, stuckAction } from "../heal/locator.js";
-import { routePathOf } from "../route/route.js";
+import { routePathOf, testsPreExisted } from "../route/route.js";
 import { isFullRun, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
 import { hasAgentTag } from "../verify/story-to-tests.js";
 import {
@@ -80,6 +85,9 @@ export function storyRefusal(
     unscopedAccessibilityBug(call, events) ??
     editorialOnly(call, events, opts.workspaceDir) ??
     writeOnExecutePath(call, events, opts.workspaceDir) ??
+    appendOnlyAfterReroute(call, events, opts.workspaceDir) ??
+    appendOnlySpec(call, events, opts.workspaceDir) ??
+    misattributedKnownBug(call, events, opts.workspaceDir) ??
     staleRerun(call, events) ??
     noFramework(call, events) ??
     frameworkOwned(call) ??
@@ -283,7 +291,12 @@ function specBeforeScaffold(
   // generator is not even offered. A spec write there is a REPAIR — a healed
   // locator, a fallback removed — and refusing it left the healer with a
   // diagnosis it could not act on (20260925T170138Z).
-  if (routePathOf(events) === "B") return;
+  if (testsPreExisted(events)) return;
+  // The same holds after a re-route from B to append-only completion: the
+  // tests exist, scaffold is refused for overwriting them (scaffoldWouldOverwrite
+  // says "write the new tests into the existing spec"), so the new test is
+  // written by hand — and appendOnlySpec polices what that write may do.
+  // Run 20261012T134457Z refused both, and D5 could be written neither way.
   return (
     `no spec has been generated this run — write the scenarios to the .feature file and run ` +
     `bdd2pw.scaffold first, then implement only the steps it leaves as TODO. A spec already on ` +
@@ -759,7 +772,9 @@ function featureFirst(
   // asks for something that must not happen: `featureWriteOnExecutePath`
   // refuses exactly that. A spec write here is a repair, and the only rule that
   // applies to it is the one about what a repair may change.
-  if (routePathOf(events) === "B") return;
+  // …and after a re-route from B, where scaffolding is refused for the same
+  // reason and the new test is written by hand.
+  if (testsPreExisted(events)) return;
   const facts = storyFacts(events);
   const feature = facts ? featurePathFor(facts) : undefined;
   if (!feature || path === feature) return;
@@ -1707,7 +1722,7 @@ function isComment(line: string): boolean {
  * shared code, so a failing test is judged against it too.
  */
 function helperBodies(spec: string): string {
-  const firstTest = spec.search(/\btest(?:\.\w+)?\s*\(/);
+  const firstTest = spec.search(/\btest(?:\.(?:only|skip|fixme|fail|slow))?\s*\(/);
   return firstTest === -1 ? spec : spec.slice(0, firstTest);
 }
 
@@ -1791,4 +1806,251 @@ function weakensAQuarantinedTest(
       );
   }
   return;
+}
+
+/** The last route event's `because`, when it has one. */
+function lastRouteBecause(events: AnyRunEvent[]): Record<string, unknown> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind === "route")
+      return asRecord((e.payload as unknown as Record<string, unknown>)["because"]) ?? undefined;
+  }
+  return undefined;
+}
+
+/**
+ * After a re-route from "execute" to "complete", the feature file may only
+ * GROW: the scenarios for the new design items are added, every scenario that
+ * was there stays byte for byte (whitespace aside). Authoring the missing items
+ * is the point; rewriting approved ones is not.
+ */
+export function appendOnlyAfterReroute(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  if (!/\.feature$/i.test(path)) return;
+  const because = lastRouteBecause(events);
+  if (routePathOf(events) !== "A2" || because?.["appendOnly"] !== true) return;
+  const missing = asArray(because["missing"]).map(String);
+  const content = String(call.args["content"] ?? "");
+  const now = scenarioBodies(content);
+
+  // 1. Every scenario that existed when the run switched stays as it was.
+  const changed: string[] = [];
+  for (const raw of asArray(because["locked"])) {
+    const l = asRecord(raw);
+    const scenario = String(l?.["scenario"] ?? "");
+    const body = String(l?.["body"] ?? "");
+    const after = now.get(scenario);
+    if (!after || norm(after.body) !== body) changed.push(scenario);
+  }
+  if (changed.length > 0)
+    return (
+      `this run may only ADD scenarios for the new design items (${missing.join(", ")}); ` +
+      `${changed.length} scenario(s) that existed before would change or disappear: ` +
+      `${changed.map((s) => `"${s}"`).join("; ")}. Keep them exactly as they are and add the new ones after them.`
+    );
+
+  // 2. One scenario per new design item — a second is a draft that was not removed.
+  const tagged = scenarioDesignTags(content);
+  const dupes = missing.filter(
+    (id) => tagged.filter((s) => s.designs.includes(id.toUpperCase())).length > 1,
+  );
+  if (dupes.length > 0)
+    return (
+      `${dupes.join(", ")} would have more than one scenario. Each new design item gets exactly one: ` +
+      "replace the draft you wrote instead of adding another beside it."
+    );
+
+  // 3. Once every new item has its scenario, the next step is the generator,
+  //    not another edit — unless bdd2pw.analyze has spoken since the last edit.
+  const before = lastKnownContent(path, events, workspaceDir) ?? "";
+  const had = scenarioDesignTags(before);
+  const allWritten = missing.every((id) => had.some((s) => s.designs.includes(id.toUpperCase())));
+  if (allWritten && !analyzedSinceLastFeatureWrite(events, path))
+    return (
+      `the scenario for ${missing.join(", ")} is already written. The next step is bdd2pw.analyze ` +
+      "on this feature (it says which steps it can bind), then bdd2pw.scaffold. Change the scenario " +
+      "only if analyze reports a step it cannot bind."
+    );
+  return undefined;
+}
+
+/**
+ * A known-bug marker on a test that is not that bug's test.
+ *
+ * `test.fail(true, "Bug #X …")` turns a failure into a pass: it says "this test
+ * is expected to fail because bug X is open". On the test written for bug X
+ * (tagged @bug:X) that is the honest record of a known defect. On any other
+ * failing test it relabels an unexplained failure as a known one and makes it
+ * green — run 20261011T232250Z put SCRUM-12's marker on the token-removal test,
+ * whose own precondition was failing, and the suite went 4/4.
+ */
+export function misattributedKnownBug(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  if (!/\.(spec|test)\.[cm]?[jt]sx?$/i.test(path)) return;
+  const before = lastKnownContent(path, events, workspaceDir) ?? "";
+  const after = String(call.args["content"] ?? "");
+  const wrong: string[] = [];
+  for (const m of knownBugMarkers(after)) {
+    if (knownBugMarkers(before).some((b) => b.test === m.test && sameId(b.bug, m.bug))) continue;
+    if (!m.bugTags.some((t) => sameId(t, m.bug)))
+      wrong.push(`"${m.test}" (marked for bug ${m.bug})`);
+  }
+  if (wrong.length === 0) return;
+  return (
+    `a known-bug marker (test.fail) was added to a test that is not that bug's test: ` +
+    `${wrong.join("; ")}. test.fail makes a failing test pass; on a test that does not carry ` +
+    "@bug:<id> it hides an unexplained failure behind a known defect. Mark only the test written " +
+    "for the bug (tagged @bug:<id>). A different test that fails stays failing until it is " +
+    "repaired or a person rules on it."
+  );
+}
+
+/** Each test.fail(…"Bug #X"…) with its test title and the @bug tags above the test. */
+export function knownBugMarkers(
+  spec: string,
+): Array<{ test: string; bug: string; bugTags: TrackerId[] }> {
+  const out: Array<{ test: string; bug: string; bugTags: TrackerId[] }> = [];
+  let tags: string[] = [];
+  let current: { test: string; bugTags: TrackerId[] } | undefined;
+  for (const line of spec.split("\n")) {
+    if (/^\s*\/\//.test(line)) {
+      tags.push(line);
+      continue;
+    }
+    const t = /^\s*test(?:\.(?:only|skip|fixme|fail|slow))?\s*\(\s*(["'`])([\s\S]*?)\1/.exec(line);
+    if (t) {
+      const bugTags = tags
+        .flatMap((l) => [...l.matchAll(/@bug:([A-Za-z][A-Za-z0-9_]+-\d+|\d+)/gi)].map((m) => m[1]))
+        .map((x) => normId(x))
+        .filter((x): x is TrackerId => x !== undefined);
+      current = { test: (t[2] ?? "").trim(), bugTags };
+      tags = [];
+      continue;
+    }
+    if (line.trim()) tags = [];
+    const f =
+      /\btest\.fail\s*\(\s*true\s*,\s*(["'`])[^"'`]*?\bbug\s*#?\s*([A-Za-z][A-Za-z0-9_]+-\d+|\d+)/i.exec(
+        line,
+      );
+    if (f && current && f[2]) out.push({ test: current.test, bug: f[2], bugTags: current.bugTags });
+  }
+  return out;
+}
+
+function norm(s: string): string {
+  return s.replace(/\s+/g, " ").trim();
+}
+
+/** The scenarios of a feature file as `{ scenario, body }`, bodies whitespace-normalised. */
+export function lockedScenarios(feature: string): Array<{ scenario: string; body: string }> {
+  return [...scenarioBodies(feature)].map(([scenario, b]) => ({ scenario, body: norm(b.body) }));
+}
+
+/** True when a successful bdd2pw.analyze ran after the last write to this feature. */
+function analyzedSinceLastFeatureWrite(events: AnyRunEvent[], path: string): boolean {
+  const calls = completedCalls(events);
+  let lastWrite = -1;
+  let lastAnalyze = -1;
+  for (const c of calls) {
+    if (!c.ok) continue;
+    const p = String(c.args["path"] ?? c.args["feature"] ?? "");
+    if ((c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") && p === path)
+      lastWrite = c.eventId;
+    if (c.toolName === "bdd2pw.analyze" && p === path) lastAnalyze = c.eventId;
+  }
+  return lastAnalyze > lastWrite;
+}
+
+/**
+ * A spec write during append-only completion: the tests that were there stay,
+ * with every assertion they had; each test that is new carries the @design tag
+ * of one of the items being completed.
+ */
+export function appendOnlySpec(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  if (!/\.(spec|test)\.[cm]?[jt]sx?$/i.test(path)) return;
+  const because = lastRouteBecause(events);
+  if (routePathOf(events) !== "A2" || because?.["appendOnly"] !== true) return;
+  const before = lastKnownContent(path, events, workspaceDir);
+  if (before === undefined) return;
+  const after = String(call.args["content"] ?? "");
+  const was = testsByTitle(before);
+  const now = testsByTitle(after);
+
+  const lost: string[] = [];
+  const weakened: string[] = [];
+  for (const [title, body] of was) {
+    const next = now.get(title);
+    if (next === undefined) {
+      lost.push(title);
+      continue;
+    }
+    const expects = (b: string) =>
+      b
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => /\bexpect\s*\(/.test(l));
+    const kept = new Set(expects(next));
+    if (expects(body).some((l) => !kept.has(l))) weakened.push(title);
+  }
+  if (lost.length > 0 || weakened.length > 0)
+    return (
+      "while completing the new design items, the tests already in this spec stay as they are: " +
+      [
+        lost.length
+          ? `${lost.length} would disappear (${lost.map((x) => `"${x}"`).join("; ")})`
+          : "",
+        weakened.length
+          ? `${weakened.length} would lose an assertion (${weakened.map((x) => `"${x}"`).join("; ")})`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("; ") +
+      ". Add the new test beside them; repair an existing one only by changing a locator."
+    );
+
+  const missing = asArray(because["missing"]).map((x) => String(x).toUpperCase());
+  const untagged = [...now.keys()]
+    .filter((title) => !was.has(title))
+    .filter((title) => {
+      const tags = tagsAbove(after, title);
+      return !missing.some((id) => tags.includes(`@DESIGN:${id}`));
+    });
+  if (untagged.length > 0)
+    return (
+      `new test(s) ${untagged.map((x) => `"${x}"`).join("; ")} carry no @design tag for the item(s) ` +
+      `being completed (${missing.join(", ")}). Put the scenario's tags above the test as comments, ` +
+      "the way bdd2pw does: // @story:… // @design:D5 // @bug:… — they are how the test is traced."
+    );
+  return undefined;
+}
+
+/** The `// @tag` comment lines directly above a test, upper-cased tokens. */
+function tagsAbove(spec: string, title: string): string[] {
+  const lines = spec.split("\n");
+  const at = lines.findIndex(
+    (l) => /^\s*test(?:\.(?:only|skip|fixme|fail|slow))?\s*\(/.test(l) && l.includes(title),
+  );
+  const out: string[] = [];
+  for (let i = at - 1; i >= 0; i--) {
+    const l = lines[i]?.trim() ?? "";
+    if (!l.startsWith("//")) break;
+    out.push(...(l.match(/@[\w-]+:[\w-]+/g) ?? []).map((x) => x.toUpperCase()));
+  }
+  return out;
 }

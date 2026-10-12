@@ -12,6 +12,29 @@ fixtures via pw-emit `emitFixtures` (bdd2pw 4.5.0 / pw-emit 1.4.0). attestqa
 now depends on bdd2pw ^4.5.0 and passes --spec-name. **Still open: ask 0,
 `--browser-channel` (bdd2pw discovery still launches bundled Chromium).**
 
+## New bugs from attestqa run 20261011T222522Z (2026-10-11) — please fix first
+
+A. **Empty locators are emitted, never refused.** Page discovery that cannot
+   resolve an element writes `page.locator("")`. In the Juice Shop login page
+   object 41 of 53 fields were empty even in the good 2026-09-25 scaffold. An
+   empty selector is never valid code: Playwright fails with `Unexpected token ""
+   while parsing css selector ""`. Please emit no field (or a `// TODO: unresolved`
+   comment) instead, and report the count as a warning on stdout.
+
+B. **A re-scaffold blanks locators that were good.** The scaffold at
+   2026-10-11T21:55Z (bdd2pw 4.5.0, most likely with page discovery unable to
+   launch a browser) rewrote `pages/login.page.ts` with all 53 locators empty,
+   replacing 12 real ones such as
+   `this.loginButton = page.getByRole("button", { name: "Login" })`. When
+   discovery fails, scaffold should stop with a non-zero exit (as `analyze` does,
+   exit 4), not continue and overwrite. On re-scaffold, an existing non-empty
+   locator should never be replaced by an empty one.
+
+Repro: Juice Shop on :3100, `npx playwright` browsers NOT installed, then
+`bdd2pw scaffold features/epic-scrum-5-customer-account-access.feature --url
+http://localhost:3100/#/login --repo . --spec-name epic-scrum-5-customer-account-access`
+in TestRunApplication/juice-shop with the 25 Sep page object present.
+
 ## Asks, in priority order
 
 0. **Use the browser a team already has (bdd2pw).** Page discovery launches

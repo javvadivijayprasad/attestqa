@@ -1,3 +1,4 @@
+import { replayRules } from "./replay/rules.js";
 import { NO_SIGNATURE_CONFIDENCE, TEST_CODE_RATIONALE } from "./triage/patterns.js";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -99,6 +100,12 @@ Usage:
       Render a ledger to Markdown (no network, no tools). <path> is a run dir, a ledger
       root (uses the latest run), or an events.jsonl file.
 
+  aqa check-rules <run-dir>... --config <ai-quality.config.yaml> [--workspace .]
+      Replay each run's proposals through TODAY's rules, offline (no model, no tools,
+      no network). Prints every decision that would now differ from the one the run
+      got, and whether the run's end point leaves any way to write a missing design
+      item's test. Exit 0 when no run ends in a rule deadlock, 2 when one does.
+
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
       Reads .env for credentials. Makes NO tool calls — listTools() only.
@@ -137,6 +144,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "--version" || cmd === "-v") return (io.out(`${VERSION}\n`), 0);
     if (cmd === "replay") return replay(rest, io);
     if (cmd === "discover") return await discover(rest, io);
+    if (cmd === "check-rules") return await checkRules(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -960,4 +968,58 @@ export function pickTracker(
         "(JIRA_EMAIL + JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center) in the environment or .env.\n",
     };
   return { tracker, explicitRef, jiraRef };
+}
+
+/** `aqa check-rules`: today's rules against recorded runs. See USAGE. */
+export async function checkRules(args: string[], io: CliIo): Promise<number> {
+  const dirs = positional(args);
+  const configPath = flag(args, "--config");
+  if (dirs.length === 0 || !configPath) {
+    io.err("aqa check-rules: <run-dir>... and --config <ai-quality.config.yaml> are required\n");
+    return 1;
+  }
+  const config = await loadAgentConfig(configPath);
+  const workspace = flag(args, "--workspace");
+  let deadlocks = 0;
+  for (const dir of dirs) {
+    const events = readLedgerFile(join(dir, LEDGER_FILE));
+    if (events.length === 0) {
+      io.err(`aqa check-rules: no ledger in ${dir}\n`);
+      continue;
+    }
+    const request = String(
+      (events[0]?.payload as unknown as Record<string, unknown> | undefined)?.["text"] ?? "",
+    );
+    const ref = parseJiraKey(request) ?? parseWorkItemRef(request) ?? "";
+    const tracker: Tracker = typeof normId(ref) === "string" ? "jira" : "ado";
+    const skill = storyToTestsSkill({
+      workItem: ref,
+      ...(tracker === "jira" ? { tracker } : {}),
+      ...((config.test_types ?? []).length > 0
+        ? { testTypes: config.test_types as TestType[] }
+        : {}),
+      ...(workspace ? { workspaceDir: resolve(workspace) } : {}),
+    });
+    const r = replayRules(events, skill);
+    io.out(
+      `\n${r.runId}  "${request}"  — ${r.proposals} proposal(s), ${r.stillRefused} refused today\n`,
+    );
+    if (r.changed.length === 0) io.out("  every decision is the same today\n");
+    for (const c of r.changed)
+      io.out(
+        `  #${c.eventId} ${c.toolName}: then ${c.then}, today ${c.now}${c.reason ? ` — ${c.reason}` : ""}\n`,
+      );
+    if (r.probe) {
+      io.out(`  end point: route A2, still missing ${r.probe.missing.join(", ")}\n`);
+      for (const t of r.probe.tried)
+        io.out(
+          `    ${t.refused ? "REFUSED" : "allowed"}  ${t.action}${t.refused ? ` — ${t.refused}` : ""}\n`,
+        );
+      if (r.probe.deadlock) {
+        deadlocks++;
+        io.out("  DEADLOCK: no way to write the missing item's test\n");
+      }
+    }
+  }
+  return deadlocks > 0 ? 2 : 0;
 }

@@ -464,11 +464,23 @@ const PAGE_SNAPSHOT_CHARS = 4000;
 function firstError(spec: { tests?: Array<{ results?: unknown[] }> }): string {
   for (const t of spec.tests ?? []) {
     for (const r of t.results ?? []) {
-      const err = (r as { error?: { message?: string } }).error;
+      const res = r as { error?: { message?: string }; errors?: Array<{ message?: string }> };
+      const err = res.error;
       // Head, not tail, and without the terminal colour codes: the first line
       // of a Playwright error is the one that names the problem, and the tail
       // of a coloured one began "…22m failed" — escape-code debris.
-      if (err?.message) return head(stripAnsi(err.message), 600);
+      if (!err?.message) continue;
+      const first = head(stripAnsi(err.message), 600);
+      // On a TEST timeout, Playwright's first error is only "Test timeout of
+      // 30000ms exceeded." — the action that was stuck, and the locator it was
+      // waiting for, are in a later entry of `errors`. Without it the heal step
+      // could not say which selector failed (run 20261011T230623Z: "failed
+      // selector: (not named in the error message)" for a click waiting on
+      // getByRole('button', { name: 'Log in' })).
+      const stuck = (res.errors ?? [])
+        .map((e) => stripAnsi(e.message ?? ""))
+        .find((m) => m !== stripAnsi(err.message ?? "") && /waiting for|Call log/i.test(m));
+      return stuck ? `${first}\n${head(stuck, 600)}` : first;
     }
   }
   return "";

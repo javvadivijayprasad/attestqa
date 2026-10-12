@@ -565,6 +565,24 @@ export interface Skill {
     stop?: string;
   };
   /**
+   * A second routing decision, taken after the run has learned something the
+   * first could not know — today, that the approved test design adds items no
+   * existing scenario covers. Returns undefined to keep the current route.
+   *
+   * Run 20261011T232250Z: path B ("execute existing tests") was chosen before
+   * the design, the design then approved one new item, and every attempt to
+   * add its scenario was refused as authoring. The agent relabelled a
+   * different failing test as that bug's expected failure instead.
+   */
+  reroute?: (events: AnyRunEvent[]) =>
+    | {
+        path: string;
+        reason: string;
+        because: Record<string, unknown>;
+        deny: string[];
+      }
+    | undefined;
+  /**
    * Context the reviewer should see ABOVE a proposed call, decided from the
    * ledger and the workspace — e.g. which items of a test design are already
    * covered by tests on disk. Returns undefined when there is nothing to add.

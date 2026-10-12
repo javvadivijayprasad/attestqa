@@ -189,6 +189,23 @@ export function routePathOf(events: Array<{ kind: string; payload: unknown }>): 
   return undefined;
 }
 
+/**
+ * True when this run's tests existed before it started: path B, or the
+ * append-only completion a B run is re-routed to when its design adds items.
+ * Rules that say "scaffold first" do not apply to such a run — the generator
+ * would regenerate tests that already work, so new tests are written by hand
+ * beside them (and `appendOnlySpec` polices how).
+ */
+export function testsPreExisted(events: Array<{ kind: string; payload: unknown }>): boolean {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const p = e.payload as { path?: unknown; because?: { from?: unknown } };
+    return p.path === "B" || p.because?.from === "B";
+  }
+  return false;
+}
+
 /** One line for the terminal. */
 export function renderRoute(d: RouteDecision): string {
   const label: Record<RoutePath, string> = {

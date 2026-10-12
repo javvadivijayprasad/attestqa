@@ -93,17 +93,35 @@ export function rankCandidates(
   limit = 5,
 ): LocatorCandidate[] {
   const wanted = words(failedSelector);
+  // getByRole / getByLabel / getByText name the control by its accessible
+  // name. Compare that name as a person would — ignoring spaces, case and
+  // punctuation — because the visible text and the accessible name often
+  // differ by exactly that: Juice Shop's button shows "Log in" and is named
+  // "Login" (run 20261011T230623Z, where word matching found nothing because
+  // "log" and "in" are too short to count).
+  const asked = askedFor(failedSelector);
   const scored = candidatesFrom(snapshot).map((c) => {
     const mine = words(`${c.role} ${c.name}`);
     const shared = [...wanted].filter((w) => mine.has(w));
-    const score = shared.length * 10 + (c.name ? 1 : 0);
-    return {
-      ...c,
-      score,
-      why: shared.length
-        ? `shares ${shared.map((w) => `"${w}"`).join(", ")} with the selector that failed`
-        : "addressable on the page at the moment of failure",
-    };
+    let score = shared.length * 10 + (c.name ? 1 : 0);
+    let why = shared.length
+      ? `shares ${shared.map((w) => `"${w}"`).join(", ")} with the selector that failed`
+      : "addressable on the page at the moment of failure";
+    if (asked?.name && c.name) {
+      const a = squash(asked.name);
+      const n = squash(c.name);
+      const sameRole = !asked.role || asked.role === c.role;
+      if (a && a === n) {
+        score += sameRole ? 30 : 20;
+        why =
+          `same ${sameRole ? "control" : "name"} as the selector that failed — "${asked.name}" vs ` +
+          `"${c.name}" differ only in spacing, case or punctuation`;
+      } else if (a && n && (n.includes(a) || a.includes(n)) && Math.min(a.length, n.length) >= 4) {
+        score += sameRole ? 15 : 10;
+        why = `name "${c.name}" contains or is contained in "${asked.name}"`;
+      }
+    }
+    return { ...c, score, why };
   });
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit);
@@ -200,3 +218,19 @@ export function stuckAction(message: string): boolean {
 
 /** try/catch or .catch() around a step — a test that recovers from its own break. */
 export const CATCHES = /(\bcatch\s*(\([^)]*\))?\s*\{|\.catch\s*\()/;
+
+/** The role and accessible name a getBy* selector asked for, when it names one. */
+export function askedFor(selector: string): { role?: string; name: string } | undefined {
+  const byRole = /getByRole\(\s*['"`]([\w-]+)['"`]\s*,\s*\{[^}]*name:\s*(['"`])(.+?)\2/.exec(
+    selector,
+  );
+  if (byRole?.[1] && byRole[3]) return { role: byRole[1], name: byRole[3] };
+  const other = /getBy(?:Label|Text|Placeholder|Title|AltText)\(\s*(['"`])(.+?)\1/.exec(selector);
+  if (other?.[2]) return { name: other[2] };
+  return undefined;
+}
+
+/** "Log in" → "login": what is left when spacing, case and punctuation go. */
+function squash(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}

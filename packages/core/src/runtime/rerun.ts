@@ -40,7 +40,12 @@ export function isFullRun(args: Record<string, unknown>): boolean {
 }
 
 /** Files whose content can change what the suite does. */
-const SUITE_FILE = /\.(spec|test|page)\.[cm]?[jt]sx?$|\.feature$/i;
+// The files whose change alters what a run EXECUTES. A .feature file is not
+// one of them: Playwright runs the generated spec, and an edited scenario
+// changes nothing until bdd2pw.scaffold regenerates the spec from it — which is
+// counted below. Run 20261012T001248Z re-ran an unchanged suite seven times,
+// once after every feature-file edit.
+const SUITE_FILE = /\.(spec|test|page)\.[cm]?[jt]sx?$/i;
 
 export interface RerunState {
   /** The ledger event id of the last unfiltered run, when there was one. */
@@ -71,6 +76,10 @@ export function suiteChangedSinceLastFullRun(events: AnyRunEvent[]): RerunState 
         c.eventId > last.eventId,
     )
     .map((c) => String(c.args["path"] ?? ""));
+  // A scaffold after the last run regenerated the spec: that does change it.
+  for (const c of calls)
+    if (c.ok && c.toolName === "bdd2pw.scaffold" && c.eventId > last.eventId)
+      changed.push(`spec regenerated from ${String(c.args["feature"] ?? "the feature file")}`);
   return { lastFullRun: last.eventId, changed: [...new Set(changed)] };
 }
 

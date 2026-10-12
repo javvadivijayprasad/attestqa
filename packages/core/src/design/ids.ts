@@ -18,6 +18,19 @@ export type Tracker = "ado" | "jira";
 
 export const TRACKERS: readonly Tracker[] = ["ado", "jira"];
 
+/**
+ * A bug state that means "known broken and being worked": Azure DevOps "Active",
+ * or the Jira workflow names that mean the same. A test for such a bug is
+ * expected to fail. Run 20261011T230623Z refused expectFail for a Jira bug in
+ * "In Progress" because this check only knew the Azure DevOps word.
+ */
+export const KNOWN_BROKEN_STATE =
+  /^(active|in progress|reopened|in development|in review|code review|blocked)$/i;
+
+export function isKnownBroken(state: string): boolean {
+  return KNOWN_BROKEN_STATE.test(state.trim());
+}
+
 /** A Jira issue key: a project key of two or more characters, a dash, a number. */
 const JIRA_KEY = /^[A-Za-z][A-Za-z0-9_]+-\d+$/;
 

@@ -243,7 +243,7 @@ function swallows(title: string, events: Parameters<typeof completedCalls>[0]): 
     if (body !== undefined && CATCHES.test(body)) return true;
     // Helpers live outside every test body, and that is where the logout
     // fallback was.
-    const firstTest = text.search(/\btest(?:\.\w+)?\s*\(/);
+    const firstTest = text.search(/\btest(?:\.(?:only|skip|fixme|fail|slow))?\s*\(/);
     const helpers = firstTest === -1 ? text : text.slice(0, firstTest);
     if (text.includes(title) && CATCHES.test(helpers)) return true;
   }
@@ -255,7 +255,7 @@ function bodyOf(spec: string, title: string): string | undefined {
   const at = spec.indexOf(title);
   if (at === -1) return undefined;
   const rest = spec.slice(at);
-  const next = rest.slice(1).search(/\btest(?:\.\w+)?\s*\(/);
+  const next = rest.slice(1).search(/\btest(?:\.(?:only|skip|fixme|fail|slow))?\s*\(/);
   return next === -1 ? rest : rest.slice(0, next + 1);
 }
 

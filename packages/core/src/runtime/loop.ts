@@ -585,6 +585,19 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         );
       steps++;
 
+      // ---- a second route, once the design says more is needed ---------------
+      const again = skill.reroute?.(ledger.read());
+      if (again) {
+        ledger.append(
+          "route",
+          { path: again.path, reason: again.reason, because: again.because, denied: again.deny },
+          clock.now(),
+        );
+        const denied = new Set(again.deny);
+        visibleAfterRoute = visible.filter((t) => !denied.has(`${t.server}.${t.name}`));
+        byName = new Map(visibleAfterRoute.map((t) => [`${t.server}.${t.name}`, t]));
+      }
+
       // ---- the runtime's own call ------------------------------------------
       // Running the suite is not a decision, so it is not a turn. The skill
       // says WHEN (a design is approved, a spec exists, something changed since

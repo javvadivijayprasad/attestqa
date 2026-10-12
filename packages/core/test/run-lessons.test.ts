@@ -3,6 +3,16 @@ import { classifyFailure, triageRun } from "../src/triage/classify.js";
 import { applyRepetition } from "../src/triage/step.js";
 import { coverageOf, type TestDesign } from "../src/design/test-design.js";
 import { liveLine } from "../src/cli.js";
+import { askedFor, rankCandidates } from "../src/heal/locator.js";
+import { testsByTitle, validateDesign } from "../src/design/test-design.js";
+import { isKnownBroken } from "../src/design/ids.js";
+import {
+  appendOnlyAfterReroute,
+  appendOnlySpec,
+  knownBugMarkers,
+  lockedScenarios,
+  misattributedKnownBug,
+} from "../src/skills/story-rules.js";
 import type { AnyRunEvent, TriagePayload } from "../src/types.js";
 
 /**
@@ -111,5 +121,300 @@ describe("coverage: same criterion, different type of test", () => {
     const untyped = feature.replace(" @type:functional", "");
     const c = coverageOf(design, { featureText: untyped, story: "SCRUM-8" });
     expect(c.has("D3")).toBe(true);
+  });
+});
+
+describe("heal: the selector that failed, and a name that differs only in spacing", () => {
+  const snapshot = [
+    '- heading "Login" [level=1] [ref=e52]',
+    '- textbox "Text field for the login email" [ref=e60]',
+    '- button "Button to display the password" [ref=e70] [cursor=pointer]',
+    '- button "Login" [ref=e77]:',
+    "  - generic [ref=e79]: Log in",
+    '- button "Open Sidenav" [ref=e8] [cursor=pointer]',
+  ].join("\n");
+
+  it("reads role and name from a getByRole selector", () => {
+    expect(askedFor("getByRole('button', { name: 'Log in' })")).toEqual({
+      role: "button",
+      name: "Log in",
+    });
+    expect(askedFor("getByLabel('Password')")).toEqual({ name: "Password" });
+  });
+
+  it("ranks the Login button first for a click that waited on 'Log in'", () => {
+    const [best] = rankCandidates(snapshot, "getByRole('button', { name: 'Log in' })");
+    expect(best?.role).toBe("button");
+    expect(best?.name).toBe("Login");
+    expect(best?.score).toBeGreaterThanOrEqual(30);
+    expect(best?.why).toMatch(/differ only in spacing/);
+  });
+});
+
+describe("an In Progress Jira bug is known broken", () => {
+  it("treats Jira's In Progress like Azure DevOps Active", () => {
+    expect(isKnownBroken("In Progress")).toBe(true);
+    expect(isKnownBroken("Active")).toBe(true);
+    expect(isKnownBroken("To Do")).toBe(false);
+    expect(isKnownBroken("Resolved")).toBe(false);
+  });
+
+  it("accepts expectFail for SCRUM-12 in progress, and asks for it when missing", () => {
+    const facts = {
+      acceptanceCriteria: ["AC-1"],
+      bugs: [{ id: "SCRUM-12", state: "In Progress", title: "Session token still accepted" }],
+      tasks: [],
+      story: { id: "SCRUM-8", title: "Customer signs out" },
+    };
+    const item = (expectFail?: boolean) => ({
+      items: [
+        {
+          id: "D1",
+          covers: "AC-1",
+          type: "functional",
+          technique: "state-transition",
+          conditions: ["x"],
+          expected: "Login offered",
+          source: "AC-1",
+        },
+        {
+          id: "D2",
+          covers: "bug SCRUM-12",
+          type: "confirmation",
+          technique: "error-guessing",
+          conditions: ["token reused after logout"],
+          expected: "401",
+          source: "bug SCRUM-12",
+          ...(expectFail === undefined ? {} : { expectFail }),
+        },
+      ],
+      excluded: [],
+    });
+    const types = ["functional", "confirmation"] as const;
+    expect(
+      validateDesign(item(true) as never, facts as never, types).filter((p) => /SCRUM-12/.test(p)),
+    ).toEqual([]);
+    expect(
+      validateDesign(item() as never, facts as never, types).some((p) =>
+        /EXPECTED to fail/.test(p),
+      ),
+    ).toBe(true);
+  });
+});
+
+describe("a known-bug marker belongs only on that bug's test", () => {
+  const spec = (markOn: "token" | "bug") =>
+    [
+      'import { test, expect } from "@playwright/test";',
+      "  // @story:SCRUM-8",
+      "  // @ac:1",
+      "  // @design:D3",
+      '  test("AC-1: After logout the authentication token is removed", async ({ page }) => {',
+      markOn === "token"
+        ? '    test.fail(true, "Bug #SCRUM-12 Active: Session token is still accepted after logout");'
+        : "",
+      "    expect(1).toBe(1);",
+      "  });",
+      "  // @story:SCRUM-8",
+      "  // @bug:SCRUM-12",
+      "  // @design:D5",
+      '  test("bug SCRUM-12: the token is refused after logout", async ({ request }) => {',
+      markOn === "bug"
+        ? '    test.fail(true, "Bug #SCRUM-12 Active: Session token is still accepted after logout");'
+        : "",
+      "    expect(1).toBe(1);",
+      "  });",
+    ].join("\n");
+
+  it("finds each marker with the test it sits in and that test's @bug tags", () => {
+    expect(knownBugMarkers(spec("token"))).toEqual([
+      {
+        test: "AC-1: After logout the authentication token is removed",
+        bug: "SCRUM-12",
+        bugTags: [],
+      },
+    ]);
+    expect(knownBugMarkers(spec("bug"))[0]?.bugTags).toEqual(["SCRUM-12"]);
+  });
+
+  it("refuses the marker on another test, and allows it on the bug's own test", () => {
+    const write = (content: string) => ({
+      toolName: "fs.write_file",
+      args: { path: "tests/epic-scrum-5-customer-account-access.spec.ts", content },
+    });
+    expect(misattributedKnownBug(write(spec("token")), [])).toMatch(/not that bug's test/);
+    expect(misattributedKnownBug(write(spec("bug")), [])).toBeUndefined();
+  });
+});
+
+describe("completing the design after a re-route: add once, then scaffold", () => {
+  const FEATURE = "features/epic-scrum-5-customer-account-access.feature";
+  const OLD = [
+    "Feature: Customer account access",
+    "",
+    "  @story:SCRUM-8 @ac:1 @design:D1",
+    "  Scenario: AC-1: Logout offers Login again",
+    '    When I click "Logout"',
+    '    Then the page displays "Login"',
+  ].join("\n");
+  const D5 = (wording: string) =>
+    [
+      "",
+      "  @story:SCRUM-8 @bug:SCRUM-12 @design:D5 @type:confirmation",
+      `  Scenario: D5: ${wording}`,
+      '    When I click "Logout"',
+      "    Then the server rejects the token",
+    ].join("\n");
+
+  let id = 0;
+  const base = { tool: "attestqa", runId: "r", timestamp: 1 };
+  const route = () =>
+    ({
+      ...base,
+      eventId: ++id,
+      kind: "route",
+      payload: {
+        path: "A2",
+        reason: "",
+        because: { appendOnly: true, missing: ["D5"], locked: lockedScenarios(OLD) },
+        denied: [],
+      },
+    }) as unknown as AnyRunEvent;
+  const call = (toolName: string, args: Record<string, unknown>): AnyRunEvent[] => {
+    const callId = ++id;
+    const [server, name] = toolName.split(".");
+    return [
+      {
+        ...base,
+        eventId: callId,
+        kind: "call",
+        payload: { server, toolName: name, args, startedAt: 0 },
+      },
+      {
+        ...base,
+        eventId: ++id,
+        kind: "observation",
+        payload: { eventIdOfCall: callId, ok: true, result: {}, artefacts: [], durationMs: 1 },
+      },
+    ] as unknown as AnyRunEvent[];
+  };
+  const write = (content: string) => ({
+    toolName: "fs.write_file",
+    args: { path: FEATURE, content },
+  });
+
+  it("allows adding the new item's scenario, and refuses touching one that was there", () => {
+    const events = [route()];
+    expect(
+      appendOnlyAfterReroute(write(OLD + D5("server refuses the token")), events),
+    ).toBeUndefined();
+    const edited = OLD.replace('"Login"', '"Sign in"') + D5("server refuses the token");
+    expect(appendOnlyAfterReroute(write(edited), events)).toMatch(/existed before would change/);
+  });
+
+  it("refuses a second scenario for the same new item", () => {
+    const two = OLD + D5("server refuses the token") + D5("token is rejected after logout");
+    expect(appendOnlyAfterReroute(write(two), [route()])).toMatch(/more than one scenario/);
+  });
+
+  it("once the scenario is written, asks for analyze before another edit", () => {
+    const written = OLD + D5("server refuses the token");
+    const events = [route(), ...call("fs.write_file", { path: FEATURE, content: written })];
+    const reword = OLD + D5("the token is refused after logout");
+    expect(appendOnlyAfterReroute(write(reword), events)).toMatch(/next step is bdd2pw\.analyze/);
+    const analyzed = [...events, ...call("bdd2pw.analyze", { feature: FEATURE, url: "x" })];
+    expect(appendOnlyAfterReroute(write(reword), analyzed)).toBeUndefined();
+  });
+});
+
+describe("append-only completion of the spec", () => {
+  const SPEC = "tests/epic-scrum-5-customer-account-access.spec.ts";
+  const OLD = [
+    "  // @story:SCRUM-8",
+    "  // @design:D1",
+    '  test("AC-1: Logout offers Login again", async ({ page }) => {',
+    '    await page.getByRole("menuitem", { name: "Logout" }).click();',
+    '    await expect(page.getByRole("menuitem", { name: "Login" })).toBeVisible();',
+    "  });",
+  ].join("\n");
+  const D5 = [
+    "",
+    "  // @story:SCRUM-8",
+    "  // @bug:SCRUM-12",
+    "  // @design:D5",
+    '  test("D5: the server refuses the token after logout", async ({ request }) => {',
+    '    test.fail(true, "Bug #SCRUM-12 In Progress: session token still accepted");',
+    "    expect((await request.get('/rest/basket/1')).status()).toBe(401);",
+    "  });",
+  ].join("\n");
+
+  let id = 100;
+  const base = { tool: "attestqa", runId: "r", timestamp: 1 };
+  const events = () => {
+    const callId = ++id;
+    return [
+      {
+        ...base,
+        eventId: ++id,
+        kind: "route",
+        payload: {
+          path: "A2",
+          reason: "",
+          because: { from: "B", appendOnly: true, missing: ["D5"], locked: [] },
+          denied: [],
+        },
+      },
+      {
+        ...base,
+        eventId: callId,
+        kind: "call",
+        payload: {
+          server: "fs",
+          toolName: "write_file",
+          args: { path: SPEC, content: OLD },
+          startedAt: 0,
+        },
+      },
+      {
+        ...base,
+        eventId: ++id,
+        kind: "observation",
+        payload: { eventIdOfCall: callId, ok: true, result: {}, artefacts: [], durationMs: 1 },
+      },
+    ] as unknown as AnyRunEvent[];
+  };
+  const write = (content: string) => ({ toolName: "fs.write_file", args: { path: SPEC, content } });
+
+  it("allows a new test tagged for the item being completed, beside the old ones", () => {
+    expect(appendOnlySpec(write(OLD + D5), events())).toBeUndefined();
+  });
+
+  it("refuses dropping an assertion from a test that was there", () => {
+    const weaker = OLD.replace(/\n.*toBeVisible.*/, "") + D5;
+    expect(appendOnlySpec(write(weaker), events())).toMatch(/would lose an assertion/);
+  });
+
+  it("refuses a new test with no @design tag for the item", () => {
+    const untagged = OLD + D5.replace("  // @design:D5\n", "");
+    expect(appendOnlySpec(write(untagged), events())).toMatch(/carry no @design tag/);
+  });
+});
+
+describe("a step is not a test", () => {
+  it("reads tests, not test.step or test.describe, and keeps each test's whole body", () => {
+    const spec = [
+      'test.describe("Customer account access", () => {',
+      '  test("AC-1: token removed", async ({ page }) => {',
+      '    await test.step("When I log in", async () => {});',
+      '    await test.step("Then the token is present", async () => {',
+      "      expect(token).not.toBeNull();",
+      "    });",
+      "  });",
+      '  test.fixme("AC-2: home page", async () => {});',
+      "});",
+    ].join("\n");
+    const tests = testsByTitle(spec);
+    expect([...tests.keys()]).toEqual(["AC-1: token removed", "AC-2: home page"]);
+    expect(tests.get("AC-1: token removed")).toContain("expect(token).not.toBeNull()");
   });
 });

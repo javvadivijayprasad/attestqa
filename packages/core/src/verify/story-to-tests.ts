@@ -11,7 +11,7 @@ import {
   type TestType,
 } from "../design/test-design.js";
 import { lastFullRun, ownTestTitles } from "../triage/settle.js";
-import { routePathOf } from "../route/route.js";
+import { testsPreExisted } from "../route/route.js";
 import {
   artefacts,
   asArray,
@@ -239,7 +239,9 @@ export class StoryToTestsVerifier implements Verifier {
     // "hand-written" told the healer to scaffold, which
     // `featureWriteOnExecutePath` then refuses — a gap with no legal remedy
     // (20260925T174149Z).
-    if (handWritten.length > 0 && routePathOf(input.events) !== "B") {
+    // A run whose tests pre-existed (B, or B re-routed to complete its design)
+    // writes new tests by hand beside the old ones: scaffolding would wipe them.
+    if (handWritten.length > 0 && !testsPreExisted(input.events)) {
       gaps.push(
         gap(
           "spec-not-generated-from-feature",

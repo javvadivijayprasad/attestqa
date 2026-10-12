@@ -1,4 +1,12 @@
-import { includesId, normId, sameId, storyTagId, storyTagIds, type TrackerId } from "./ids.js";
+import {
+  includesId,
+  isKnownBroken,
+  normId,
+  sameId,
+  storyTagId,
+  storyTagIds,
+  type TrackerId,
+} from "./ids.js";
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { acLabels } from "../triage/settle.js";
@@ -362,14 +370,14 @@ export function validateDesign(
       else {
         if (it.type !== "confirmation")
           problems.push(`${at}: a test for bug #${bug} is type "confirmation"`);
-        if (b.state === "Active" && it.expectFail !== true)
+        if (isKnownBroken(b.state) && it.expectFail !== true)
           problems.push(
-            `${at}: bug #${bug} is Active — its test is EXPECTED to fail; set expectFail: true ` +
+            `${at}: bug #${bug} is ${b.state} (known broken) — its test is EXPECTED to fail; set expectFail: true ` +
               'so that a pass reaches a person as "did not reproduce"',
           );
-        if (b.state !== "Active" && it.expectFail === true)
+        if (!isKnownBroken(b.state) && it.expectFail === true)
           problems.push(
-            `${at}: bug #${bug} is ${b.state}, not Active — its test is not expected to fail`,
+            `${at}: bug #${bug} is ${b.state}, not known broken (Active / In Progress) — its test is not expected to fail`,
           );
       }
     } else if (task !== undefined) {
@@ -956,7 +964,7 @@ export function storyTestTitles(spec: string, storyId: TrackerId): Set<string> {
       if (ids.length > 0) current = ids;
       continue;
     }
-    const m = /^\s*test(?:\.\w+)?\s*\(\s*(["'`])([\s\S]*?)\1/.exec(line);
+    const m = /^\s*test(?:\.(?:only|skip|fixme|fail|slow))?\s*\(\s*(["'`])([\s\S]*?)\1/.exec(line);
     if (m) {
       if (includesId(current, storyId)) out.add((m[2] ?? "").trim());
       current = [];
@@ -1005,7 +1013,12 @@ export function isPartialRead(args: Record<string, unknown>, result: unknown): b
 /** Each test in a spec, by title, with its body. */
 export function testsByTitle(spec: string): Map<string, string> {
   const out = new Map<string, string>();
-  const re = /\btest(?:\.\w+)?\s*\(\s*(["'`])([\s\S]*?)\1/g;
+  // A TEST, not a step or a group: `test(`, `test.only(`, `test.skip(`,
+  // `test.fixme(`, `test.fail(`, `test.slow(` with a title. `test.step("…")`
+  // and `test.describe("…")` matched too until run 20261012T140617Z, which
+  // counted 20 "tests" in a 5-test spec and cut every test's body at its first
+  // step — so a rule reading a test saw only its opening lines.
+  const re = /\btest(?:\.(?:only|skip|fixme|fail|slow))?\s*\(\s*(["'`])([\s\S]*?)\1/g;
   const starts: Array<{ title: string; at: number }> = [];
   for (const m of spec.matchAll(re)) starts.push({ title: (m[2] ?? "").trim(), at: m.index ?? 0 });
   for (let i = 0; i < starts.length; i++) {

@@ -89,6 +89,29 @@ describe("which agent the run is being", () => {
     expect(role.because).toContain("catches its own failure");
   });
 
+  it("does not blame a test for a .catch in a beforeEach that is not its own", () => {
+    const spec = [
+      "test.beforeEach(async ({ page }) => {",
+      '  await page.getByRole("button", { name: "dismiss" }).waitFor({ timeout: 4000 }).catch(() => {});',
+      "});",
+      'test("AC-1: After logout the token is removed", async ({ page }) => {',
+      '  expect(await page.evaluate(() => localStorage.getItem("token"))).not.toBeNull();',
+      "});",
+    ].join("\n");
+    const role = roleFor(
+      ledgerOf([
+        { tool: "fs.read_file", args: { path: "tests/e.spec.ts" }, result: { content: spec } },
+        run([
+          {
+            title: "AC-1: After logout the token is removed",
+            message: "Precondition: token must be present · expect(received).not.toBeNull()",
+          },
+        ]),
+      ]),
+    );
+    expect(role.name).toBe("default");
+  });
+
   it("is the default role when the failure is an honest assertion", () => {
     const spec = [
       'test("Story-a — logs out via the account menu", async ({ page }) => {',

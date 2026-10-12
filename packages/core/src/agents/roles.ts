@@ -23,7 +23,7 @@
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { CATCHES, stuckAction } from "../heal/locator.js";
-import { isPartialRead } from "../design/test-design.js";
+import { isPartialRead, testsByTitle } from "../design/test-design.js";
 
 export type RoleName = "heal" | "default";
 
@@ -136,8 +136,13 @@ function healableFailure(
     if (stuckAction(message)) return { title, why: "locator" };
     // A test that recovers from its own break reports an assertion failure, so
     // the locator error never surfaces. Same job, one step earlier.
-    if (anySpec && CATCHES.test(anySpec) && anySpec.includes(title))
-      return { title, why: "fallback" };
+    // The fallback has to be in THAT test's own body. Matching the whole file
+    // put every failing test into the heal role because a beforeEach dismissed
+    // a pop-up with `.catch(() => {})` (run 20261012T001248Z): an assertion
+    // failure was "healed" with five tools and no way to add the design's new
+    // scenario.
+    const body = anySpec ? (testsByTitle(anySpec).get(title) ?? "") : "";
+    if (body && CATCHES.test(body)) return { title, why: "fallback" };
   }
   return undefined;
 }
