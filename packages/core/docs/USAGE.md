@@ -1,295 +1,414 @@
-# Usage
+# Using attestqa
 
-Install, configure, run, read the result, fix what goes wrong.
+This guide takes you from nothing installed to a story whose tests are written, run and checked, and
+then shows you how to read what happened. It covers the command line (`aqa`) and the VS Code
+extension, and both Jira and Azure DevOps.
 
-For what it does, see [FUNCTIONAL.md](FUNCTIONAL.md). For the contracts, see
+What attestqa does, in one paragraph: you point it at a user story. It reads the story, its epic,
+its sub-tasks, comments and open bugs, and proposes a **test design** — one line per test, saying
+what kind of test it is and what it must observe. **You approve the design.** It then writes
+ordinary Playwright tests into a folder you own, runs them, triages any failures and repairs broken
+locators. Throughout, a governance layer refuses — in code — any change that would make a failing
+test pass by weakening it, and every step is written to a ledger you can replay. The tests it leaves
+behind run with plain `npx playwright test`, with attestqa uninstalled.
+
+For how it works inside, see [HOW-A-RUN-WORKS.md](HOW-A-RUN-WORKS.md) and
+[ARCHITECTURE.md](ARCHITECTURE.md). For the contracts (event shapes, exit codes, config schema), see
 [TECHNICAL.md](TECHNICAL.md).
 
 ---
 
-## Before you start
+## 1. Before you start
 
-| you need                  | why                                                     |
-| ------------------------- | ------------------------------------------------------- |
-| Node 18 or later          | the runtime                                             |
-| An Anthropic API key      | the model                                               |
-| An Azure DevOps PAT       | reading the story, creating test cases                  |
-| A running application     | it explores the real UI to find selectors               |
-| A disposable test account | in that application — never a real user, never an admin |
+| You need                                      | Why                                                                                                                         |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Node.js 20 or later                           | the runtime                                                                                                                 |
+| A Playwright project for the site under test  | where the tests are written; `npx playwright test` must work in it                                                          |
+| A model credential                            | Anthropic by default; OpenAI, Azure OpenAI, a local model or your company gateway also work                                 |
+| Jira **or** Azure DevOps access               | to read stories; Jira: email + API token (Cloud) or a PAT (Data Center). Azure DevOps: a PAT with Work Items (read & write) |
+| The application, running                      | attestqa opens the real pages to find what is on them                                                                       |
+| A disposable test account in that application | never a real user, never an admin                                                                                           |
+| VS Code 1.85 or later (optional)              | for the extension                                                                                                           |
 
-The PAT needs **Work Items (read & write)**. Add **Test Management (read & write)** only if your
-organisation has the Test Plans access level; without that licence the scope makes no difference
-(see Troubleshooting).
+If you have no Playwright project yet, create one first (`npm init playwright@latest`). attestqa
+writes tests into an existing framework; it does not create one for you.
 
-## Install
+## 2. Install
 
 ```bash
 npm install -g attestqa
 aqa --version
 ```
 
-Or from a clone, which is what you want if you plan to change anything:
-
-```bash
-git clone https://github.com/javvadivijayprasad/attestqa
-cd agentic-qa && npm ci && npm run build
-node dist/cli.js --help
-```
-
-Everything below writes `aqa`; from a clone it is `node dist/cli.js`.
+For VS Code, install **attestqa** from the Marketplace (publisher `vijaypjavvadi`), or run
+`code --install-extension vijaypjavvadi.attestqa-vscode`. The extension drives the `aqa` you just
+installed; it does not bundle its own copy. See [section 8](#8-in-vs-code).
 
 ---
 
-## Configure
+## 3. Set up a project
 
-### `.env`
+Do this once per application under test. Five steps.
 
-Beside your config. Git-ignored — `.env.example` lists the names.
+### 3.1 The Playwright project
 
-```
-ANTHROPIC_API_KEY=sk-ant-…
-AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
-AZURE_DEVOPS_PROJECT=your-project
-AZURE_DEVOPS_PAT=…
-
-AQA_APP_URL=http://localhost:3000
-AQA_APP_USER=test@example.com
-AQA_APP_PASS=…
-```
-
-The last three are read by your workspace's `playwright.config.ts`, not by the runtime — they are
-how a generated test signs in without a password ever reaching a spec file or a work item.
-
-A variable already set in your shell wins over `.env`. That is standard, and it is also the single
-most common way to spend an hour confused: if `.env` looks right and authentication still fails,
-check for a stale `ANTHROPIC_API_KEY` in your environment. The startup line tells you which source
-each key came from.
-
-### `ai-quality.config.yaml`
-
-This is where you say what the agent may do, and where.
-
-```yaml
-agent:
-  model: claude-sonnet-4-6
-  budgets:
-    steps: 60
-    tokens: 1500000
-
-  scope:
-    work_items: ["1"] # exact ids, or ranges: "100-199"
-    repos: [] # repo names it may write to
-    test_plans: [] # test plans it may write into
-    branches_writable: ["agent/*"] # glob; protected branches always refused
-    urls: ["http://localhost:3000"] # where it may point a browser
-
-  capabilities:
-    test_plans: true # false if your account has no Test Plans access level
-
-  policy:
-    read: execute
-    write_workspace: execute
-    write_branch: ask
-    write_record: ask
-    destructive: refuse
-```
-
-Three dimensions, answering three different questions:
-
-- **`policy`** — what is the agent _allowed_ to do. Your decision.
-- **`scope`** — _where_ may it act. Your decision.
-- **`capabilities`** — what _can_ this environment do at all. Not a decision; a fact about your
-  Azure DevOps account.
-
-An empty `urls` list means it may not browse at all. `scope` is required; everything else has a
-default.
-
-### The workspace
-
-The folder the agent writes into, passed as `--workspace`. It needs a `playwright.config.ts` whose
-`baseURL` comes from the environment:
+attestqa writes into this folder and nowhere else (it is the `--workspace`). Its
+`playwright.config.ts` should read the address and the test login from the environment, so that no
+URL or password ever ends up in a test file:
 
 ```ts
 import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "tests",
-  retries: 0,
+  retries: 0, // a flaky pass is worse than a failure: green is treated as evidence
   use: { baseURL: process.env.AQA_APP_URL },
 });
 ```
 
-Everything the agent writes lands inside this folder and nowhere else. Add `tests/`,
-`test-results/`, `playwright-report/` and `.aqa-report/` to your `.gitignore` if you do not want
-generated output committed.
+Keep `retries: 0`. Add `test-results/`, `playwright-report/`, `.aqa-report/` and `.bdd2pw/` to the
+project's `.gitignore`.
+
+If your application shows a cookie banner or a welcome pop-up on first visit, dismiss it with a
+`storageState` file in the config rather than in each test (see `TestRunApplication/juice-shop` in
+the repository for a worked example).
+
+### 3.2 `.env` — credentials
+
+Create `.env` next to where you run `aqa` (`.env.example` lists every name). It is git-ignored;
+never commit it and never paste its values anywhere.
+
+```ini
+# The model (one of these, matching agent.model in the config)
+ANTHROPIC_API_KEY=...
+
+# Jira Cloud
+JIRA_BASE_URL=https://your-site.atlassian.net
+JIRA_EMAIL=you@company.com
+JIRA_API_TOKEN=...
+# Jira Data Center instead: JIRA_PAT=...
+
+# Azure DevOps (if you use it instead of, or as well as, Jira)
+AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
+AZURE_DEVOPS_PROJECT=your-project
+AZURE_DEVOPS_PAT=...
+
+# The application under test — read by playwright.config.ts, never by a test
+AQA_APP_URL=http://localhost:3100
+AQA_APP_USER=test-user@example.com
+AQA_APP_PASS=...
+```
+
+A variable already set in your shell wins over `.env`. If authentication fails and `.env` looks
+right, look for a stale `ANTHROPIC_API_KEY` in your environment — the startup line says which source
+each key came from.
+
+### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
+
+Copy `examples/ai-quality.jira.config.yaml` (Jira) or `examples/ai-quality.config.yaml` (Azure
+DevOps) from the package and edit four things:
+
+```yaml
+agent:
+  model: claude-sonnet-4-6
+  test_types: ["functional", "security", "accessibility", "confirmation"]
+  scope:
+    work_items: ["SHOP-*"] # Jira keys or a glob; Azure DevOps: ids or ranges ("100-199")
+    urls: ["http://localhost:3100"] # where it may point a browser; empty = no browsing
+    test_plans: [] # Azure DevOps test plans it may write into
+    branches_writable: ["agent/*"]
+  policy:
+    read: execute
+    write_workspace: execute # writing tests in the workspace
+    write_branch: ask
+    write_record: ask # anything written to Jira / Azure DevOps asks you first
+    destructive: refuse
+```
+
+- **`scope`** says _where_ it may act. A story outside `work_items` is refused before anything is
+  spent.
+- **`policy`** says _what_ it may do. Leave `write_record: ask` unless you have decided otherwise —
+  it is what makes filing a bug wait for you.
+- **`test_types`** are the kinds of test every design must cover, or exclude with a reason.
+  `accessibility` needs `@axe-core/playwright` in the Playwright project. `confirmation` means
+  re-testing a known bug.
+
+No secrets go in this file: it is meant to be committed. A header that looks like a credential
+(`Authorization`, `api-key`, `token`…) is refused when the config loads.
+
+### 3.4 Check it — a dry run
+
+```bash
+aqa run "Write tests for SHOP-12" --config ai-quality.config.yaml \
+  --workspace ./my-playwright-project --dry-run
+```
+
+This connects to every tool server, lists each tool with its governance class and what the policy
+would decide, and exits. No model call, nothing spent. Do it after every config change.
+
+### 3.5 Jira or Azure DevOps — which one is used
+
+attestqa picks from the story reference: a key like `SHOP-12` means Jira, a number (`AB#123`, `#123`)
+means Azure DevOps. `--tracker jira|ado` overrides it. Both work through the same rules; the
+differences are listed below.
+
+|                                      | Jira                                                                           | Azure DevOps                                                                |
+| ------------------------------------ | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| Credentials                          | `JIRA_BASE_URL` + `JIRA_EMAIL` + `JIRA_API_TOKEN`, or `JIRA_PAT`               | `AZURE_DEVOPS_ORG_URL` + `AZURE_DEVOPS_PROJECT` + `AZURE_DEVOPS_PAT`        |
+| Acceptance criteria                  | from the description, or a custom field (`JIRA_AC_FIELD`)                      | the Acceptance Criteria field                                               |
+| What attestqa may write              | only a new **Bug**, after you approve it                                       | Bugs and test cases, after you approve; test plans if your licence has them |
+| Where tests are recorded             | the feature file's `@story:SHOP-12` scenarios (Jira keeps no test cases)       | linked test cases, plus the feature file                                    |
+| Bug states treated as "known broken" | Active, In Progress, Reopened, In Development, In Review, Code Review, Blocked | Active                                                                      |
+
+attestqa never edits a story's fields, in either tracker.
 
 ---
 
-## Run
-
-### Look before you leap
+## 4. Run a story
 
 ```bash
-aqa run "Write tests for AB#1" --config ai-quality.config.yaml --dry-run
-```
-
-Connects to the MCP servers, lists every tool it would have, and prints each one's governance class
-and what the policy table would decide. No model call, no tool call, nothing spent. Worth doing once
-after any config change.
-
-### The real thing
-
-```bash
-aqa run "Write tests for AB#1" \
+aqa run "Write tests for SHOP-12" \
   --config ai-quality.config.yaml \
-  --workspace ./qa
+  --workspace ./my-playwright-project
 ```
 
-The work item comes from the request text (`AB#1`, `#1`, `work item 1`) unless `--work-item` says
-otherwise, and it must be in `scope.work_items` — otherwise the run refuses before spending a token.
+Run it from the folder that holds `.env` and the config. **Always pass `--workspace`**: without it
+attestqa uses the current folder, and if that folder contains some other Playwright project it will
+write there.
 
-Stay at the keyboard. It will ask before it writes anything to Azure DevOps.
+### What you will see
+
+Each line starting `aqa:` is a step the runtime took, not something the model claims:
+
+1. **Reading** — the story, its epic, sibling stories, sub-tasks, comments and the project's open
+   bugs (read-only).
+2. **Route** — what this run will do, decided from what is already on disk:
+   - **A** — no feature file for this epic yet: write it.
+   - **A2** — complete what is missing (a new story in an existing file, or design items without
+     tests). Existing tests for other stories are left exactly as they are.
+   - **B** — tests for this story already exist: run them, repair only what is broken.
+3. **Test design — your approval.** The design is printed, one item per test (see below). Type `y`
+   to approve, anything else to deny, `v` to see it in full.
+4. **Writing** — scenarios go into the epic's `.feature` file, tagged `@story:<key>` and
+   `@design:<Dn>`; tests are generated with bdd2pw or written beside existing ones.
+5. **The suite runs.** Failures are **triaged** — environmental, flaky, a test problem (a locator
+   that matched nothing), a known bug reproducing as expected, or a possible defect — and the line
+   says which, with the confidence.
+6. **Heal** — when a test fails because a locator matched nothing, a separate repair role takes over.
+   It may change the locator and nothing else, and it chooses from what was actually on the page
+   when the test failed.
+7. **Verify** — a check that the run did what the story needed. It ends with `done`, or `blocked`
+   with the reasons.
+
+### Approving the design — what to look for
+
+This is the one decision attestqa always leaves to you. Each item reads like:
+
+```
+D3  covers AC-2   security / equivalence partitioning
+    conditions: wrong password; unregistered email
+    expected:   the same "Invalid email or password." message for both
+```
+
+Check that every acceptance criterion is covered, that each **expected** is one observable result
+(attestqa already refuses "X or Y"), and that the known bugs are either tested (marked to fail until
+fixed) or excluded with a reason you accept. The design is the record of what this run promised to
+check; the verifier holds the tests to it.
+
+Later approvals — filing a bug, for example — work the same way. Nothing is written to Jira or
+Azure DevOps without a `y` from you.
+
+### Approving from a file instead
+
+For runs nobody is watching, `--approval file` writes each request to
+`<ledger>/runs/<runId>/approvals/<id>.json` with `"decision": null`. Set `"decision"` to
+`"approved"` or `"denied"` (and optionally `"by"`) and save. Silence past `--approval-timeout`
+(default 1800 seconds) counts as denied. The VS Code extension uses this mode and shows the request
+as a dialog.
 
 ### All the flags
 
 ```
 aqa run "<request>" --config <file>
-    [--workspace .]              where the agent writes
-    [--ledger .aqa]              where the run record goes
-    [--env .env]                 credentials file
-    [--work-item <id>]           override the id parsed from the request
-    [--approval terminal|file]   who answers approvals
-    [--approval-timeout <secs>]  file mode only; default 1800
-    [--servers ado,playwright,fs,bdd2pw,pw]
+    [--workspace .]               the Playwright project to write into
+    [--ledger .aqa]               where run records go
+    [--env .env]                  credentials file
+    [--tracker jira|ado]          default: from the story reference
+    [--work-item <id>]            override the reference parsed from the request
+    [--approval terminal|file]    who answers approvals (default terminal)
+    [--approval-timeout <secs>]   file mode only; default 1800
+    [--skill story-to-tests|defect-profile]
+    [--servers ...]               tool servers to start (default: the tracker's set)
     [--dry-run]
 ```
 
-### Approvals
-
-**Terminal mode** (default) prints the batch and waits for `y`. Anything else denies. All the calls
-from one cycle appear in one prompt — that is deliberate, so you review a decision rather than click
-through four.
-
-**File mode** is for when nobody is watching. Each batch is written to
-`<ledger>/runs/<runId>/approvals/<id>.json` with `decision: null`; answer it by writing the same
-object back with `decision` set to `"approved"` or `"denied"`. Silence past `--approval-timeout`
-denies and ends the run.
+`defect-profile` reads the project's closed bugs once and writes a profile that later story runs use
+to aim their designs.
 
 ---
 
-## Read the result
+## 5. Read the result
+
+### Coverage — is each story tested?
+
+```bash
+aqa coverage --workspace ./my-playwright-project
+aqa coverage --workspace ./my-playwright-project --story SHOP-12 --out coverage.md
+```
+
+For every story: the design you last approved, the test that implements each item, and its last
+result — passing, known bug reproduced, known bug **not** reproduced (review it), failing, not run,
+or no test — plus acceptance criteria with no test. It reads only the ledger and the files on disk:
+no model, tracker or browser. Exit code 0 means everything is covered and green, 3 means something
+is missing — usable as a CI gate. `--json` gives the same data for other tools.
+
+### Replay — what happened in a run
 
 ```bash
 aqa replay .aqa                      # the latest run, as Markdown
-aqa replay .aqa/runs/<runId>         # a specific one
+aqa replay .aqa/runs/<runId>         # a specific run
 aqa replay .aqa --out report.md
 ```
 
-No network, no model, no tool calls — it renders from the ledger alone. Every number traces to an
-event id.
+Rendered from the ledger alone. Read the `end` line (status and why), **Verifier gaps** (what was
+not achieved, with the evidence) and **Checks not made** (what the environment prevented, which is
+not the same as a failure).
 
-Look for three things:
+### Check-rules — would today's rules decide differently?
 
-- **the `end` line** — the status and why
-- **`Verifier gaps`** — what was not achieved, with evidence of what was seen instead
-- **`Checks not made`** — what the environment prevented, which is different from a failure
+```bash
+aqa check-rules .aqa/runs/<runId> --config ai-quality.config.yaml --workspace ./my-playwright-project
+```
+
+Re-judges every proposal a past run made against the rules as they are now, offline, and reports
+any decision that would change and whether the run's end point leaves a way forward. Useful after
+upgrading attestqa, and when a run ended `blocked` and you want to know whether an upgrade fixes it.
+Exit 2 means a rule deadlock was found.
 
 ### Exit codes
 
-| code | status    | what it means                                                      |
-| ---- | --------- | ------------------------------------------------------------------ |
-| 0    | `done`    | the verifier found no gaps                                         |
-| 1    | `error`   | the runtime itself failed                                          |
-| 2    | `blocked` | gaps remain, or it stopped making progress, or approval was denied |
-| 3    | `refused` | out of scope — nothing was spent                                   |
-| 4    | `budget`  | steps or tokens exhausted                                          |
+| Code | Status  | Meaning                                                            |
+| ---- | ------- | ------------------------------------------------------------------ |
+| 0    | done    | the verifier found no gaps                                         |
+| 1    | error   | attestqa itself failed (config, credentials, a crash)              |
+| 2    | blocked | gaps remain, an approval was denied, or it stopped making progress |
+| 3    | refused | out of scope — nothing was spent                                   |
+| 4    | budget  | the step or token budget ran out                                   |
 
 ---
 
-## Cost
+## 6. What attestqa refuses
 
-Roughly **$0.50 per story**, ten model calls. Re-runs are cheaper. Output tokens are about 3% of the
-bill — almost all of it is re-reading context each cycle.
+These are enforced by code at the moment a change is proposed, not by instructions to the model:
 
-To spend less:
+- removing or loosening an assertion in an existing test, or deleting a test;
+- making a known bug's test pass by removing its expected-failure marker;
+- a test that catches its own failure (`try/catch`, `.catch(() => {})`) and carries on;
+- rewording another story's scenarios in a shared feature file;
+- regenerating a spec that already holds working tests;
+- writing a masked value (`[EMAIL]`, `[TOKEN]`…) into a file;
+- editing a story's fields in Jira or Azure DevOps, or writing anything there without your approval;
+- changing the project's Playwright config or `package.json`;
+- browsing outside `scope.urls`, or reading work items outside `scope.work_items`.
 
-- **Lower `budgets.steps`.** A run that is going wrong is a run that keeps paying.
-- **Narrow `scope.work_items`.** Out-of-scope refusals happen before any token is spent.
-- **Use `--dry-run`** after config changes rather than discovering the problem mid-run.
-
-A blocked run costs roughly twice a successful one, because it keeps paying full price per cycle to
-rediscover the same wall. If runs are blocking often, read the ledger — that is what it is for.
-
----
-
-## Troubleshooting
-
-Every entry here is something that actually happened during development.
-
-**`401 authentication_error` and `.env` looks correct**
-A stale `ANTHROPIC_API_KEY` in your shell is shadowing the file. The startup line names the source
-each key came from; if it says "from the shell environment (NOT .env)", that is your answer.
-
-**A browser window opens asking me to sign in to Azure DevOps**
-The Azure DevOps MCP server defaults to interactive OAuth. The runtime passes `--authentication
-envvar` and supplies the PAT through the child process environment, so if you see this, the PAT is
-not reaching it — check `AZURE_DEVOPS_PAT` is set and non-empty.
-
-**`Error creating test plan: You are not authorized to access this API`**
-Your account has no Test Plans access level. This is a licence, not a permission — no PAT scope and
-no project setting will change it, because creating a test _plan_ goes through a paid service while
-creating a test _case_ is an ordinary work-item write. Set `capabilities.test_plans: false`; the run
-will create and link cases and record the suite step as a limitation.
-
-**`Client does not support form elicitation`**
-The Azure DevOps server is asking for a project name it was not given. Check
-`AZURE_DEVOPS_PROJECT` is set.
-
-**`spawn EINVAL` on Windows**
-Node will not spawn a `.cmd` directly. Handled by the runtime; if you see it from your own tooling,
-that is the cause.
-
-**`Playwright produced no JSON report`**
-The suite did not run. Check that `@playwright/test` is installed where the workspace can see it and
-that `npx playwright test` works by hand in that folder.
-
-**The run ends `blocked: no progress`**
-The agent proposed the same calls three cycles running. Usually it is stuck on something it cannot
-do — read the ledger from the end backwards; the last few observations say why.
-
-**It created duplicate test cases**
-It should not — it reads what is already linked before creating. If it does, the story's existing
-cases are not linked by a _Tested By_ relationship, so it cannot see them.
-
-**Tests pass but assert nothing**
-Check for `test.fixme` in the spec. A skipped test keeps `green` false, so a run should not finish
-this way — but if you edited the spec by hand, that guard is only applied at run time.
+When something is refused, the reason is shown to the agent and recorded in the ledger, so you can
+see what it tried.
 
 ---
 
-## In CI
+## 7. Cost
 
-It works unattended, with two caveats.
+A story typically costs well under a dollar of model usage; a blocked run costs more than a
+successful one because each cycle re-reads the context. To spend less: lower `budgets.steps`, keep
+`scope.work_items` narrow, and use `--dry-run` after config changes.
+
+---
+
+## 8. In VS Code
+
+The extension runs the same `aqa` with the same rules; it adds no rules of its own and removes none.
+
+1. Install **attestqa** from the Marketplace and open the folder that holds your config and `.env`.
+2. Set **attestqa: Workspace Dir** to your Playwright project (default `.`) and check
+   **attestqa: Config File**.
+3. Command palette → **attestqa: Run story…** → enter `SHOP-12` (Jira) or `123` (Azure DevOps).
+   Output streams to the **attestqa** output panel.
+4. When the design is ready, a dialog shows it item by item. **Approve** or **Deny**. Closing the
+   dialog denies. **attestqa: Answer the pending approval** reopens it.
+5. **attestqa: Show coverage** opens the coverage report; **attestqa: Replay a run** opens a run as
+   Markdown; **attestqa: Check rules on recent runs** runs check-rules. The **attestqa** view in the
+   activity bar lists runs and their events.
+
+If `aqa` is not found, the extension offers to install it or to point at an existing one
+(`attestqa.executablePath`).
+
+---
+
+## 9. Troubleshooting
+
+Every entry here happened during development.
+
+**It wrote tests into the wrong project.** `--workspace` was missing, so the current folder was
+used. Remove what it created (`git status` shows it) and run again with `--workspace`.
+
+**`401 authentication_error` and `.env` looks right.** A stale key in your shell is shadowing the
+file. The startup line names the source of each key.
+
+**Every test fails on a button or link that is clearly on the page.** The accessible name differs
+from the visible text — Juice Shop's button shows "Log in" and is named "Login". The heal step finds
+this from the page snapshot and fixes every test that used the same locator in one change. Name
+your controls (`aria-label`, `data-testid`) and this stops happening.
+
+**A known bug's test "passed".** In the per-test list it now shows as _fails as expected — known
+bug reproduced_. A known bug that really stopped reproducing shows as _known bug NOT reproduced_ and
+is raised for you to review; the expected-failure marker is never removed automatically.
+
+**The design keeps being refused before you see it.** The refusal says why: a test type in
+`test_types` with no item and no exclusion, an expected result with "or", or an open bug neither
+tested nor excluded. The agent fixes these itself; if it cannot, the reason is in the ledger.
+
+**`bdd2pw scaffold could not read the application's pages (exit 4)`.** The application is not
+running at the configured URL, or the browser bdd2pw uses is not installed
+(`npx playwright install chromium`). Nothing was written.
+
+**`blocked: no progress`.** The same calls were proposed three cycles running. Replay the run and
+read the last few observations; then run `aqa check-rules` on it — if a newer attestqa would decide
+differently, upgrading fixes it.
+
+**A browser window asks you to sign in to Azure DevOps.** The PAT is not reaching the server; check
+`AZURE_DEVOPS_PAT` is set and non-empty.
+
+**`You are not authorized to access this API` creating a test plan.** Your Azure DevOps account has
+no Test Plans access level (a licence, not a permission). Set `capabilities.test_plans: false`.
+
+**`Playwright produced no JSON report`.** The suite did not run: check `npx playwright test` works
+by hand in the workspace.
+
+---
+
+## 10. In CI
 
 ```bash
-aqa run "Write tests for AB#$WORK_ITEM" \
-  --config ai-quality.config.yaml \
-  --workspace ./qa \
-  --approval file \
-  --approval-timeout 300
+aqa run "Write tests for SHOP-12" --config ai-quality.config.yaml \
+  --workspace ./my-playwright-project --approval file --approval-timeout 300
+aqa coverage --workspace ./my-playwright-project --out coverage.md
 ```
 
-**Nothing answers the approvals.** With no reviewer, every gated call denies at the timeout and the
-run ends blocked. Either have your pipeline write the decision files, or set
-`policy.write_record: execute` for a pipeline that is trusted to create test cases without a human —
-a decision worth making deliberately rather than by default.
+Nothing answers approvals in a pipeline, so the design approval times out and the run ends blocked
+— which is the safe outcome. Design and approve interactively; in CI, run the suite with
+`npx playwright test` and gate on `aqa coverage`. Never set `AQA_SANDBOX=1` in CI; it widens the URL
+scope.
 
-**Do not set `AQA_SANDBOX=1`.** It relaxes URL scope to allow `*`. It exists for local
-experimentation.
+Archive `.aqa/runs/<runId>/` as a build artefact. It holds no API keys or tokens, but tool results
+are stored as evidence, so it contains whatever your systems returned during the run: keep it
+inside your organisation.
 
-Archive `<ledger>/runs/<runId>/` as a build artefact. It is the only way to understand a failed run
-after the fact.
+---
 
-It holds no prompt text and no Azure DevOps token, but tool results are stored verbatim because they
-are the evidence — so it contains whatever your systems returned during the run. Archive it
-internally without hesitation; read it before publishing one outside the organisation.
+## 11. Security, in short
+
+Credentials live only in `.env` or your shell, reach tool servers through the environment (never
+the command line), and never appear in the ledger. Values that look like e-mail addresses, IPs or
+tokens are masked before the model sees them. The model never receives a tool that can edit a
+story. See [SECURITY.md](https://github.com/javvadivijayprasad/attestqa/blob/main/SECURITY.md) and
+[ADOPTION.md](ADOPTION.md).

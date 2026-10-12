@@ -1,0 +1,186 @@
+{
+  "name": "attestqa-vscode",
+  "displayName": "attestqa",
+  "description": "Governed agentic testing in VS Code: write Playwright tests from Jira or Azure DevOps stories, approve the test design in the editor, and read coverage and the run ledger. A client of the attestqa CLI.",
+  "version": "1.0.0",
+  "publisher": "vijaypjavvadi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javvadivijayprasad/attestqa.git",
+    "directory": "packages/vscode"
+  },
+  "homepage": "https://github.com/javvadivijayprasad/attestqa/blob/main/packages/core/docs/USAGE.md#8-in-vs-code",
+  "bugs": {
+    "url": "https://github.com/javvadivijayprasad/attestqa/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Testing",
+    "Other"
+  ],
+  "keywords": [
+    "playwright",
+    "testing",
+    "jira",
+    "azure devops",
+    "bdd",
+    "governance",
+    "agentic",
+    "qa",
+    "test automation",
+    "ledger"
+  ],
+  "icon": "icon.png",
+  "galleryBanner": {
+    "color": "#0F1720",
+    "theme": "dark"
+  },
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "workspaceContains:**/ai-quality*.config.yaml",
+    "workspaceContains:.aqa"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "aqa.runStory",
+        "title": "Run story\u2026",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.dryRun",
+        "title": "Dry run (show what would be allowed)",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.openPendingApproval",
+        "title": "Answer the pending approval",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.showCoverage",
+        "title": "Show coverage",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.replayRun",
+        "title": "Replay the latest run",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.checkRules",
+        "title": "Check rules on recent runs",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.refreshRuns",
+        "title": "Refresh runs",
+        "category": "attestqa",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "aqa.showRuntimeVersion",
+        "title": "Show runtime version",
+        "category": "attestqa"
+      },
+      {
+        "command": "aqa.openUserGuide",
+        "title": "Open the user guide",
+        "category": "attestqa"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "aqa",
+          "title": "attestqa",
+          "icon": "resources/aqa.svg"
+        }
+      ]
+    },
+    "views": {
+      "aqa": [
+        {
+          "id": "aqa.runs",
+          "name": "Runs",
+          "contextualTitle": "attestqa runs"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "aqa.refreshRuns",
+          "when": "view == aqa.runs",
+          "group": "navigation"
+        },
+        {
+          "command": "aqa.showCoverage",
+          "when": "view == aqa.runs",
+          "group": "navigation@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "aqa.refreshRuns",
+          "when": "false"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "attestqa",
+      "properties": {
+        "aqa.configFile": {
+          "type": "string",
+          "default": "ai-quality.config.yaml",
+          "description": "Path to ai-quality.config.yaml, relative to the open folder."
+        },
+        "aqa.workspaceDir": {
+          "type": "string",
+          "default": ".",
+          "markdownDescription": "The **Playwright project** attestqa writes tests into, relative to the open folder (passed as `--workspace`). attestqa writes nowhere else."
+        },
+        "aqa.envFile": {
+          "type": "string",
+          "default": ".env",
+          "markdownDescription": "Credentials file, relative to the open folder (passed as `--env`). Never committed; the extension never reads it."
+        },
+        "aqa.ledgerDir": {
+          "type": "string",
+          "default": ".aqa",
+          "description": "Ledger root, relative to the open folder. Runs live in <ledgerDir>/runs/<runId>/."
+        },
+        "aqa.approvalTimeoutSeconds": {
+          "type": "number",
+          "default": 1800,
+          "minimum": 1,
+          "markdownDescription": "Seconds the run waits for an approval before treating silence as **denied**."
+        },
+        "aqa.executablePath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `aqa` executable. Leave empty to look in the workspace's `node_modules/.bin`, then on `PATH`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -p ./ --watch",
+    "build": "tsc -p ./",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --no-dependencies",
+    "typecheck": "tsc -p ./ --noEmit",
+    "test": "tsc -p ./ && node --test \"test/*.test.cjs\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "^5.5.0"
+  },
+  "private": true
+}

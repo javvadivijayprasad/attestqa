@@ -602,17 +602,34 @@ export function coverageOf(
     // storage) "already tested" by the AC-1 functional test, which never looks
     // at storage. Design ids are renumbered every run, so they stay the last
     // resort, never the first.
+    // Several items can share a criterion — AC-3's four boundary cases, each
+    // with its own scenario. Matching the first scenario for all of them told
+    // the reviewer D8–D11 were "ALREADY TESTED by AC-3a" (20261012T220131Z).
+    // So among the scenarios that match on criterion or bug, the one carrying
+    // this item's own design id wins, then one no other item has claimed.
+    const matching = tagged.filter((sc) => {
+      if (!isReal(sc.scenario)) return false;
+      const sameType = sc.types.length === 0 || sc.types.includes(it.type);
+      if (!sameType) return false;
+      return (
+        (ac !== undefined && sc.acs.includes(ac)) || (bug !== undefined && includesId(sc.bugs, bug))
+      );
+    });
+    if (matching.length > 0) {
+      const claimed = new Set([...out.values()].map((v) => v.scenario));
+      const pick =
+        matching.find((sc) => sc.designs.includes(it.id.toUpperCase())) ??
+        matching.find((sc) => !claimed.has(sc.scenario)) ??
+        matching[0];
+      if (pick) {
+        const how = ac !== undefined && pick.acs.includes(ac) ? "criterion" : "bug";
+        out.set(it.id, { scenario: pick.scenario, how });
+        continue;
+      }
+    }
     for (const sc of tagged) {
       if (!isReal(sc.scenario)) continue;
       const sameType = sc.types.length === 0 || sc.types.includes(it.type);
-      if (ac !== undefined && sc.acs.includes(ac) && sameType) {
-        out.set(it.id, { scenario: sc.scenario, how: "criterion" });
-        break;
-      }
-      if (bug !== undefined && includesId(sc.bugs, bug) && sameType) {
-        out.set(it.id, { scenario: sc.scenario, how: "bug" });
-        break;
-      }
       if (
         ac === undefined &&
         bug === undefined &&

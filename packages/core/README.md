@@ -1,11 +1,12 @@
 # attestqa
 
-*Formerly `@vijaypjavvadi/agentic-qa`. Same runtime, same ledger format, same `aqa` command; the old package name installs this one.*
+*Formerly `@vijaypjavvadi/agentic-qa` (engine 1.x). Version 2.0.0 is the engine inside attestqa
+release v1.0.0; the `aqa` command is unchanged.*
 
 [![CI](https://github.com/javvadivijayprasad/attestqa/actions/workflows/ci.yml/badge.svg)](https://github.com/javvadivijayprasad/attestqa/actions/workflows/ci.yml)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.22758876.svg)](https://doi.org/10.5281/zenodo.22758876)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node](https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg)](package.json)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](package.json)
 
 **A QA agent that has to show its work.**
 
@@ -13,23 +14,24 @@ A language model chooses the next action. Code decides whether that action is al
 whether the job is finished. Every step — what was proposed, what was permitted, what happened — is
 appended to a ledger you can replay offline.
 
-Point it at a user story in Azure DevOps and it reads the acceptance criteria, writes Playwright
-tests, runs them against your application, and records the resulting test cases back against the
-story. It asks before it writes anything you would have to undo.
+Point it at a user story in **Jira or Azure DevOps**. It reads the story, its epic, sub-tasks,
+comments and open bugs, proposes a test design that **you approve**, writes Playwright tests into
+your own project, runs them, triages failures and repairs broken locators — and refuses, in code,
+any change that would make a failing test pass by weakening it.
 
 ```
-aqa run "Write tests for AB#1" --config ai-quality.config.yaml --workspace ./qa
+aqa run "Write tests for SHOP-12" --config ai-quality.config.yaml --workspace ./my-playwright-project
 ```
 
 ```
-aqa: skill story-to-tests, work item 1, model claude-sonnet-4-6, approval terminal
-
-[aqa] approval apr-0001 requested
-  Approve 4 calls: ado.testplan_test_case_write(action=create, title=AC-1: A registered user…)
-  approve? [y/N] y
-
-done: 5 passed, 0 failed, 0 skipped — 4 test cases linked to AB#1
+aqa: route A2 — complete what is missing: the feature file exists but has no scenario tagged @story:SHOP-12
+  approve? [y/N/v=verbose] y
+aqa: test design approved — 5 item(s); tests are written from it
+aqa: suite green — 5 passed, 0 failed, 0 skipped (1 of the passed: known bug reproduced, failing as expected)
+aqa: checks passed — the run did what this story needed
 ```
+
+Also in VS Code: install **attestqa** from the Marketplace (publisher `vijaypjavvadi`).
 
 ---
 
@@ -92,7 +94,7 @@ event shapes in [TECHNICAL.md](docs/TECHNICAL.md).
 
 ## Install
 
-Requires Node 18+.
+Requires Node 20+.
 
 ```bash
 npm install -g attestqa
@@ -109,101 +111,43 @@ node dist/cli.js --help
 
 ## Five-minute start
 
-**1. Credentials** in a `.env` beside your config (never committed — see `.env.example`):
+The full walk-through, for Jira and Azure DevOps, is the [user guide](docs/USAGE.md). In short:
 
-```
-ANTHROPIC_API_KEY=sk-ant-…
-AZURE_DEVOPS_ORG_URL=https://dev.azure.com/your-org
-AZURE_DEVOPS_PROJECT=your-project
-AZURE_DEVOPS_PAT=…            # Work Items (read & write)
-AQA_APP_URL=http://localhost:3000
-AQA_APP_USER=test@example.com  # a disposable account in your test environment
-AQA_APP_PASS=…
-AI_GOVERNANCE_URL=http://127.0.0.1:4900  # optional; needed for bdd2pw's LLM fallback
-```
-
-The model credential matches `agent.model.provider` in the config: `anthropic` (the default)
-reads `ANTHROPIC_API_KEY`, `openai` reads `OPENAI_API_KEY`, `azure-openai` reads
-`AZURE_OPENAI_API_KEY`, and `local` needs none. A company on Azure sets, in the config:
-
-```yaml
-agent:
-  model:
-    provider: azure-openai
-    name: gpt-4.1                        # the deployment name
-    endpoint: https://<resource>.openai.azure.com
-```
-
-and puts `AZURE_OPENAI_API_KEY` in `.env`. Nothing else changes: the gate, the rules, the
-ledger and the report are the same whichever model is reading them.
-
-One `.env` serves both: the runtime reads `ANTHROPIC_API_KEY` for its own model, and
-bdd2pw inherits the same key when it falls back to a model for an unbound step.
-
-**2. A config**, `ai-quality.config.yaml` — this is where you say what the agent may do and where:
-
-```yaml
-agent:
-  model: claude-sonnet-4-6
-  budgets: { steps: 60, tokens: 1500000 }
-  scope:
-    work_items: ["1"] # exact ids, or ranges like "100-199"
-    repos: []
-    test_plans: []
-    branches_writable: ["agent/*"]
-    urls: ["http://localhost:3000"] # where it may point a browser
-  capabilities:
-    test_plans: true # false if your account has no Test Plans access level
-  policy:
-    read: execute
-    write_workspace: execute
-    write_branch: ask
-    write_record: ask
-    destructive: refuse
-```
-
-**3. See what it would be allowed to do**, before spending anything:
+1. **A Playwright project** for the site under test, whose `playwright.config.ts` reads
+   `baseURL` from `AQA_APP_URL`. attestqa writes into it and nowhere else.
+2. **`.env`** (never committed — `.env.example` lists the names): a model key
+   (`ANTHROPIC_API_KEY`, or OpenAI / Azure OpenAI / gateway / local), your tracker
+   (`JIRA_BASE_URL` + `JIRA_EMAIL` + `JIRA_API_TOKEN`, or `AZURE_DEVOPS_ORG_URL` +
+   `AZURE_DEVOPS_PROJECT` + `AZURE_DEVOPS_PAT`), and a disposable test login
+   (`AQA_APP_URL`, `AQA_APP_USER`, `AQA_APP_PASS`).
+3. **`ai-quality.config.yaml`** — copy `examples/ai-quality.jira.config.yaml` or
+   `examples/ai-quality.config.yaml` and set `scope.work_items` and `scope.urls`.
+4. **Check** without spending anything:
+   `aqa run "Write tests for SHOP-12" --config ai-quality.config.yaml --workspace ./my-playwright-project --dry-run`
+5. **Run** it without `--dry-run`, approve the design when asked, then read the result:
 
 ```bash
-aqa run "Write tests for AB#1" --config ai-quality.config.yaml --dry-run
+aqa coverage --workspace ./my-playwright-project   # each story: design, tests, last result
+aqa replay .aqa                                    # what happened in the latest run
 ```
-
-**4. Run it**, with you at the keyboard:
-
-```bash
-aqa run "Write tests for AB#1" --config ai-quality.config.yaml --workspace ./qa
-```
-
-**5. Read what happened:**
-
-```bash
-aqa replay .aqa            # renders the latest run as Markdown
-```
-
-A typical story costs roughly $0.50 and ten model calls.
 
 ## What it does today
 
-Story → tests → run → test cases. Specifically: reads a work item's acceptance criteria; writes one
-Gherkin scenario per behaviour; generates and implements Playwright specs, exploring the running
-application to find real selectors; runs the suite; and records one test case per acceptance
-criterion in Azure DevOps, linked to the story. A re-run over an unchanged story creates nothing and
-still reports.
-
-It then posts a summary back to the work item — counted from the ledger, not written by the model:
-
-```
-## agentic-qa run `20260914T142818Z-23dd15d7`
-
-**Suite: green** — 5 passed, 0 failed, 0 skipped.
-**Test cases linked to work item 1: 4** (already present: 25, 26, 27, 28).
-
-**Checks not made in this environment:**
-- test suite membership — this account has no Test Plans access level, so the cases are
-  linked to the story but no suite contains them
-
-_Counted from the run ledger, not from the agent's account of its own work._
-```
+- **Reads** a story from Jira or Azure DevOps, with its epic, sibling stories, sub-tasks, comments
+  and the project's open bugs (read-only).
+- **Designs** the tests — functional, security, accessibility, confirmation of known bugs — one item
+  per test, and waits for a person to approve the design.
+- **Writes** Playwright tests with bdd2pw: one feature file per epic, each scenario tagged
+  `@story:<id>` and `@design:<Dn>`; a new story is added beside existing ones without touching them.
+- **Runs and triages** the suite: environmental, flaky, a locator that matched nothing, a known bug
+  reproducing as expected, or a possible defect — from evidence, with a confidence.
+- **Repairs** locators from the page as it was when the test failed, with pw-self-heal ranking the
+  same candidates as an independent second opinion.
+- **Verifies** that the tests match the approved design, and **records** everything in a ledger:
+  `aqa replay` renders a run, `aqa coverage` shows each story's design-to-result trace, and
+  `aqa check-rules` re-judges past runs against today's rules.
+- On Azure DevOps it links test cases to the story and posts a summary counted from the ledger; on
+  Jira, where there are no test cases, the tagged scenarios are the record.
 
 ## What it will not do
 
@@ -212,7 +156,8 @@ Deliberate limits, not missing features:
 - **It cannot operate your application.** It may navigate, snapshot, search and screenshot, to find
   real selectors. Click, type, fill and press are never classified, so they cannot be called. The
   only thing that interacts with your app is the test suite it writes.
-- **It cannot edit a work item's fields.** It can create test cases and add comments. It cannot
+- **It cannot edit a work item's fields.** It can create bugs (and, on Azure DevOps, test cases and
+  comments), each after you approve. It cannot
   rewrite the acceptance criteria it is being verified against — an agent that can edit its own
   requirements is not auditable.
 - **It cannot delete anything.** `destructive` refuses by default and destructive-looking tool names
@@ -227,8 +172,9 @@ Deliberate limits, not missing features:
 
 | doc                                        | for                                                      |
 | ------------------------------------------ | -------------------------------------------------------- |
+| [User guide](docs/USAGE.md)                | installing, configuring, running, approving, results, VS Code |
 | [Adoption](docs/ADOPTION.md)               | what a team has to change, who does it, in what order    |
-| [Usage](docs/USAGE.md)                     | installing, configuring, running, reading a ledger       |
+| [Roadmap](https://github.com/javvadivijayprasad/attestqa/blob/main/ROADMAP.md) | what ships each month |
 | [How a run works](docs/HOW-A-RUN-WORKS.md) | every stage of one real run, in order                    |
 | [Functional](docs/FUNCTIONAL.md)           | what it does, capability by capability                   |
 | [Architecture](docs/ARCHITECTURE.md)       | the design decisions, and the trade-offs behind them     |
@@ -238,17 +184,15 @@ Deliberate limits, not missing features:
 
 ## Status
 
-**v0.1 — one skill, working end to end, against a live Azure DevOps project and a real application.**
+**Engine 2.0.0, part of attestqa release v1.0.0 (15 November 2026).** Jira and Azure DevOps, any
+model your company uses, the CLI and a VS Code extension. Stories run end to end against a live Jira
+project and OWASP Juice Shop; the runtime, governance rules, ledger, replay, coverage and verifier
+are covered by more than 750 tests, including a golden fixture that fails CI on any drift in the
+event shapes. What comes next is in the
+[roadmap](https://github.com/javvadivijayprasad/attestqa/blob/main/ROADMAP.md).
 
-The `story-to-tests` skill is complete: the runs above are real, not illustrative. The runtime,
-governance gate, ledger, replay and verifier are covered by 270+ tests, including a golden fixture
-that fails CI on any drift in the event shapes.
-
-Being worked on next: a daily regression pipeline, failure triage that classifies a red run before a
-human looks at it, and prompt caching to cut the per-run cost.
-
-The event shapes, CLI flags, exit codes and config schema are a contract — changing any of them is a
-MAJOR version bump. Everything else is fair game.
+The event shapes, CLI flags, exit codes, config schema and approval file format are a contract —
+changing any of them is a MAJOR version bump.
 
 ## Contributing
 

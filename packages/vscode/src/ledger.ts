@@ -79,34 +79,51 @@ export function listRuns(ledgerRoot: string): RunSummary[] {
   return runs.sort((a, b) => b.runId.localeCompare(a.runId));
 }
 
-/** One short line per event, the same shape the CLI's replay prints. */
+/** One short line per event, in the words the CLI's live output uses. */
 export function describe(event: RunEvent): string {
   const p = event.payload ?? {};
   const str = (key: string): string | undefined =>
     typeof p[key] === "string" ? (p[key] as string) : undefined;
+  const result = (p["result"] ?? {}) as Record<string, unknown>;
 
   switch (event.kind) {
     case "request":
-      return str("request") ?? "run started";
+      return str("text") ?? "run started";
+    case "route":
+      return `route ${str("path") ?? "?"} — ${str("reason") ?? ""}`.trim();
+    case "agent":
+      return `role: ${str("role") ?? "?"}`;
     case "inference":
-      return `chose ${str("toolName") ?? "a tool"}`;
+      return str("toolName") ? `proposed ${str("toolName")}` : "finished its turn";
     case "policy":
-      return `${str("policyClass") ?? "?"} → ${str("decision") ?? "?"}`;
+      return `${str("toolName") ?? "?"}: ${str("decision") ?? "?"}${
+        str("decision") === "refuse" && str("reason") ? ` — ${truncate(str("reason") ?? "", 120)}` : ""
+      }`;
     case "call":
-      return `calling ${str("toolName") ?? "?"}`;
+      return `${str("server") ?? "?"}.${str("toolName") ?? "?"}`;
     case "observation":
+      if (typeof result["passed"] === "number")
+        return `suite: ${String(result["passed"])} passed, ${String(result["failed"] ?? 0)} failed`;
       return p["ok"] === true ? "ok" : "failed";
+    case "triage":
+      return `triaged ${Array.isArray(p["verdicts"]) ? p["verdicts"].length : 0} failure(s)`;
     case "approval_requested":
       return str("summary") ?? "approval requested";
     case "approval_resolved":
       return `${str("decision") ?? "?"} by ${str("by") ?? "?"}`;
     case "verify":
-      return str("verdict") ?? "verified";
+      return p["done"] === true
+        ? "checks passed"
+        : `${Array.isArray(p["gaps"]) ? p["gaps"].length : 0} gap(s) remain`;
     case "end":
-      return `${str("status") ?? "ended"} — ${str("reason") ?? ""}`.trim();
+      return `${str("status") ?? "ended"} — ${truncate(str("summary") ?? "", 120)}`.trim();
     default:
       return event.kind;
   }
+}
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
 type Node = { type: "run"; run: RunSummary } | { type: "event"; run: RunSummary; event: RunEvent };

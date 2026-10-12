@@ -1,4 +1,18 @@
-# Changelog — Agentic QA for VS Code
+# Changelog
+
+## 1.0.0 — attestqa release v1.0.0 (15 November 2026)
+
+First release as **attestqa** (previously the agentic-qa extension).
+
+- Run a story from **Jira** (`SHOP-12`) as well as Azure DevOps (`123`, `AB#123`).
+- The test design approval is shown item by item — coverage, type, technique, conditions,
+  expected result, exclusions — instead of a truncated argument list.
+- New commands: **Show coverage**, **Check rules on recent runs**, **Open the user guide**.
+- New setting `aqa.envFile`; `aqa.workspaceDir` now defaults to the open folder.
+- Progress notification shows the CLI's own progress lines.
+- The Runs view describes today's ledger events (route, role, triage, refusals, verifier).
+- Fixed: starting `aqa.cmd` on Windows failed with `spawn EINVAL` on current Node.js.
+
 
 The extension and the runtime version independently. This file covers the extension only; the
 runtime's own changes are in the repository root `CHANGELOG.md`.

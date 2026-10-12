@@ -729,3 +729,100 @@ describe("one broken selector, five tests (20261012T205658Z)", () => {
     expect(hint).toMatch(/closest line is 1/);
   });
 });
+
+describe("a quarantined test's locator may be healed inside its assertion (20261012T220131Z)", () => {
+  const PATH = "tests/epic.spec.ts";
+  const TITLE = "AC-3d: Log in button is enabled when both fields are filled";
+  const SPEC = [
+    `  test("${TITLE}", async ({ page }) => {`,
+    '    await expect(page.getByRole("button", { name: "Log in" })).toBeEnabled();',
+    "  });",
+  ].join("\n");
+  const call = (id: number, server: string, toolName: string, args: unknown, result: unknown) => [
+    { eventId: id, kind: "call", payload: { server, toolName, args, startedAt: 0 } },
+    {
+      eventId: id + 1,
+      kind: "observation",
+      payload: { eventIdOfCall: id, ok: true, result, artefacts: [], durationMs: 1 },
+    },
+  ];
+  const events = [
+    { eventId: 0, kind: "route", payload: { path: "B", because: {} } },
+    ...call(1, "fs", "read_file", { path: PATH }, { path: PATH, content: SPEC }),
+    {
+      eventId: 3,
+      kind: "triage",
+      payload: { verdicts: [{ test: `epic.spec.ts › ${TITLE}`, category: "real-defect" }] },
+    },
+    ...call(
+      4,
+      "aqa",
+      "heal_locator",
+      { test: TITLE },
+      {
+        candidates: [
+          {
+            role: "button",
+            name: "Login",
+            expression: 'page.getByRole("button", { name: "Login" })',
+          },
+        ],
+      },
+    ),
+  ] as unknown as AnyRunEvent[];
+  const write = (content: string) => ({ toolName: "fs.write_file", args: { path: PATH, content } });
+
+  it("allows the locator the heal tool offered", () => {
+    expect(storyRefusal(write(SPEC.replace('"Log in"', '"Login"')), events) ?? "").not.toMatch(
+      /quarantined/,
+    );
+  });
+
+  it("still refuses a softened matcher, and a locator nobody offered", () => {
+    expect(
+      storyRefusal(
+        write(SPEC.replace('"Log in" })).toBeEnabled', '"Login" })).toBeVisible')),
+        events,
+      ),
+    ).toMatch(/quarantined/);
+    expect(
+      storyRefusal(write(SPEC.replace('"Log in"', '"Forgot your password?"')), events),
+    ).toMatch(/quarantined/);
+  });
+});
+
+describe("items sharing a criterion each find their own scenario (20261012T220131Z)", () => {
+  it("does not report four AC-3 items as all tested by AC-3a", () => {
+    const feature = ["a", "b", "c", "d"]
+      .map(
+        (x, i) =>
+          `  @story:SCRUM-6 @ac:3 @design:D${
+            8 + i
+          } @type:functional\n  Scenario: AC-3${x}: case ${x}\n    Then x`,
+      )
+      .join("\n");
+    const spec = ["a", "b", "c", "d"]
+      .map((x) => `test("AC-3${x}: case ${x}", async () => {});`)
+      .join("\n");
+    const item = (id: string) => ({
+      id,
+      covers: "AC-3",
+      type: "functional" as const,
+      technique: "boundary-value-analysis" as const,
+      conditions: ["x"],
+      expected: "y",
+      source: "AC-3",
+    });
+    const design = {
+      items: ["D8", "D9", "D10", "D11"].map(item),
+      excluded: [],
+    } as unknown as TestDesign;
+    const m = coverageOf(design, { featureText: feature, specText: spec, story: "SCRUM-6" });
+    expect([...m.values()].map((v) => v.scenario)).toEqual([
+      "AC-3a: case a",
+      "AC-3b: case b",
+      "AC-3c: case c",
+      "AC-3d: case d",
+    ]);
+  });
+});

@@ -48,9 +48,48 @@ function renderArgs(args: Record<string, unknown>): string {
     .join("\n");
 }
 
+/**
+ * A test design, item by item — the one approval attestqa always leaves to a
+ * person. The generic renderer cut the whole design to 240 characters, which
+ * is a decision nobody could read.
+ */
+export function renderDesign(args: Record<string, unknown>): string {
+  const items = Array.isArray(args["items"]) ? args["items"] : [];
+  const excluded = Array.isArray(args["excluded"]) ? args["excluded"] : [];
+  const lines: string[] = [`Test design — ${items.length} item(s)`];
+  for (const raw of items) {
+    const it = (raw ?? {}) as Record<string, unknown>;
+    const conditions = Array.isArray(it["conditions"]) ? it["conditions"].map(String).join("; ") : "";
+    lines.push(
+      "",
+      `${String(it["id"] ?? "?")}  covers ${String(it["covers"] ?? "?")}  ` +
+        `${String(it["type"] ?? "?")} / ${String(it["technique"] ?? "?")}` +
+        (it["expectFail"] === true ? "  (known bug: expected to fail)" : ""),
+    );
+    if (conditions) lines.push(`    conditions: ${truncate(conditions, 300)}`);
+    lines.push(`    expected:   ${truncate(String(it["expected"] ?? ""), 300)}`);
+  }
+  if (excluded.length > 0) {
+    lines.push("", "Excluded:");
+    for (const raw of excluded) {
+      const x = (raw ?? {}) as Record<string, unknown>;
+      lines.push(`    ${String(x["what"] ?? "?")} — ${truncate(String(x["reason"] ?? ""), 200)}`);
+    }
+  }
+  lines.push(
+    "",
+    "Check that every acceptance criterion is covered and that each known bug is tested or excluded with a reason you accept.",
+  );
+  return lines.join("\n");
+}
+
 export function renderDetail(record: ApprovalRecord): string {
   const body = record.calls
-    .map((call, i) => `${i + 1}. ${call.toolName}\n${renderArgs(call.args)}`)
+    .map((call, i) =>
+      call.toolName === "aqa.test_design"
+        ? renderDesign(call.args)
+        : `${i + 1}. ${call.toolName}\n${renderArgs(call.args)}`,
+    )
     .join("\n\n");
   return `${body}\n\nApproving runs all ${record.calls.length} call${
     record.calls.length === 1 ? "" : "s"
@@ -92,7 +131,7 @@ export class ApprovalWatcher implements vscode.Disposable {
 
     this.status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.status.command = "aqa.openPendingApproval";
-    this.status.text = "$(shield) AQA: approval needed";
+    this.status.text = "$(shield) attestqa: approval needed";
     this.status.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
   }
 

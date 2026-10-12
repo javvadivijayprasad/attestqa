@@ -27,3 +27,7 @@ Docs/out/
 *.pyc
 .DS_Store
 Thumbs.db
+
+# VS Code extension build output
+packages/vscode/out/
+*.vsix

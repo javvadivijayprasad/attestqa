@@ -328,7 +328,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("Then the Log in button is disabled", async () => {
-      await expect(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Login" })).toBeDisabled();
     });
   });
 
@@ -353,7 +353,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("Then the Log in button is disabled", async () => {
-      await expect(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Login" })).toBeDisabled();
     });
   });
 
@@ -375,7 +375,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("Then the Log in button is disabled", async () => {
-      await expect(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Login" })).toBeDisabled();
     });
   });
 
@@ -421,7 +421,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("And I click Log in", async () => {
-      await page.getByRole("button", { name: "Log in" }).click();
+      await page.getByRole("button", { name: "Login" }).click();
     });
 
     await test.step("Then the page displays the generic 'Invalid email or password.' message (no enumeration of which field is wrong)", async () => {

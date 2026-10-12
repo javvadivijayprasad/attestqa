@@ -1,10 +1,8 @@
-import { execFile } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import * as vscode from "vscode";
 
-const run = promisify(execFile);
 
 /**
  * The extension and the runtime version independently on purpose: the ledger
@@ -18,7 +16,7 @@ export interface Runtime {
   version: string;
 }
 
-const PACKAGE = "@vijaypjavvadi/agentic-qa";
+const PACKAGE = "attestqa";
 const BIN = process.platform === "win32" ? "aqa.cmd" : "aqa";
 
 function candidates(folder: vscode.WorkspaceFolder): string[] {
@@ -34,14 +32,49 @@ function candidates(folder: vscode.WorkspaceFolder): string[] {
   return found;
 }
 
-async function versionOf(command: string): Promise<string | undefined> {
-  try {
-    const { stdout } = await run(command, ["--version"], { timeout: 15_000 });
-    const v = stdout.trim();
-    return v.length > 0 ? v : undefined;
-  } catch {
-    return undefined;
+/**
+ * Start `aqa`. On Windows the npm shim is `aqa.cmd`, which Node refuses to
+ * spawn directly (EINVAL since the 2024 batch-file fix), so it goes through the
+ * shell — with every argument quoted, because the shell would otherwise split
+ * "Write tests for SHOP-12" into four words.
+ */
+export function spawnAqa(
+  command: string,
+  args: string[],
+  opts: SpawnOptionsWithoutStdio = {},
+): ChildProcessWithoutNullStreams {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(command)) {
+    const q = (a: string): string => `"${a.replace(/"/g, '""')}"`;
+    return spawn([q(command), ...args.map(q)].join(" "), [], { ...opts, shell: true });
   }
+  return spawn(command, args, { ...opts, shell: false });
+}
+
+async function versionOf(command: string): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    let out = "";
+    let child: ChildProcessWithoutNullStreams;
+    try {
+      child = spawnAqa(command, ["--version"]);
+    } catch {
+      resolve(undefined);
+      return;
+    }
+    const timer = setTimeout(() => {
+      child.kill();
+      resolve(undefined);
+    }, 15_000);
+    child.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    child.on("error", () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      const v = out.trim();
+      resolve(code === 0 && v.length > 0 ? v : undefined);
+    });
+  });
 }
 
 /**
@@ -68,7 +101,7 @@ export async function resolveRuntime(
   const install = "Install globally";
   const choose = "Choose path…";
   const answer = await vscode.window.showWarningMessage(
-    `The agentic-qa runtime was not found.`,
+    "The attestqa CLI (aqa) was not found.",
     { modal: false },
     install,
     choose,
@@ -97,7 +130,7 @@ export async function resolveRuntime(
   if (answer === install) {
     // A terminal rather than a silent exec: a global install is the user's
     // machine and they should be able to see and stop it.
-    const terminal = vscode.window.createTerminal("Agentic QA install");
+    const terminal = vscode.window.createTerminal("attestqa install");
     terminal.show();
     terminal.sendText(`npm install -g ${PACKAGE}`);
     void vscode.window.showInformationMessage(

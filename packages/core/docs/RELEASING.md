@@ -159,6 +159,37 @@ npm deprecate attestqa@0.1.0 "broken build; use 0.1.1"
 
 ---
 
+## Product releases and the VS Code extension
+
+From v1.0.0 a **product release** (tag `vX.Y.Z`, ADR-002) ships the engine and the extension
+together, from CI. The engine keeps its own version (`attestqa` 2.0.0 in v1.0.0); the extension's
+version equals the product release (`attestqa-vscode` 1.0.0), and the release workflow refuses a tag
+that does not match it.
+
+**Once, before the first release:**
+
+1. An npm automation token for the account that owns `attestqa`, saved as the repository secret
+   `NPM_TOKEN`.
+2. A Marketplace token: in Azure DevOps (any organisation), _User settings → Personal access
+   tokens_, scope **Marketplace → Manage**, organisation **All accessible organizations**. Save it as
+   the secret `VSCE_PAT`. The publisher `vijaypjavvadi` already exists (bdd2pw, sel2pw,
+   usagecontract are published under it).
+
+**Each release:**
+
+```
+[ ] npx changeset version                 — bumps attestqa from the changesets, writes CHANGELOG
+[ ] packages/vscode/package.json version  — set to the product version; CHANGELOG section added
+[ ] RELEASE_NOTES.md                      — this release's notes
+[ ] commit, push, and run the "release" workflow with dry_run — it must be green
+[ ] code --install-extension packages/vscode/attestqa-vscode-<v>.vsix   (from the dry run's artifact) and run one story
+[ ] git tag vX.Y.Z && git push --tags     — CI publishes npm, Marketplace and the GitHub release
+[ ] npm view attestqa version; the Marketplace page shows the new version
+```
+
+The workflow skips the npm publish when that engine version is already on npm, so a product release
+that changes only the extension republishes nothing else.
+
 ## Checklist
 
 ```

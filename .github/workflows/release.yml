@@ -1,0 +1,83 @@
+name: release
+# A product release (ADR-002): pushing a tag vX.Y.Z publishes the engine to npm,
+# the extension to the VS Code Marketplace, and a GitHub release with the .vsix.
+# "Run workflow" with dry_run (the default) does everything except publish.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build, test and package only — publish nothing"
+        type: boolean
+        default: true
+permissions:
+  contents: write # the GitHub release
+  id-token: write # npm provenance
+concurrency: release
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+
+      - name: The tag matches the extension version
+        if: github.event_name == 'push'
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ext=$(node -p "require('./packages/vscode/package.json').version")
+          echo "product release $tag, extension $ext"
+          [ "$tag" = "$ext" ] || { echo "::error::packages/vscode is $ext but the tag is v$tag"; exit 1; }
+
+      - name: Engine — what would ship
+        working-directory: packages/core
+        run: npm pack --dry-run
+
+      - name: Engine — publish to npm
+        if: env.DRY_RUN != 'true'
+        working-directory: packages/core
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          v=$(node -p "require('./package.json').version")
+          if npm view "attestqa@$v" version >/dev/null 2>&1; then
+            echo "attestqa@$v is already on npm — skipping"
+          else
+            npm publish --provenance --access public
+          fi
+
+      - name: Extension — package
+        working-directory: packages/vscode
+        run: npx vsce package --no-dependencies
+
+      - name: Extension — publish to the Marketplace
+        if: env.DRY_RUN != 'true'
+        working-directory: packages/vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --no-dependencies --packagePath attestqa-vscode-*.vsix
+
+      - name: GitHub release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" packages/vscode/attestqa-vscode-*.vsix \
+            --title "attestqa $GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: attestqa-vscode
+          path: packages/vscode/attestqa-vscode-*.vsix

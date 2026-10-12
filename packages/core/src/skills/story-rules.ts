@@ -1902,7 +1902,15 @@ function weakensAQuarantinedTest(
     // (20260925T172809Z). A test may be strengthened under quarantine; it may
     // not be weakened.
     const kept = new Set(assertionsOf(b));
-    const lost = assertionsOf(a).filter((x) => !kept.has(x));
+    // A locator inside the assertion may be healed: `expect(<locator>).toBeEnabled()`
+    // keeps its claim when only <locator> changes to one the heal tool read off
+    // the page. 20261012T220131Z: the claim's own refusal said "repair the
+    // locator by all means", then refused exactly that repair three times,
+    // because the wrong name sat inside expect(…) rather than on its own line.
+    const healed = healCandidates(events);
+    const lost = assertionsOf(a).filter(
+      (x) => !kept.has(x) && !assertionsOf(b).some((y) => sameClaimHealed(x, y, healed)),
+    );
     if (lost.length > 0)
       return (
         `"${title}" is quarantined as a defect candidate, and this write drops ${
@@ -1916,6 +1924,44 @@ function weakensAQuarantinedTest(
       );
   }
   return;
+}
+
+/** A Playwright locator expression, with any `page.` prefix. */
+const LOCATOR_CALL = /(?:\bpage\.)?\b(?:getBy[A-Za-z]+|locator)\((?:[^()]|\([^()]*\))*\)/g;
+
+function normLocator(expr: string): string {
+  return expr
+    .replace(/^page\./, "")
+    .replace(/["'`]/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** Every locator `aqa.heal_locator` offered from a page this run. */
+function healCandidates(events: AnyRunEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of successful(completedCalls(events), "aqa.heal_locator"))
+    for (const raw of asArray(asRecord(c.result)?.["candidates"])) {
+      const e = asRecord(raw)?.["expression"];
+      if (typeof e === "string") out.add(normLocator(e));
+    }
+  return out;
+}
+
+/**
+ * The same claim about a healed element: identical once locators are set
+ * aside, and every locator that changed is one the heal tool offered.
+ */
+function sameClaimHealed(before: string, after: string, healed: Set<string>): boolean {
+  if (healed.size === 0) return false;
+  const was = before.match(LOCATOR_CALL) ?? [];
+  const now = after.match(LOCATOR_CALL) ?? [];
+  if (was.length === 0 || was.length !== now.length) return false;
+  if (before.replace(LOCATOR_CALL, "<locator>") !== after.replace(LOCATOR_CALL, "<locator>"))
+    return false;
+  return now.every(
+    (n, i) => normLocator(n) === normLocator(was[i] ?? "") || healed.has(normLocator(n)),
+  );
 }
 
 /** The last route event's `because`, when it has one. */
