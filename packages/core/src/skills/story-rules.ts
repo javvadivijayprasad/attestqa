@@ -76,6 +76,7 @@ export function storyRefusal(
     expectedFailRemoved(call, events, opts.workspaceDir) ??
     weakensAQuarantinedTest(call, events, opts.workspaceDir) ??
     alreadyRead(call, events) ??
+    writesMaskedValue(call, events, opts.workspaceDir) ??
     noChangeWrite(call, events, opts.workspaceDir) ??
     writeChurn(call, events) ??
     unlinkedBug(call, events) ??
@@ -378,6 +379,47 @@ function lastKnownContent(
     }
   }
   return undefined;
+}
+
+/** What `governance/scrub.ts` puts in place of a value before the model sees it. */
+const MASKS = /\[(?:EMAIL|IP|SSN|CARD|TOKEN|REDACTED|PASSWORD)\]/g;
+
+/**
+ * A write that would put a masked value into a file.
+ *
+ * What the agent reads has e-mail addresses, IPs and tokens replaced by
+ * `[EMAIL]`, `[IP]`, `[TOKEN]`… before it sees them; the file on disk still
+ * has the real values. So when the agent rewrites a whole file from what it
+ * read, it writes the masks back. 20261012T185716Z: every SCRUM-8 scenario's
+ * `enter "user@email.com"` came back as `enter "[EMAIL]"`, and the write was
+ * (rightly) refused as rewording another story — but the refusal never said
+ * why the agent's careful byte-for-byte copy kept differing.
+ *
+ * Judged on the write the call amounts to: an edit through
+ * `fs.replace_in_file` is applied to the real content, so it only trips this
+ * when the agent's own new text carries a mask.
+ */
+export function writesMaskedValue(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  const content = String(call.args["content"] ?? "");
+  const masks = content.match(MASKS) ?? [];
+  if (masks.length === 0) return;
+  const before = lastKnownContent(path, events, workspaceDir) ?? "";
+  if (masks.length <= (before.match(MASKS) ?? []).length) return;
+  const kinds = [...new Set(masks)].join(", ");
+  return (
+    `this write would put ${kinds} into ${path}. Those are masks: values that look like an ` +
+    "e-mail address, an IP or a token are hidden from you when you read a file, but the file " +
+    "itself holds the real values, so a whole-file write from what you read replaces them " +
+    "with the mask. Use fs.replace_in_file to change only your own lines — to append, old = " +
+    "the file's last line, new = that line followed by your text. For a value of your own, " +
+    "write a real one (or read it from an environment variable), never a mask."
+  );
 }
 
 /**
@@ -1494,7 +1536,9 @@ function rewordsAnotherStory(
         ", ",
       )}. They were approved and scaffolded by the run that wrote them, and their tests ` +
     "are generated from these exact steps. Change only the scenarios tagged @story:" +
-    `${story}, and leave the rest of the file byte for byte as you found it.`
+    `${story}, and leave the rest of the file byte for byte as you found it. To ADD scenarios, ` +
+    "use fs.replace_in_file with old = the file's last line and new = that same line followed " +
+    "by your scenarios — then nothing else in the file can change."
   );
 }
 
@@ -1528,7 +1572,11 @@ function scenarioBodies(feature: string): Map<string, { stories: TrackerId[]; bo
       tags = [];
       continue;
     }
-    if (current !== undefined && line) body.push(line);
+    // A comment is not a step. 20261012T185716Z: the agent appended SCRUM-6's
+    // scenarios after a "# --- SCRUM-6 ---" banner, the banner was counted as
+    // a step of SCRUM-8's last scenario, and a pure append was refused as
+    // rewording another story — nine times.
+    if (current !== undefined && line && !line.startsWith("#")) body.push(line);
   }
   if (current !== undefined) flush();
   return out;

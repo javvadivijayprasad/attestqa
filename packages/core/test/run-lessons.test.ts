@@ -10,6 +10,8 @@ import {
   appendOnlyAfterReroute,
   appendOnlySpec,
   fallbackInATest,
+  writesMaskedValue,
+  storyRefusal,
   knownBugMarkers,
   lockedScenarios,
   misattributedKnownBug,
@@ -505,5 +507,86 @@ describe("the verifier names the line that swallows a failure", () => {
     const [first] = shapeProblems(item as never, body);
     expect(first).toContain("`).catch(() => {});`");
     expect(first).toMatch(/A green suite does not settle this/);
+  });
+});
+
+describe("appending another story's scenarios to a shared feature (20261012T185716Z)", () => {
+  const PATH = "features/epic-scrum-5-customer-account-access.feature";
+  const ORIGINAL = [
+    "@epic:SCRUM-5",
+    "Feature: Customer account access",
+    "  @story:SCRUM-8 @design:D1",
+    "  Scenario: Logout",
+    '    When I find the Email field and enter "user@email.com"',
+    "    Then the session token is rejected by the server after logout",
+    "",
+  ].join("\n");
+  const ledger = [
+    {
+      eventId: 1,
+      kind: "call",
+      payload: { server: "fs", toolName: "read_file", args: { path: PATH }, startedAt: 0 },
+    },
+    {
+      eventId: 2,
+      kind: "observation",
+      payload: {
+        eventIdOfCall: 1,
+        ok: true,
+        result: { path: PATH, content: ORIGINAL },
+        artefacts: [],
+        durationMs: 1,
+      },
+    },
+  ] as unknown as AnyRunEvent[];
+  const write = (content: string) => ({ toolName: "fs.write_file", args: { path: PATH, content } });
+
+  it("refuses a whole-file write that puts the read mask back into the file", () => {
+    const masked = ORIGINAL.replace("user@email.com", "[EMAIL]");
+    expect(writesMaskedValue(write(masked), ledger)).toMatch(/Those are masks/);
+  });
+
+  it("refuses new scenarios written with a mask for a value", () => {
+    const added = ORIGINAL + '  Scenario: Sign in\n    When I enter "[PASSWORD]"\n';
+    expect(writesMaskedValue(write(added), ledger)).toMatch(/\[PASSWORD\]/);
+  });
+
+  it("does not count a comment banner as a step of the scenario above it", () => {
+    const facts = [
+      {
+        eventId: 3,
+        kind: "call",
+        payload: { server: "aqa", toolName: "story_context", args: {}, startedAt: 0 },
+      },
+      {
+        eventId: 4,
+        kind: "observation",
+        payload: {
+          eventIdOfCall: 3,
+          ok: true,
+          result: {
+            facts: {
+              story: { id: "SCRUM-6", title: "Sign in" },
+              acceptanceCriteria: [],
+              bugs: [],
+              tasks: [],
+            },
+          },
+          artefacts: [],
+          durationMs: 1,
+        },
+      },
+    ] as unknown as AnyRunEvent[];
+    const added =
+      ORIGINAL +
+      "\n  # ---- SCRUM-6 ----\n  @story:SCRUM-6 @design:D1\n  Scenario: Sign in\n    When I sign in\n";
+    expect(storyRefusal(write(added), [...facts, ...ledger]) ?? "").not.toMatch(/rewords/);
+  });
+
+  it("allows an append that keeps every byte of the file", () => {
+    const added =
+      ORIGINAL +
+      "\n  # ---- SCRUM-6 ----\n  @story:SCRUM-6 @design:D1\n  Scenario: Sign in\n    When I sign in\n";
+    expect(writesMaskedValue(write(added), ledger)).toBeUndefined();
   });
 });
