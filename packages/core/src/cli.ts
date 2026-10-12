@@ -60,8 +60,8 @@ export function ownBdd2pw(): { cli: string; version: string } | undefined {
       typeof pkg.bin === "string"
         ? pkg.bin
         : typeof pkg.bin === "object" && pkg.bin !== null
-          ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
-          : undefined;
+        ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
+        : undefined;
     if (typeof bin !== "string") return undefined;
     const cli = join(dirname(pkgPath), bin);
     if (!existsSync(cli)) return undefined;
@@ -140,8 +140,8 @@ export interface CliIo {
 export async function main(argv: string[], io: CliIo = stdio()): Promise<number> {
   const [cmd, ...rest] = argv;
   try {
-    if (!cmd || cmd === "--help" || cmd === "-h") return (io.out(USAGE), 0);
-    if (cmd === "--version" || cmd === "-v") return (io.out(`${VERSION}\n`), 0);
+    if (!cmd || cmd === "--help" || cmd === "-h") return io.out(USAGE), 0;
+    if (cmd === "--version" || cmd === "-v") return io.out(`${VERSION}\n`), 0;
     if (cmd === "replay") return replay(rest, io);
     if (cmd === "discover") return await discover(rest, io);
     if (cmd === "check-rules") return await checkRules(rest, io);
@@ -175,10 +175,10 @@ function stdio(): CliIo {
 
 function replay(args: string[], io: CliIo): number {
   const target = positional(args)[0];
-  if (!target) return (io.err("aqa replay: missing <path>\n"), 1);
+  if (!target) return io.err("aqa replay: missing <path>\n"), 1;
   const out = flag(args, "--out");
   const file = resolveLedgerFile(resolve(target));
-  if (!file) return (io.err(`aqa replay: no ${LEDGER_FILE} found under ${target}\n`), 1);
+  if (!file) return io.err(`aqa replay: no ${LEDGER_FILE} found under ${target}\n`), 1;
   const events = readLedgerFile(file);
   const md = renderMarkdown(events);
   if (out && out !== "-") {
@@ -277,7 +277,9 @@ async function buildTooling(
   }
   if (env.azureDevOps && wanted.includes("ado"))
     io.err(
-      `aqa: Azure DevOps org ${env.azureDevOps.org}, project ${env.azureDevOps.project}, PAT ${mask(env.azureDevOps.pat)}\n`,
+      `aqa: Azure DevOps org ${env.azureDevOps.org}, project ${env.azureDevOps.project}, PAT ${mask(
+        env.azureDevOps.pat,
+      )}\n`,
     );
   if (env.jira && wanted.includes("jira"))
     io.err(
@@ -368,9 +370,9 @@ export async function discover(args: string[], io: CliIo, deps: ToolingDeps = {}
 
 export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Promise<number> {
   const request = positional(args)[0];
-  if (!request) return (io.err(`aqa run: missing "<request>"\n`), 1);
+  if (!request) return io.err(`aqa run: missing "<request>"\n`), 1;
   const configPath = flag(args, "--config");
-  if (!configPath) return (io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1);
+  if (!configPath) return io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1;
   const config = await loadAgentConfig(configPath);
 
   if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
@@ -402,10 +404,16 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
     io.out(`aqa run --dry-run: "${request}"\n`);
     io.out(`  tracker: ${picked.tracker === "jira" ? "Jira" : "Azure DevOps"}\n`);
     io.out(
-      `  config: model ${describeModel(config.model)}, budgets ${config.budgets.steps} steps / ${config.budgets.tokens} tokens\n`,
+      `  config: model ${describeModel(config.model)}, budgets ${config.budgets.steps} steps / ${
+        config.budgets.tokens
+      } tokens\n`,
     );
     io.out(
-      `  scope: work_items ${config.scope.work_items.join(",") || "(none)"}; repos ${config.scope.repos.join(",") || "(none)"}; test_plans ${config.scope.test_plans.join(",") || "(none)"}; urls ${config.scope.urls.join(",") || "(none)"}\n`,
+      `  scope: work_items ${config.scope.work_items.join(",") || "(none)"}; repos ${
+        config.scope.repos.join(",") || "(none)"
+      }; test_plans ${config.scope.test_plans.join(",") || "(none)"}; urls ${
+        config.scope.urls.join(",") || "(none)"
+      }\n`,
     );
     io.out(`  ${list.length} tools visible to the gate (class → table decision):\n`);
     for (const t of list) {
@@ -418,7 +426,9 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
           t,
         );
         io.out(
-          `        ${t.actionArg}=${action}: ${a.policyClass} → ${config.policy[a.policyClass]}${scopeHint(verdict)}\n`,
+          `        ${t.actionArg}=${action}: ${a.policyClass} → ${
+            config.policy[a.policyClass]
+          }${scopeHint(verdict)}\n`,
         );
       }
       if (actions.length === 0) {
@@ -458,16 +468,18 @@ async function live(
   // over the file (standard dotenv precedence) and silently shadows it, which
   // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
   const credVar = credentialVarFor(config.model);
-  const credValue = credVar ? (process.env[credVar] ?? "") : "";
+  const credValue = credVar ? process.env[credVar] ?? "" : "";
   const keySource = !credVar
     ? "no credential needed"
     : loaded.includes(credVar)
-      ? `${credVar} ${mask(credValue)} from ${envFile}`
-      : credValue
-        ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
-        : `${credVar} is not set anywhere`;
+    ? `${credVar} ${mask(credValue)} from ${envFile}`
+    : credValue
+    ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
+    : `${credVar} is not set anywhere`;
   io.err(
-    `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(config.model)}; ${keySource}\n`,
+    `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(
+      config.model,
+    )}; ${keySource}\n`,
   );
 
   const approvalMode = flag(args, "--approval") ?? "terminal";
@@ -782,14 +794,16 @@ export function liveLine(e: AnyRunEvent): string {
           s["frameworkFound"] === undefined
             ? ""
             : s["frameworkFound"]
-              ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
-              : "aqa: framework — NONE FOUND; run aqa init-framework first\n";
+            ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
+            : "aqa: framework — NONE FOUND; run aqa init-framework first\n";
         return (
           fw +
           `aqa: context — story ${n("storyRead") ? "read" : "NOT READ"}, ` +
           `${n("existingTestCases")} existing test case(s), epic ${epic}, ` +
           `${n("siblingsRead")} sibling stor${n("siblingsRead") === 1 ? "y" : "ies"}, ${tasks}, ` +
-          `${n("commentsRead")} comment(s) (${n("commentsExcluded")} run reports left out), ${bugs}\n`
+          `${n("commentsRead")} comment(s) (${n(
+            "commentsExcluded",
+          )} run reports left out), ${bugs}\n`
         );
       }
       if (rec["recorded"] === true && typeof rec["items"] === "number") {
@@ -808,9 +822,14 @@ export function liveLine(e: AnyRunEvent): string {
       }
       if (!("passed" in rec) || !("failed" in rec)) return "";
       const green = rec["green"] === true;
+      const known = (Array.isArray(rec["tests"]) ? rec["tests"] : []).filter(
+        (t) => (t as Record<string, unknown> | null)?.["status"] === "expected-failure",
+      ).length;
       return (
         `aqa: suite ${green ? "green" : "red"} — ${num(rec["passed"])} passed, ` +
-        `${num(rec["failed"])} failed, ${num(rec["skipped"])} skipped\n`
+        `${num(rec["failed"])} failed, ${num(rec["skipped"])} skipped` +
+        (known > 0 ? ` (${known} of the passed: known bug reproduced, failing as expected)` : "") +
+        "\n"
       );
     }
     case "route": {
@@ -833,7 +852,9 @@ export function liveLine(e: AnyRunEvent): string {
       const tools = Array.isArray(p["tools"]) ? (p["tools"] as string[]).length : 0;
       return role === "default"
         ? "aqa: back to the full toolset\n"
-        : `aqa: ${role} agent takes over — ${String(p["because"] ?? "")}; it may use ${tools} tool(s), nothing else\n`;
+        : `aqa: ${role} agent takes over — ${String(
+            p["because"] ?? "",
+          )}; it may use ${tools} tool(s), nothing else\n`;
     }
     case "triage": {
       const runLevel = p["runLevel"];
@@ -865,10 +886,14 @@ export function liveLine(e: AnyRunEvent): string {
         "real-defect": (n) => `${n} look${n === 1 ? "s" : ""} like a product defect — held for you`,
         flake: (n) => `${n} may be flaky — re-running to find out`,
         "test-defect": (n) =>
-          `${n} look${n === 1 ? "s" : ""} like the test's fault — the agent fixes ${n === 1 ? "it" : "them"}`,
+          `${n} look${n === 1 ? "s" : ""} like the test's fault — the agent fixes ${
+            n === 1 ? "it" : "them"
+          }`,
         environmental: (n) => `${n} never reached the product (setup or environment failed)`,
         unrecognised: (n) =>
-          `${n} matched no known failure pattern — held for you as possible defect${n === 1 ? "" : "s"}, at low confidence (0.1)`,
+          `${n} matched no known failure pattern — held for you as possible defect${
+            n === 1 ? "" : "s"
+          }, at low confidence (0.1)`,
       };
       const parts = [...by]
         .map(([c, n]) => (say[c] ? (say[c] as (x: number) => string)(n) : `${n} ${c}`))
@@ -910,8 +935,9 @@ export function liveLine(e: AnyRunEvent): string {
         .map((g) => {
           const r = g as Record<string, unknown>;
           const message = String(r["message"] ?? "");
-          const sentence = message.split(/(?<=[.:])\s/)[0] ?? message;
-          return `       - ${sentence.slice(0, 150)}`;
+          // A sentence that ends in a colon introduces its list; the list is the point.
+          const sentence = message.split(/(?<=\.)\s/)[0] ?? message;
+          return `       - ${sentence.slice(0, 240)}`;
         })
         .join("\n");
       const more = gaps.length > 3 ? `\n       … and ${gaps.length - 3} more` : "";
@@ -959,8 +985,8 @@ export function pickTracker(
         ? "jira"
         : "ado"
       : !parseWorkItemRef(request) && jiraRef
-        ? "jira"
-        : "ado");
+      ? "jira"
+      : "ado");
   if (tracker === "jira" && !env.jira)
     return {
       error:
@@ -1007,13 +1033,17 @@ export async function checkRules(args: string[], io: CliIo): Promise<number> {
     if (r.changed.length === 0) io.out("  every decision is the same today\n");
     for (const c of r.changed)
       io.out(
-        `  #${c.eventId} ${c.toolName}: then ${c.then}, today ${c.now}${c.reason ? ` — ${c.reason}` : ""}\n`,
+        `  #${c.eventId} ${c.toolName}: then ${c.then}, today ${c.now}${
+          c.reason ? ` — ${c.reason}` : ""
+        }\n`,
       );
     if (r.probe) {
       io.out(`  end point: route A2, still missing ${r.probe.missing.join(", ")}\n`);
       for (const t of r.probe.tried)
         io.out(
-          `    ${t.refused ? "REFUSED" : "allowed"}  ${t.action}${t.refused ? ` — ${t.refused}` : ""}\n`,
+          `    ${t.refused ? "REFUSED" : "allowed"}  ${t.action}${
+            t.refused ? ` — ${t.refused}` : ""
+          }\n`,
         );
       if (r.probe.deadlock) {
         deadlocks++;

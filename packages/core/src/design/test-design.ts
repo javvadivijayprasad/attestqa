@@ -309,7 +309,9 @@ export function validateDesign(
       problems.push(`${at}: type "${it.type}" is not one of ${TEST_TYPES.join(", ")}`);
     else if (!inScope.includes(it.type))
       problems.push(
-        `${at}: type "${it.type}" is not in scope for this project (in scope: ${inScope.join(", ")})`,
+        `${at}: type "${it.type}" is not in scope for this project (in scope: ${inScope.join(
+          ", ",
+        )})`,
       );
     if (!(DESIGN_TECHNIQUES as readonly string[]).includes(it.technique))
       problems.push(
@@ -347,7 +349,9 @@ export function validateDesign(
     const hedge = alternativeInExpectation(it.expected);
     if (hedge)
       problems.push(
-        `${at}: the expected result offers an alternative (${hedge}) — "${it.expected.replace(/\s+/g, " ").slice(0, 90)}". ` +
+        `${at}: the expected result offers an alternative (${hedge}) — "${it.expected
+          .replace(/\s+/g, " ")
+          .slice(0, 90)}". ` +
           "One item, one expectation: pick the one that must hold, or split this into two items. " +
           "A reviewer cannot approve a choice that is made after the approval.",
       );
@@ -359,7 +363,9 @@ export function validateDesign(
     if (label) {
       if (!storyAcs.has(label) && !storyAcs.has(baseLabel(label)))
         problems.push(
-          `${at}: covers ${label}, which is not one of the story's criteria (${[...storyAcs].join(", ")})`,
+          `${at}: covers ${label}, which is not one of the story's criteria (${[...storyAcs].join(
+            ", ",
+          )})`,
         );
     } else if (bug !== undefined) {
       const b = bugs.get(bug);
@@ -383,10 +389,9 @@ export function validateDesign(
     } else if (task !== undefined) {
       if (!facts.tasks.includes(task))
         problems.push(`${at}: covers task #${task}, which is not one of the story's tasks`);
-    } else if (!(
-      it.covers.toLowerCase() === "story" &&
-      (it.type === "accessibility" || noCriteria)
-    )) {
+    } else if (
+      !(it.covers.toLowerCase() === "story" && (it.type === "accessibility" || noCriteria))
+    ) {
       problems.push(
         `${at}: covers "${it.covers}" — name a criterion (AC-2), a bug (bug #48) or a task (task #46)`,
       );
@@ -876,12 +881,29 @@ export function shapeProblems(item: DesignItem, body: string): string[] {
   // never happened, the fallback loaded a route Juice Shop does not have — and
   // the test went on to report "the session token was not cleared". A test
   // that recovers from its own broken step does not fail; it invents a result.
-  if (/\bcatch\s*(\([^)]*\))?\s*\{/.test(body) || /\.catch\s*\(/.test(body))
+  //
+  // 20261012T153713Z: told only "remove the try/catch", the agent read the
+  // file, decided the green suite was enough and ended the run. Quoting the
+  // line and the edit leaves nothing to weigh: the fix is one replace.
+  if (/\bcatch\s*(\([^)]*\))?\s*\{/.test(body) || /\.catch\s*\(/.test(body)) {
+    const lines = body
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => /\bcatch\s*(\([^)]*\))?\s*\{/.test(l) || /\.catch\s*\(/.test(l));
+    const where =
+      lines.length > 0
+        ? ` — the line${lines.length > 1 ? "s" : ""} ${lines.map((l) => `\`${l}\``).join(", ")}`
+        : "";
     out.push(
-      "the test catches its own failure and carries on. Remove the try/catch and the fallback: " +
+      `the test catches its own failure and carries on${where}. Remove the try/catch and the fallback ` +
+        "(fs.replace_in_file: drop `.catch(...)` from that line — include the line above it in `old` " +
+        "if the same text appears elsewhere in the file, such as a hook): " +
         "if the control cannot be reached the test must fail THERE, saying so — a step that " +
-        "recovers silently turns a locator problem into a false report about the product",
+        "recovers silently turns a locator problem into a false report about the product. " +
+        "A green suite does not settle this, and it is not a reason the design cannot be followed: " +
+        "the gap stays open until the line is gone",
     );
+  }
   if (item.type === "accessibility") {
     if (!/\.include\s*\(/.test(body))
       out.push(

@@ -48,10 +48,7 @@ export interface LedgerView {
 export class SummaryTools implements ToolClient {
   readonly server = "aqa";
 
-  constructor(
-    private readonly ledger: LedgerView,
-    private readonly opts: SummaryOptions = {},
-  ) {}
+  constructor(private readonly ledger: LedgerView, private readonly opts: SummaryOptions = {}) {}
 
   async listTools(): Promise<ToolDescriptor[]> {
     return [
@@ -349,7 +346,9 @@ function render(r: Rendered): string {
       lines.push(
         `**Nothing in this run measured the product.** Triage classified it \`${r.runLevel.level}\`: ` +
           "the environment failed before the tests reached the application — " +
-          `\`${escapePipes(r.runLevel.evidence)}\`. The ${n("passed")} pass(es) and ${n("failed")} ` +
+          `\`${escapePipes(r.runLevel.evidence)}\`. The ${n("passed")} pass(es) and ${n(
+            "failed",
+          )} ` +
           "failure(s) below record the attempt, not a result about the product. Fix the " +
           "environment and run again; no verdict, bug or closed bug should be read from this.",
       );
@@ -361,7 +360,7 @@ function render(r: Rendered): string {
     // story had a defect — the body of the report then said the opposite, two
     // paragraphs down (20260925T184615Z). What another story's tests did is
     // context, and is reported as context.
-    const others = writtenOff ? [] : (r.otherStoryFailures ?? []);
+    const others = writtenOff ? [] : r.otherStoryFailures ?? [];
     if (!writtenOff) {
       const failedHere = Math.max(0, n("failed") - others.length);
       const verdict = failedHere === 0 && n("skipped") === 0 ? "green" : "NOT green";
@@ -417,7 +416,7 @@ function render(r: Rendered): string {
     // reading this story most needs to act on, and the thing a failure count
     // would have hidden.
     // A pass in a run that measured nothing is not "did not reproduce".
-    const known = writtenOff ? [] : (r.knownBugsNotReproduced ?? []);
+    const known = writtenOff ? [] : r.knownBugsNotReproduced ?? [];
     if (known.length > 0) {
       lines.push("");
       lines.push("**Known bugs that did NOT reproduce:**");
@@ -471,7 +470,9 @@ function render(r: Rendered): string {
     if (r.created.length > 0) parts.push(`created this run: ${r.created.join(", ")}`);
     if (r.preexisting.length > 0) parts.push(`already present: ${r.preexisting.join(", ")}`);
     lines.push(
-      `**Test cases linked${target}: ${r.created.length + r.preexisting.length}** (${parts.join("; ")}).`,
+      `**Test cases linked${target}: ${r.created.length + r.preexisting.length}** (${parts.join(
+        "; ",
+      )}).`,
     );
   }
 
@@ -491,7 +492,9 @@ function render(r: Rendered): string {
     lines.push("**Bugs:**");
     for (const b of filed)
       lines.push(
-        `- filed${b.id === undefined ? "" : typeof b.id === "number" ? ` #${b.id}` : ` ${b.id}`}: ${b.title}`,
+        `- filed${b.id === undefined ? "" : typeof b.id === "number" ? ` #${b.id}` : ` ${b.id}`}: ${
+          b.title
+        }`,
       );
     // A defect that reproduced and is already on record. This is the strongest
     // sentence the report can say about a failing test — not "something is
@@ -543,6 +546,7 @@ const MARK: Record<string, string> = {
   skipped: "skipped",
   flaky: "flaky",
   "unexpected-pass": "pass — **expected to fail**",
+  "expected-failure": "fails as expected — known bug reproduced",
 };
 
 function seconds(ms: unknown): string {

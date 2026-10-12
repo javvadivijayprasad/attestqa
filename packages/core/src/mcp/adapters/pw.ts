@@ -64,7 +64,20 @@ export interface TestRunSummary {
   exitCode: number;
 }
 
-export type TestStatus = "passed" | "failed" | "skipped" | "flaky" | "unexpected-pass";
+export type TestStatus =
+  | "passed"
+  | "failed"
+  | "skipped"
+  | "flaky"
+  | "unexpected-pass"
+  /**
+   * A `test.fail` test that failed, as its known bug says it should. Playwright
+   * counts it as passed, and so did this row until 20261012T161004Z: the agent
+   * read "passed" on the SCRUM-12 test and told the reviewer the bug's test had
+   * passed unexpectedly — the opposite of what happened. The count still says
+   * passed; the row says what it means.
+   */
+  | "expected-failure";
 
 /**
  * Per-test rows kept in the ledger. High enough for a story's suite, low
@@ -413,6 +426,7 @@ function statusOf(spec: {
   if (isUnexpectedPass(spec)) return "unexpected-pass";
   const status = spec.tests?.[0]?.status;
   if (status === "skipped") return "skipped";
+  if (spec.tests?.[0]?.expectedStatus === "failed" && spec.ok !== false) return "expected-failure";
   if (status === "flaky") return "flaky";
   if (spec.ok === false || status === "unexpected") return "failed";
   return "passed";

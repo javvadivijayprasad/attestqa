@@ -4,7 +4,7 @@ import { applyRepetition } from "../src/triage/step.js";
 import { coverageOf, type TestDesign } from "../src/design/test-design.js";
 import { liveLine } from "../src/cli.js";
 import { askedFor, rankCandidates } from "../src/heal/locator.js";
-import { testsByTitle, validateDesign } from "../src/design/test-design.js";
+import { shapeProblems, testsByTitle, validateDesign } from "../src/design/test-design.js";
 import { isKnownBroken } from "../src/design/ids.js";
 import {
   appendOnlyAfterReroute,
@@ -479,5 +479,20 @@ describe("a wait or an assertion may not catch its own failure", () => {
         [],
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("the verifier names the line that swallows a failure", () => {
+  it("quotes the .catch line so the fix is one edit (20261012T153713Z)", () => {
+    const body = [
+      "await page.waitForFunction(",
+      '  () => window.localStorage.getItem("token") !== null,',
+      "  { timeout: 5000 }",
+      ").catch(() => {});",
+    ].join("\n");
+    const item = { id: "D3", covers: "AC-1", type: "functional", technique: "state-transition" };
+    const [first] = shapeProblems(item as never, body);
+    expect(first).toContain("`).catch(() => {});`");
+    expect(first).toMatch(/A green suite does not settle this/);
   });
 });

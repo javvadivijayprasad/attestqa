@@ -626,6 +626,36 @@ describe("summarise: a known bug that did not reproduce", () => {
   });
 });
 
+describe("summarise: a known bug that did reproduce", () => {
+  it("marks an expected-to-fail test that failed as expected-failure, not passed (20261012T161004Z)", () => {
+    const report = JSON.stringify({
+      stats: { expected: 5, unexpected: 0, skipped: 0, flaky: 0 },
+      suites: [
+        {
+          file: "tests/epic-scrum-5-customer-account-access.spec.ts",
+          specs: [
+            {
+              title: "Bug SCRUM-12: Session token is still accepted by the server after logout",
+              ok: true,
+              tests: [
+                {
+                  expectedStatus: "failed",
+                  status: "expected",
+                  results: [{ status: "failed", duration: 9000 }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const out = summarise(report, 0)!;
+    expect(out.green).toBe(true);
+    expect(out.unexpectedPasses ?? []).toEqual([]);
+    expect(out.tests[0]?.status).toBe("expected-failure");
+  });
+});
+
 describe("a failure hands back the page it failed on", () => {
   const stdout = (stats: Record<string, number>, suites: unknown[]) =>
     JSON.stringify({ stats, suites });

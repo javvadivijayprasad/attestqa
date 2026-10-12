@@ -134,7 +134,7 @@ test.describe("Customer account access", () => {
       await page.waitForFunction(
         () => window.localStorage.getItem("token") !== null,
         { timeout: 5000 }
-      ).catch(() => {});
+      );
       const token = await page.evaluate(() => window.localStorage.getItem("token"));
       expect(token, "Precondition: token must be present in localStorage after login").not.toBeNull();
     });
