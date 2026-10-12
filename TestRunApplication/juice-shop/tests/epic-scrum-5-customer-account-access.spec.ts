@@ -235,4 +235,214 @@ test.describe("Customer account access", () => {
       ).toBe(401);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // SCRUM-6: Customer signs in with email and password
+  // ---------------------------------------------------------------------------
+
+  // @story:SCRUM-6
+  // @ac:1
+  // @design:D6
+  // @type:functional
+  // @technique:state-transition
+  test("AC-1: A registered customer with correct credentials is signed in and taken to the product list", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter the registered user email", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "");
+    });
+
+    await test.step("And I find the Password field and enter the correct password", async () => {
+      await page.locator("input[type='password']").fill(process.env["AQA_APP_PASS"] ?? "");
+    });
+
+    await test.step("And I click Log in", async () => {
+      await page.getByRole("button", { name: "Login" }).click();
+    });
+
+    await test.step("Precondition: verify authentication succeeded (login response was 200)", async () => {
+      // Wait for navigation away from login page — proves the login was accepted
+      await expect(page).not.toHaveURL(new RegExp("/#/login"), { timeout: 10000 });
+    });
+
+    await test.step("Then the URL contains '/#/'", async () => {
+      await expect(page).toHaveURL(new RegExp("/#/"));
+    });
+
+    await test.step("And the account menu is displayed", async () => {
+      await expect(page.getByRole("button", { name: "Show/hide account menu" })).toBeVisible({ timeout: 10000 });
+    });
+  });
+
+  // @story:SCRUM-6
+  // @ac:2
+  // @design:D7
+  // @type:functional
+  // @technique:equivalence-partitioning
+  test("AC-2: A wrong password shows an error message and the customer stays on the login page", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter the registered user email", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "");
+    });
+
+    await test.step("And I find the Password field and enter a wrong password", async () => {
+      await page.locator("input[type='password']").fill("wrongpassword123");
+    });
+
+    await test.step("And I click Log in", async () => {
+      await page.getByRole("button", { name: "Login" }).click();
+    });
+
+    await test.step("Then the page displays 'Invalid email or password.'", async () => {
+      await expect(page.getByText("Invalid email or password.")).toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step("And the URL still contains '/#/login'", async () => {
+      await expect(page).toHaveURL(new RegExp("/#/login"));
+    });
+  });
+
+  // @story:SCRUM-6
+  // @ac:3
+  // @design:D8
+  // @type:functional
+  // @technique:boundary-value-analysis
+  test("AC-3a: Log in button is disabled when only the email field is filled", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter a value", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "test@example.com");
+    });
+
+    await test.step("And the Password field is left empty (not touched)", async () => {
+      // Password field is not filled — remains at default empty state
+      const passwordValue = await page.locator("input[type='password']").inputValue();
+      expect(passwordValue, "Precondition: password field must be empty").toBe("");
+    });
+
+    await test.step("Then the Log in button is disabled", async () => {
+      await expect(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+    });
+  });
+
+  // @story:SCRUM-6
+  // @ac:3
+  // @design:D9
+  // @type:functional
+  // @technique:boundary-value-analysis
+  test("AC-3b: Log in button is disabled when only the password field is filled", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When the Email field is left empty (not touched)", async () => {
+      // Email field is not filled — remains at default empty state
+      const emailValue = await page.getByLabel("Email").inputValue();
+      expect(emailValue, "Precondition: email field must be empty").toBe("");
+    });
+
+    await test.step("And I find the Password field and enter a value", async () => {
+      await page.locator("input[type='password']").fill("somepassword");
+    });
+
+    await test.step("Then the Log in button is disabled", async () => {
+      await expect(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+    });
+  });
+
+  // @story:SCRUM-6
+  // @ac:3
+  // @design:D10
+  // @type:functional
+  // @technique:boundary-value-analysis
+  test("AC-3c: Log in button is disabled when both fields are empty", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When both the Email and Password fields are empty (not touched)", async () => {
+      const emailValue = await page.getByLabel("Email").inputValue();
+      const passwordValue = await page.locator("input[type='password']").inputValue();
+      expect(emailValue, "Precondition: email field must be empty").toBe("");
+      expect(passwordValue, "Precondition: password field must be empty").toBe("");
+    });
+
+    await test.step("Then the Log in button is disabled", async () => {
+      await expect(page.getByRole("button", { name: "Log in" })).toBeDisabled();
+    });
+  });
+
+  // @story:SCRUM-6
+  // @ac:3
+  // @design:D11
+  // @type:functional
+  // @technique:boundary-value-analysis
+  test("AC-3d: Log in button is enabled when both email and password are filled", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter a value", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "test@example.com");
+    });
+
+    await test.step("And I find the Password field and enter a value", async () => {
+      await page.locator("input[type='password']").fill("somepassword");
+    });
+
+    await test.step("Then the Log in button is enabled", async () => {
+      await expect(page.getByRole("button", { name: "Log in" })).toBeEnabled();
+    });
+  });
+
+  // @story:SCRUM-6
+  // @ac:2
+  // @design:D12
+  // @type:security
+  // @technique:state-transition
+  test("AC-2 (security): Wrong credentials show the same message regardless of which field is wrong", async ({ page }) => {
+    await test.step("Precondition: verify login page is ready", async () => {
+      await expect(page.getByLabel("Email")).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter the registered user email", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "");
+    });
+
+    await test.step("And I find the Password field and enter a wrong password", async () => {
+      await page.locator("input[type='password']").fill("wrongpassword123");
+    });
+
+    await test.step("And I click Log in", async () => {
+      await page.getByRole("button", { name: "Log in" }).click();
+    });
+
+    await test.step("Then the page displays the generic 'Invalid email or password.' message (no enumeration of which field is wrong)", async () => {
+      await expect(page.getByText("Invalid email or password.")).toBeVisible({ timeout: 10000 });
+    });
+  });
+
+  // @story:SCRUM-6
+  // @design:D13
+  // @type:accessibility
+  // @technique:checklist-based
+  test("AC-story: Login page passes axe-core WCAG A/AA scan", async ({ page }) => {
+    await test.step("Then the login form has no axe violations", async () => {
+      const results = await new AxeBuilder({ page })
+        .include("mat-card, form")
+        .withTags(["wcag2a", "wcag2aa"])
+        .analyze();
+      expect(
+        results.violations.map((v) => v.id).sort(),
+        "axe-core WCAG A/AA violations on the login page"
+      ).toEqual([]);
+    });
+  });
 });

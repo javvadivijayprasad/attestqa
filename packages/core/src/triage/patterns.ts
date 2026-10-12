@@ -256,6 +256,12 @@ export const PW_FLAKE_PATTERNS: readonly TriagePattern[] = [
   py(String.raw`(?i)\bTimeout\s+\d+\s*ms\s+exceeded\b`),
   py(String.raw`(?i)\bTest timeout of \d+\s*ms exceeded\b`),
   py(String.raw`(?i)\bwaiting for (locator|selector|expect)\b`),
+  // Playwright's locator builders: "waiting for getByRole('button', …)". Without
+  // these, an assertion whose locator matched nothing (toBeDisabled → "element(s)
+  // not found") had no signature and was held as a possible defect at 0.1
+  // (20261012T205658Z, four of them, all one mis-named button).
+  py(String.raw`(?i)\bwaiting for getBy[A-Za-z]+\(`),
+  py(String.raw`(?i)\belement\(s\) not found\b`),
   py(String.raw`(?i)\belement is not (visible|stable|enabled|attached)\b`),
   py(String.raw`(?i)\blocator resolved to \d+ elements\b`),
   py(String.raw`(?i)\btarget (page|frame|context) (closed|crashed)\b`),

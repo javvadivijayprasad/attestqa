@@ -1602,7 +1602,11 @@ function asWrite(
   if (!path || typeof before !== "string" || typeof after !== "string") return call;
   const text = lastKnownContent(path, events, workspaceDir);
   if (text === undefined) return call;
-  if (text.split(before).length - 1 !== 1) return call;
+  const hits = text.split(before).length - 1;
+  // `all: true` changes every occurrence, and is judged as the write it amounts to.
+  if (call.args["all"] === true && hits > 0)
+    return { toolName: "fs.write_file", args: { path, content: text.split(before).join(after) } };
+  if (hits !== 1) return call;
   return { toolName: "fs.write_file", args: { path, content: text.replace(before, after) } };
 }
 

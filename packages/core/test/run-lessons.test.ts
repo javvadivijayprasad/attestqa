@@ -7,6 +7,11 @@ import { askedFor, rankCandidates } from "../src/heal/locator.js";
 import { shapeProblems, testsByTitle, validateDesign } from "../src/design/test-design.js";
 import { isKnownBroken } from "../src/design/ids.js";
 import { testsPreExisted } from "../src/route/route.js";
+import { FsTools, nearest } from "../src/mcp/adapters/fs.js";
+import { sameSelectorFailures } from "../src/mcp/adapters/heal.js";
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   appendOnlyAfterReroute,
   appendOnlySpec,
@@ -646,5 +651,81 @@ describe("a new story in a spec other stories already fill (20261012T192216Z)", 
     expect(appendOnlySpec(write(OLD.replace("    expect(1).toBe(1);\n", "")), events)).toMatch(
       /lose an assertion/,
     );
+  });
+});
+
+describe("one broken selector, five tests (20261012T205658Z)", () => {
+  const NOT_FOUND = [
+    "Error: expect(locator).toBeDisabled() failed",
+    "Locator: getByRole('button', { name: 'Log in' })",
+    "Error: element(s) not found",
+    "Call log:",
+    "  - waiting for getByRole('button', { name: 'Log in' })",
+  ].join("\n");
+
+  it("triages an assertion whose locator matched nothing as a test problem, not a defect", () => {
+    const v = classifyFailure({ testId: "AC-3a", message: NOT_FOUND });
+    expect(v.category).toBe("flake");
+  });
+
+  it("names every test the last run lost to the same selector", () => {
+    const events = [
+      {
+        eventId: 1,
+        kind: "call",
+        payload: { server: "pw", toolName: "run_tests", args: {}, startedAt: 0 },
+      },
+      {
+        eventId: 2,
+        kind: "observation",
+        payload: {
+          eventIdOfCall: 1,
+          ok: true,
+          result: {
+            failures: [
+              { title: "AC-3a", message: NOT_FOUND },
+              { title: "AC-3b", message: NOT_FOUND },
+              { title: "AC-2", message: "expect(received).toBe(expected)" },
+            ],
+          },
+          artefacts: [],
+          durationMs: 1,
+        },
+      },
+    ] as unknown as AnyRunEvent[];
+    expect(
+      sameSelectorFailures(events, "getByRole('button', { name: 'Log in' })", "AC-3a"),
+    ).toEqual(["AC-3b"]);
+  });
+
+  it("replaces every occurrence in one call with all: true", async () => {
+    const ws = mkdtempSync(join(tmpdir(), "aqa-fs-"));
+    mkdirSync(join(ws, "tests"));
+    const spec =
+      'a(getByRole("button", { name: "Log in" }));\nb(getByRole("button", { name: "Log in" }));\n';
+    writeFileSync(join(ws, "tests", "x.spec.ts"), spec);
+    const fs = new FsTools(ws);
+    const one = await fs.call("fs", "replace_in_file", {
+      path: "tests/x.spec.ts",
+      old: 'name: "Log in" }',
+      new: 'name: "Login" }',
+    });
+    expect(one.ok).toBe(false);
+    const all = await fs.call("fs", "replace_in_file", {
+      path: "tests/x.spec.ts",
+      old: 'name: "Log in" }',
+      new: 'name: "Login" }',
+      all: true,
+    });
+    expect(all.ok).toBe(true);
+    expect((all.result as Record<string, unknown>)["replaced"]).toBe(2);
+    expect(readFileSync(join(ws, "tests", "x.spec.ts"), "utf8")).not.toContain("Log in");
+  });
+
+  it("points a missed edit at the closest real line, and at escaped quotes", () => {
+    const text = '    await test.step("And I click Log in", async () => {\n      x();\n';
+    const hint = nearest(text, '    await test.step(\\"And I click Log in\\", async () => {');
+    expect(hint).toMatch(/escapes quotes/);
+    expect(hint).toMatch(/closest line is 1/);
   });
 });

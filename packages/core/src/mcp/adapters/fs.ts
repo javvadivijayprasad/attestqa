@@ -70,13 +70,19 @@ export class FsTools implements ToolClient {
           "occurs exactly once. Use this for a surgical edit — a locator, a single line — rather " +
           "than rewriting the whole file, which loses whatever was not reproduced. Include enough " +
           "surrounding text in `old` to make it unique; the call is refused if it matches twice or " +
-          "not at all, and nothing is written.",
+          "not at all, and nothing is written. To change the SAME text everywhere it appears (one " +
+          "selector used by several tests), pass `all: true` with `old` as short as the change " +
+          'itself — e.g. old `name: "Log in" }` → new `name: "Login" }`.',
         inputSchema: {
           type: "object",
           properties: {
             path,
             old: { type: "string", description: "The exact text to replace. Must occur once." },
             new: { type: "string", description: "What to put in its place." },
+            all: {
+              type: "boolean",
+              description: "Replace every occurrence instead of requiring exactly one.",
+            },
           },
           required: ["path", "old", "new"],
         },
@@ -187,23 +193,27 @@ export class FsTools implements ToolClient {
         if (!existsSync(abs) || !statSync(abs).isFile()) return fail(`no such file: ${rel}`);
         const text = readFileSync(abs, "utf8");
         const hits = text.split(before).length - 1;
+        const every = args["all"] === true;
         if (hits === 0)
           return fail(
-            `"old" does not appear in ${rel}. Read the file and copy the text exactly as it is — ` +
-              "including indentation and quotes.",
+            `"old" does not appear in ${rel}. Copy the text exactly as it is — including ` +
+              "indentation and quotes, and with no backslashes the file does not have. " +
+              nearest(text, before) +
+              "A shorter `old` (the changed line alone, or just the changed words with `all: true`) " +
+              "is easier to get right than a block.",
           );
-        if (hits > 1)
+        if (hits > 1 && !every)
           return fail(
             `"old" appears ${hits} times in ${rel}, so this edit is ambiguous and nothing was ` +
               "written. Include the surrounding lines to make it unique.",
           );
-        const next = text.replace(before, after);
+        const next = every ? text.split(before).join(after) : text.replace(before, after);
         writeFileSync(abs, next, "utf8");
         return {
           ok: true,
           result: {
             path: rel,
-            replaced: 1,
+            replaced: every ? hits : 1,
             bytes: Buffer.byteLength(next, "utf8"),
             // So a later rule, and a reader, can see what changed without a diff.
             was: head(before, 200),
@@ -311,4 +321,40 @@ function intArg(v: unknown): number | undefined {
   if (typeof v === "number" && Number.isInteger(v)) return v;
   if (typeof v === "string" && /^\d+$/.test(v.trim())) return Number(v.trim());
   return undefined;
+}
+
+/**
+ * Where the first line of a failed `old` most nearly appears, so the next try
+ * copies the file instead of the model's memory of it. 20261012T205658Z: seven
+ * edits in a row missed — paraphrased step titles, `\\"` where the file has `"`
+ * — and the agent re-read the same lines until the run stopped.
+ */
+export function nearest(text: string, old: string): string {
+  const first =
+    old
+      .split("\n")
+      .find((l) => l.trim().length > 0)
+      ?.trim() ?? "";
+  if (!first) return "";
+  const lines = text.split("\n");
+  const unescaped = first.replace(/\\(["'`])/g, "$1");
+  const words = new Set(
+    unescaped
+      .toLowerCase()
+      .split(/\W+/)
+      .filter((w) => w.length > 2),
+  );
+  let best = -1;
+  let score = 0;
+  lines.forEach((l, i) => {
+    const mine = l.toLowerCase().split(/\W+/);
+    const n = mine.filter((w) => words.has(w)).length;
+    if (n > score) {
+      score = n;
+      best = i;
+    }
+  });
+  if (best < 0 || score < 2) return "";
+  const hint = unescaped !== first ? "Your `old` escapes quotes the file does not escape. " : "";
+  return `${hint}The closest line is ${best + 1}: ${JSON.stringify(lines[best]?.trim() ?? "")}. `;
 }

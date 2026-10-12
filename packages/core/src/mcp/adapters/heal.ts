@@ -169,6 +169,11 @@ export class HealTools implements ToolClient {
     // the comparison is evidence to collect, not yet a reason to change which
     // ranker decides.
     const second = await secondOpinion(failedSelector, candidates, best);
+    // Other tests the LAST suite run lost to the very same selector. 20261012T205658Z:
+    // five SCRUM-6 tests waited on getByRole('button', { name: 'Log in' }); the
+    // healer fixed the one it was handed and spent the rest of the run re-reading
+    // the spec. One broken selector is one repair, wherever it is used.
+    const alsoFailing = sameSelectorFailures(this.ledger.read(), failedSelector, hit.title);
     return {
       ok: true,
       result: {
@@ -176,6 +181,7 @@ export class HealTools implements ToolClient {
         failedSelector: failedSelector || "(not named in the error message)",
         candidates,
         ...(second ? { secondOpinion: second } : {}),
+        ...(alsoFailing.length > 0 ? { alsoFailing } : {}),
         verdict: matched
           ? `The control this test was looking for IS on the page, as ${best?.role}` +
             (best?.name ? ` "${best.name}"` : "") +
@@ -184,9 +190,18 @@ export class HealTools implements ToolClient {
             "absent — say so in the bug, quoting what WAS on the page, and do not change the selector " +
             "to something that merely exists.",
         next:
-          "Change the locator in the spec to one of these expressions — that line only, no new " +
-          "assertions, no try/catch, nothing deleted. Then rerun this test alone " +
-          "(pw.run_tests with grep set to its title), and if it passes, run the full suite.",
+          (alsoFailing.length > 0
+            ? `The same selector also broke ${alsoFailing.length} other test(s) in the last run ` +
+              `(${alsoFailing
+                .map((t) => `"${t}"`)
+                .join(", ")}). Change it everywhere in ONE call: ` +
+              "fs.replace_in_file with `all: true`, `old` = just the part of the selector that is " +
+              'wrong as the spec writes it (e.g. `name: "Log in" }`), `new` = the same with the ' +
+              "candidate's name. Then run the full suite. "
+            : "Change the locator in the spec to one of these expressions — that line only, no new " +
+              "assertions, no try/catch, nothing deleted. Then rerun this test alone " +
+              "(pw.run_tests with grep set to its title), and if it passes, run the full suite. ") +
+          "Do not re-read the spec to look for it: the failing line is in the error above.",
       },
       artefacts: [],
     };
@@ -207,6 +222,23 @@ interface LedgerFailure {
  * Deliberately NOT restricted to the last FULL run: healing works one test at
  * a time, and the filtered rerun is where the fresh snapshot lives.
  */
+/** Titles the latest suite run lost to the same selector as `title`. */
+export function sameSelectorFailures(
+  events: Parameters<typeof completedCalls>[0],
+  failedSelector: string,
+  title: string,
+): string[] {
+  if (!failedSelector) return [];
+  const last = successful(completedCalls(events), "pw.run_tests").pop();
+  const norm = (s: string) => s.replace(/["'`]/g, "'").replace(/\s+/g, " ").trim();
+  const want = norm(failedSelector);
+  return asArray(asRecord(last?.result)?.["failures"])
+    .map((raw) => asRecord(raw))
+    .filter((f) => typeof f?.["title"] === "string" && f["title"] !== title)
+    .filter((f) => norm(selectorFromMessage(String(f?.["message"] ?? "")) ?? "") === want)
+    .map((f) => String(f?.["title"]));
+}
+
 export function failuresFromLedger(events: Parameters<typeof completedCalls>[0]): LedgerFailure[] {
   const byTitle = new Map<string, LedgerFailure>();
   for (const call of successful(completedCalls(events), "pw.run_tests")) {
