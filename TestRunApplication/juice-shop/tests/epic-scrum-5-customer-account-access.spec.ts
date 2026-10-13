@@ -398,7 +398,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("Then the Log in button is enabled", async () => {
-      await expect(page.getByRole("button", { name: "Log in" })).toBeEnabled();
+      await expect(page.getByRole("button", { name: "Login" })).toBeEnabled();
     });
   });
 
