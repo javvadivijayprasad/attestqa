@@ -497,7 +497,10 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("And I select a security question", async () => {
-      await page.getByRole("combobox", { name: "Selection list for the security question" }).click();
+      const securityQ = page.locator("mat-select[name='securityQuestion']");
+      await securityQ.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(500);
+      await page.locator("#mat-select-0 .mat-mdc-select-trigger").click({ force: true });
       await page.locator("mat-option").first().click();
     });
 
@@ -572,7 +575,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("And I select a security question", async () => {
-      await page.locator("mat-select").click();
+      await page.locator("#mat-select-0 .mat-mdc-select-trigger").click({ force: true });
       await page.locator("mat-option").first().click();
     });
 
@@ -612,7 +615,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("And I select a security question", async () => {
-      await page.locator("mat-select").click();
+      await page.locator("#mat-select-0 .mat-mdc-select-trigger").click({ force: true });
       await page.locator("mat-option").first().click();
     });
 
@@ -685,7 +688,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("And I select a security question", async () => {
-      await page.locator("mat-select").click();
+      await page.locator("#mat-select-0 .mat-mdc-select-trigger").click({ force: true });
       await page.locator("mat-option").first().click();
     });
 

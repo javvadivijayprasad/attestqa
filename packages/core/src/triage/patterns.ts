@@ -245,6 +245,12 @@ export const TEST_CODE_ERROR: readonly TriagePattern[] = [
   py(String.raw`(?i)\bwhile parsing css selector\b`),
   py(String.raw`(?i)\bis not a valid selector\b`),
   py(String.raw`(?i)\bUnexpected token\b.{0,40}\bselector\b`),
+  // An ambiguous locator: the test names several elements where it meant one.
+  // It fails identically every time until the test says which one, so it is
+  // the test's fault — not a flake, and never a defect by repetition
+  // (20261013T145349Z: getByText('password') matched the label, the hint and
+  // two more, and was quarantined as a "possible defect").
+  py(String.raw`(?i)\bstrict mode violation\b`),
 ];
 
 /** Rationale prefixes the repetition rule and the live line recognise. */

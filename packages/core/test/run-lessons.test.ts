@@ -898,3 +898,19 @@ describe("an installed Chrome's launch log does not hide the stuck locator (2026
     expect(out.length).toBeLessThan(200);
   });
 });
+
+describe("an ambiguous locator is the test's fault (20261013T145349Z)", () => {
+  const STRICT = [
+    "Error: expect(locator).not.toBeVisible() failed",
+    "Locator: getByText('password')",
+    "Error: strict mode violation: getByText('password') resolved to 4 elements:",
+  ].join("\n");
+
+  it("is classified as test code, and stays so when it repeats", () => {
+    const v = classifyFailure({ testId: "D19", message: STRICT });
+    expect(v.category).toBe("flake");
+    expect(v.rationale).toMatch(/^The test's own code is invalid \(an ambiguous locator/);
+    const [again] = applyRepetition([v], [{ verdicts: [v] } as unknown as TriagePayload]);
+    expect(again?.category).toBe("flake");
+  });
+});

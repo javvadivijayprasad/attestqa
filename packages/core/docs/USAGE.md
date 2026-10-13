@@ -163,12 +163,13 @@ differences are listed below.
 attestqa never edits a story's fields, in either tracker.
 
 **The Jira QA sub-task.** Jira has no test-case item, so attestqa keeps one sub-task per story,
-named `QA (attestqa): tests for SHOP-12 — …`. Its **description** holds the current test cases (ID,
-criterion, type, conditions, expected result, the automated test, and what was excluded and why);
-each run adds a **comment** with every case's result. It is created as soon as you approve a test design — **approving the design also posts its test
-cases there** — and each run's results are added as a comment at the end. Its description changes
-only when the test cases do (a changed design, or a test written for a case). It is the only issue
-whose field attestqa ever edits, and it never changes its status — moving it to Done is yours. If your project has no sub-task type, the same record goes onto the
+named `QA (attestqa): tests for SHOP-12 — …`. Its **description** holds the current test cases in
+BDD form: a summary table, then each case as the Gherkin scenario its test is generated from. Each
+run adds a **comment** with every case's result. The sub-task is created as soon as you approve a
+test design — approving the design also posts its test cases there — and is reused after that. Its
+description changes only when the test cases do (a changed design, or a scenario or test written
+for a case). It is the only issue whose field attestqa ever edits, and attestqa never changes its
+status — moving it to Done is yours. If your project has no sub-task type, the same record goes onto the
 story as a comment.
 
 ---

@@ -666,7 +666,11 @@ export function toAdfBlocks(doc: QaBlock[]): Record<string, unknown> {
             content: [{ type: "text", text: b.text }],
           };
         case "code":
-          return { type: "codeBlock", content: b.text ? [{ type: "text", text: b.text }] : [] };
+          return {
+            type: "codeBlock",
+            ...(b.language ? { attrs: { language: b.language } } : {}),
+            content: b.text ? [{ type: "text", text: b.text }] : [],
+          };
         case "table":
           return {
             type: "table",
@@ -694,7 +698,9 @@ export function toWiki(doc: QaBlock[]): string {
         case "heading":
           return `h3. ${b.text}`;
         case "code":
-          return `{code}${b.text}{code}`;
+          // {noformat} keeps Gherkin as written on every Data Center version;
+          // {code} would need a language it may not know.
+          return `{noformat}\n${b.text}\n{noformat}`;
         case "table":
           return [
             `||${b.header.map(esc).join("||")}||`,

@@ -19,7 +19,7 @@ export type QaBlock =
   | { kind: "heading"; text: string }
   | { kind: "paragraph"; text: string }
   | { kind: "table"; header: string[]; rows: string[][] }
-  | { kind: "code"; text: string };
+  | { kind: "code"; text: string; language?: string };
 
 /** Every attestqa QA sub-task starts with this, which is how story context skips it. */
 export const QA_SUMMARY_PREFIX = "QA (attestqa): tests for";
@@ -86,20 +86,48 @@ export function composeQaRecord(
     },
     {
       kind: "table",
-      header: ["ID", "Covers", "Type / technique", "Test case", "Expected", "Automated by"],
+      header: ["ID", "Covers", "Type / technique", "Scenario"],
       rows: design.items.map((it) => {
         const c = scenarioOf.get(it.id);
         return [
           it.id + (it.expectFail ? " (known bug)" : ""),
           it.covers,
           `${it.type} / ${it.technique}`,
-          it.conditions.join("; "),
-          it.expected,
-          c?.test?.title ?? "—",
+          c?.scenario?.title ?? "not written yet",
         ];
       }),
     },
+    { kind: "heading", text: "Test cases" },
   ];
+  // Each case as the Gherkin scenario its test is generated from — the BDD
+  // form a tester reads and a team reviews, not a paraphrase of it. A case
+  // whose scenario is not written yet (the cases are posted the moment the
+  // design is approved) shows what it will check; the description is
+  // refreshed once the scenario exists.
+  for (const it of design.items) {
+    const c = scenarioOf.get(it.id);
+    description.push({
+      kind: "paragraph",
+      text:
+        `${it.id} · covers ${it.covers} · ${it.type} / ${it.technique}` +
+        (it.expectFail ? " · known bug: expected to fail until fixed" : "") +
+        (c?.test ? ` · automated by "${c.test.title}"` : ""),
+    });
+    const gherkin = c?.scenario
+      ? scenarioGherkin(
+          ctx.files.features.find((f) => f.path === c.scenario?.file)?.text ?? "",
+          c.scenario.title,
+        )
+      : undefined;
+    description.push(
+      gherkin
+        ? { kind: "code", language: "gherkin", text: gherkin }
+        : {
+            kind: "paragraph",
+            text: `Scenario not written yet. Given ${it.conditions.join("; ")} — expected: ${it.expected}`,
+          },
+    );
+  }
   if (design.excluded.length > 0)
     description.push(
       { kind: "heading", text: "Not tested, and why" },
@@ -171,4 +199,35 @@ export function composeQaRecord(
     designHash,
     comment,
   };
+}
+
+/**
+ * One scenario as Gherkin, with the feature's Background (if any) in front so
+ * it reads complete on its own: everything from the `Scenario:` line to the
+ * next scenario, tag line or rule. Tag lines are left out — they are for the
+ * runtime, not for the reader.
+ */
+export function scenarioGherkin(feature: string, title: string): string | undefined {
+  const lines = feature.replace(/\r\n/g, "\n").split("\n");
+  const isStart = (l: string) => /^\s*(Scenario( Outline)?|Rule|Feature|Background):/i.test(l);
+  const isTag = (l: string) => l.trim().startsWith("@");
+  const block = (from: number): string[] => {
+    const out = [lines[from]?.trim() ?? ""];
+    for (let i = from + 1; i < lines.length; i++) {
+      const l = lines[i] ?? "";
+      if (isStart(l) || isTag(l)) break;
+      if (l.trim().startsWith("#")) continue;
+      out.push(l.trim() ? `  ${l.trim()}` : "");
+    }
+    while (out.length > 0 && out[out.length - 1] === "") out.pop();
+    return out;
+  };
+  const at = lines.findIndex((l) => {
+    const m = /^\s*Scenario(?: Outline)?:\s*(.*)$/i.exec(l);
+    return m?.[1]?.trim() === title.trim();
+  });
+  if (at < 0) return undefined;
+  const bg = lines.findIndex((l) => /^\s*Background:/i.test(l));
+  const background = bg >= 0 && bg < at ? block(bg) : [];
+  return [...background, ...(background.length > 0 ? [""] : []), ...block(at)].join("\n");
 }

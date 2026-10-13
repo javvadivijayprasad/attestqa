@@ -419,6 +419,7 @@ describe("triage gaps", () => {
       gaps: [],
       limitations: [],
       attempts: 0,
+      latestVerdicts: 0,
       defectCandidates: [],
     });
   });

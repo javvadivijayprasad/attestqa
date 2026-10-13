@@ -246,6 +246,11 @@ describe("composeQaRecord", () => {
     const table = r.description.find((b) => b.kind === "table");
     expect(table && table.kind === "table" && table.rows[0]?.[0]).toBe("D1");
     expect(JSON.stringify(r.comment)).toContain("Passed");
+    // Each case in BDD form: its Gherkin scenario, as the feature file has it.
+    const gherkin = r.description.find((b) => b.kind === "code");
+    expect(gherkin && gherkin.kind === "code" && gherkin.text).toBe(
+      "Scenario: AC-1: signs in\n  Given x",
+    );
     expect(JSON.stringify(r.comment)).toContain("Run r1 — done");
   });
 

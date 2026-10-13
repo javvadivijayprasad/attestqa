@@ -267,9 +267,13 @@ export function classifyFailure(f: FailureSignal): TriageVerdict {
     hits = code.hits;
     matched = code.matched;
     rationaleOverride =
-      `${TEST_CODE_RATIONALE} (an invalid selector), so the product was never exercised. ` +
+      `${TEST_CODE_RATIONALE} (${
+        /strict mode violation/i.test(f.message)
+          ? "an ambiguous locator that matches several elements"
+          : "an invalid selector"
+      }), so the product was never asked the question. ` +
       "This is the test's fault, not a defect and not a flake: it fails the same way every " +
-      "time until the selector is fixed.";
+      "time until the selector says which element it means.";
   } else if (declared.matched.length === 0 && isStaleError(new Error(f.message))) {
     // pw-self-heal's stale class: the page, frame or element the action held
     // was destroyed under it — a navigation, a reload, a re-render. Before

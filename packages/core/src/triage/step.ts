@@ -422,6 +422,8 @@ export function triageGaps(events: AnyRunEvent[]): {
   limitations: string[];
   /** How many triage events this run produced — zero is itself a finding. */
   attempts: number;
+  /** How many failures the LATEST triage gave a verdict on. */
+  latestVerdicts: number;
   /**
    * Tests whose failure triage attributes to the PRODUCT, on real evidence.
    * Not gaps: nothing the agent can do closes them, and a person decides on
@@ -435,7 +437,7 @@ export function triageGaps(events: AnyRunEvent[]): {
   const defectCandidates: string[] = [];
   const history = triageEvents(events);
   const latest = history[history.length - 1];
-  if (!latest) return { gaps, limitations, attempts: 0, defectCandidates };
+  if (!latest) return { gaps, limitations, attempts: 0, latestVerdicts: 0, defectCandidates };
 
   if (latest.runLevel !== null) {
     // Nothing was measured, so there is nothing to report as a defect and
@@ -462,7 +464,13 @@ export function triageGaps(events: AnyRunEvent[]): {
     });
     // Deliberately no defect candidates here, and no quarantine check: both
     // would be drawn from a run that measured nothing.
-    return { gaps, limitations, attempts: history.length, defectCandidates };
+    return {
+      gaps,
+      limitations,
+      attempts: history.length,
+      latestVerdicts: latest.verdicts.length,
+      defectCandidates,
+    };
   }
 
   // A `real-defect` verdict that matched NOTHING is a default, not a finding.
@@ -577,7 +585,13 @@ export function triageGaps(events: AnyRunEvent[]): {
     );
   }
 
-  return { gaps, limitations, attempts: history.length, defectCandidates };
+  return {
+    gaps,
+    limitations,
+    attempts: history.length,
+    latestVerdicts: latest.verdicts.length,
+    defectCandidates,
+  };
 }
 
 /**

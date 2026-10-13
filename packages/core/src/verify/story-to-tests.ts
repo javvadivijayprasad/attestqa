@@ -424,7 +424,11 @@ export class StoryToTestsVerifier implements Verifier {
           // that looks like agreement is the expensive kind. The verifier is
           // the only place that sees BOTH the suite's own count and what triage
           // made of it, so it is the only place that can notice they disagree.
-          if (!skippedOnly(r) && Number(r["failed"] ?? 0) > 0) {
+          // Only when triage really said nothing about this run's failures. A
+          // pending verdict ("may be flaky — re-running") is a classification:
+          // reporting it as "classified none" contradicted the line above it
+          // (20261013T145349Z).
+          if (!skippedOnly(r) && Number(r["failed"] ?? 0) > 0 && triage.latestVerdicts === 0) {
             gaps.push(
               gap(
                 "failures-not-triaged",
