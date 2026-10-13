@@ -52,6 +52,9 @@ agent:
   # bdd2pw sanitises each prompt there and fails closed without it. Remove this line to
   # scaffold rules-only, which is deterministic and leaves unbound steps visible.
   llm_fallback: anthropic
+  # Ask before the first run of the suite in each run (later re-runs after a
+  # repair go ahead): test design, execution, and any bug are three decisions.
+  approve_execution: true
   scope:
     # 1 = the story; 29-34 = closed bugs (defect profile); 42 = its epic;
     # 45-47 = its tasks; 48-50 = the open bugs. Stage-1 context reads are
