@@ -229,6 +229,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     if (verdict.decision === "refuse") {
       history.push({
         toolName: call.toolName,
+        args: call.args,
         ok: false,
         summary: `the runtime tried to run this and the gate refused it: ${verdict.reason}`,
         ledgerRef: `ledger://${ledger.runId}/policy`,
@@ -255,6 +256,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       if (result.decision !== "approved") {
         history.push({
           toolName: call.toolName,
+          args: call.args,
           ok: false,
           summary: `the reviewer declined the run${result.reason ? `: ${result.reason}` : ""}`,
           ledgerRef: `ledger://${ledger.runId}/approval/${approvalId}`,
@@ -297,6 +299,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     );
     history.push({
       toolName: call.toolName,
+      args: call.args,
       ok,
       summary: compactResult(result, STEP_CHARS),
       ledgerRef: `ledger://${ledger.runId}/${obs.eventId}`,
@@ -833,6 +836,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         for (const { call } of verdicts) {
           history.push({
             toolName: call.toolName,
+            args: call.args,
             ok: false,
             summary: "",
             ledgerRef: `e${ledger.read().length}`,
@@ -1025,6 +1029,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         if (verdict.decision === "refuse") {
           history.push({
             toolName: call.toolName,
+            args: call.args,
             ok: false,
             summary: `refused by governance gate: ${verdict.reason}`,
             ledgerRef: `ledger://${ledger.runId}/policy`,
@@ -1035,6 +1040,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         if (verdict.decision === "ask" && !approved) {
           history.push({
             toolName: call.toolName,
+            args: call.args,
             ok: false,
             summary: denialReason
               ? `approval denied by reviewer: ${denialReason}`
@@ -1088,6 +1094,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         if (refusedForever) deniedOps.set(opKey, refusedForever);
         history.push({
           toolName: call.toolName,
+          args: call.args,
           ok,
           summary: refusedForever
             ? deniedOperationReason(opKey, refusedForever)

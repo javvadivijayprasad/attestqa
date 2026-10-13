@@ -4,10 +4,9 @@ import {
   renderCoverage,
   storyCoverage,
   type Ledger as RunLedger,
-  type SourceFile,
 } from "./report/coverage.js";
 import { NO_SIGNATURE_CONFIDENCE, TEST_CODE_RATIONALE } from "./triage/patterns.js";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { readLedgerFile, LEDGER_FILE } from "./ledger/ledger.js";

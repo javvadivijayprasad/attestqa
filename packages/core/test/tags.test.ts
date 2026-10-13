@@ -116,6 +116,29 @@ describe("a scenario says what kind of test it is", () => {
     expect(why).toContain("@technique:state-transition");
   });
 
+  it("says which tag to replace when the scenario names the wrong type (AB#1)", () => {
+    const events = ledgerOf([
+      CONTEXT,
+      { tool: "fs.read_file", args: { path: FEATURE }, result: { content: existing } },
+      DESIGN,
+    ]);
+    const why = storyRefusal(
+      {
+        toolName: "fs.write_file",
+        args: {
+          path: FEATURE,
+          content: withScenario(
+            "@story:44 @design:D13 @type:functional @technique:state-transition",
+          ),
+        },
+      },
+      events,
+    );
+    expect(why).toContain("(@design:D13)");
+    expect(why).toContain("replace @type:functional with @type:security");
+    expect(why).not.toContain("@technique:state-transition with");
+  });
+
   it("allows it once both are there", () => {
     const events = ledgerOf([
       CONTEXT,

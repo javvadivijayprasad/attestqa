@@ -174,7 +174,7 @@ export class OrderedContextBuilder implements ContextBuilder {
 function dedupe(items: HistoryItem[]): HistoryItem[] {
   const seen = new Set<string>();
   return items.filter((h) => {
-    const key = `${h.toolName}\u0000${h.summary}`;
+    const key = `${h.toolName}\u0000${JSON.stringify(h.args ?? {})}\u0000${h.summary}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

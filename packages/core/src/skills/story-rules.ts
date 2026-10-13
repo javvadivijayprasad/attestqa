@@ -761,14 +761,24 @@ function missingKindTags(
     const want = kindTagsFor(item).filter(
       (t) => !sc.tags.some((h) => h.toLowerCase() === t.toLowerCase()),
     );
-    if (want.length > 0) missing.push(`"${sc.scenario}" needs ${want.join(" ")}`);
+    if (want.length === 0) continue;
+    // Say what to change, not only what is wanted: a scenario tagged
+    // @type:security for a design item that is functional DOES say what kind
+    // of test it is — just not the approved kind — and "needs @type:functional"
+    // alone left the agent rewriting the same tag line 16 times (AB#1).
+    const fixes = want.map((t) => {
+      const prefix = t.slice(0, t.indexOf(":") + 1).toLowerCase();
+      const wrong = sc.tags.find((h) => h.toLowerCase().startsWith(prefix));
+      return wrong ? `replace ${wrong} with ${t}` : `add ${t}`;
+    });
+    missing.push(`"${sc.scenario}" (@design:${id}) — ${fixes.join(", ")}`);
   }
   if (missing.length === 0) return;
   return (
-    `these scenarios do not say what kind of test they are: ${missing.join("; ")}. The approved ` +
-    "design names a type and a technique for every item — carry both into the tag line beside " +
-    "@story and @design, so a reader can tell a security check from an accessibility scan, and so " +
-    "--grep @type:security is a lane someone can actually run."
+    `these scenarios' type/technique tags do not match the approved design: ${missing.join("; ")}. ` +
+    "Each scenario carries the type and technique of the design item named in its @design tag, " +
+    "exactly as approved — if the scenario is really a different kind of test, it belongs to a " +
+    "different design item. Change only these tags and write the file again."
   );
 }
 

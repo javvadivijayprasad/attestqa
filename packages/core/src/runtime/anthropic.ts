@@ -396,9 +396,34 @@ function isSourceLike(h: HistoryItem): boolean {
 }
 
 function renderItem(h: HistoryItem): string {
-  const head = `## ${h.toolName} (${h.ok ? "ok" : "failed"}, ${h.ledgerRef})`;
+  const args = briefArgs(h.args);
+  const head = `## ${h.toolName}${args ? ` ${args}` : ""} (${h.ok ? "ok" : "failed"}, ${h.ledgerRef})`;
   if (h.gate) return `${head}\n\n${h.gate.decision.toUpperCase()}: ${h.gate.reason}`;
   return `${head}\n\n${h.summary}`;
+}
+
+/**
+ * The arguments that tell one call of a tool from another — paths, urls, ids,
+ * modes — on one line. Long text (file content, a comment body) is shown by
+ * its length only; the history is not the place to repeat it.
+ */
+export function briefArgs(args: Record<string, unknown> | undefined): string {
+  if (!args) return "";
+  const parts: string[] = [];
+  for (const [k, v] of Object.entries(args)) {
+    if (v === undefined || v === null) continue;
+    if (typeof v === "string")
+      parts.push(v.length > 120 ? `${k}=<${v.length} chars>` : `${k}=${JSON.stringify(v)}`);
+    else if (typeof v === "number" || typeof v === "boolean") parts.push(`${k}=${String(v)}`);
+    else if (
+      Array.isArray(v) &&
+      v.every((x) => typeof x === "number" || (typeof x === "string" && x.length <= 40))
+    )
+      parts.push(v.length <= 8 ? `${k}=${JSON.stringify(v)}` : `${k}=<${v.length} items>`);
+    else parts.push(Array.isArray(v) ? `${k}=<${v.length} items>` : `${k}=<object>`);
+  }
+  const line = parts.join(", ");
+  return line ? `(${line.length > 300 ? `${line.slice(0, 300)}…` : line})` : "";
 }
 
 function textOf(res: MessageResponse): string {

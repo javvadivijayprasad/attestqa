@@ -5,6 +5,7 @@ import {
   normaliseSchema,
   parseSteps,
   renderCycle,
+  briefArgs,
   toWireName,
   fromWireName,
   wireTools,
@@ -259,6 +260,26 @@ describe("renderCycle", () => {
     );
     expect(text).toContain("the story text");
     expect(text).toContain("4 passed");
+  });
+
+  it("names each call's arguments, so two calls of one tool can be told apart (AB#1)", () => {
+    const text = renderCycle(
+      input({
+        history: [
+          src({ toolName: "bdd2pw.analyze", args: { feature: "features/epic-scrum-5.feature" } }),
+          src({ toolName: "bdd2pw.analyze", args: { feature: "features/epic-42.feature" } }),
+        ],
+      }),
+    );
+    expect(text).toContain('## bdd2pw.analyze (feature="features/epic-scrum-5.feature")');
+    expect(text).toContain('## bdd2pw.analyze (feature="features/epic-42.feature")');
+  });
+
+  it("shows long text and objects by size, not content", () => {
+    expect(
+      briefArgs({ path: "a.feature", content: "x".repeat(500), items: [{}, {}], all: true }),
+    ).toBe('(path="a.feature", content=<500 chars>, items=<2 items>, all=true)');
+    expect(briefArgs(undefined)).toBe("");
   });
 
   it("shows a refusal as the gate's decision and reason, not as a result", () => {

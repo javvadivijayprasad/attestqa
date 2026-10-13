@@ -43,6 +43,13 @@ export interface HistoryItem {
   /** Compacted result text (context assembly decides how much). */
   summary: string;
   ledgerRef: string;
+  /**
+   * The arguments the call was made with. Without them two calls of one tool
+   * look alike in the history: an agent that had analyzed the new feature file
+   * read its own result as the old file's and analyzed it three more times
+   * (AB#1, 13 Oct).
+   */
+  args?: Record<string, unknown>;
   /** Present when the gate refused or an approval was denied — the model must adapt. */
   gate?: { decision: "refuse" | "denied"; reason: string };
   /**
