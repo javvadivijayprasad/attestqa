@@ -89,6 +89,24 @@ The full stories, acceptance criteria, sub-tasks, comments and bugs go into one 
 application (`scripts/jira-seed/<id>.json`, and an Azure DevOps equivalent), created in the trackers
 by a person, as SCRUM was.
 
+Written 13 Oct: `scripts/jira-seed/toolshop.json`, `scripts/ado-seed/booker.json`,
+`scripts/ado-seed/saucedemo.json`. Each story carries `order` (run order; later stories in an epic
+append to its file) and `kind` (the row of the table above); "UI changes" stories carry `uiChange`,
+the change to apply before their second pass; each file has a `verify` list for the setup week.
+None of these notes is posted to the tracker. Each application gets its own tracker project
+(Jira `TOOL`; Azure DevOps `attestqa-booker`, `attestqa-saucedemo`), because attestqa reads every
+open bug in a project. Seeding, by a person:
+
+```
+node scripts/jira-seed/seed.mjs --file=toolshop.json --env=packages/core/.env            # dry run
+node scripts/jira-seed/seed.mjs --file=toolshop.json --env=packages/core/.env --apply
+node scripts/ado-seed/seed.mjs  --file=booker.json   --env=packages/core/.env            # dry run
+node scripts/ado-seed/seed.mjs  --file=booker.json   --env=packages/core/.env --apply
+```
+
+Reproduce each linked bug on the build under test before `--apply`; a bug that does not reproduce
+is filed as Done/Resolved or replaced, so its state matches the application.
+
 ## 5. Seeded faults
 
 About five per application, each a change a real developer could make, recorded with the story it

@@ -66,6 +66,6 @@ Feature: Customer account access
   @story:1 @bug:49 @design:D9 @type:confirmation @technique:boundary-value-analysis
   Scenario: Bug 49: Login with leading whitespace in password fails with standard error
     When I find the Email field and enter "aqa_user_email"
-    And I find the Password field and enter " aqa_user_pass_with_leading_space"
+    And I find the Password field and enter the correct password with a leading space
     And I click "Log in"
     Then the page displays "Invalid email or password."

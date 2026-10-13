@@ -327,3 +327,12 @@ describe("one tracker choice for the real run and the dry run", () => {
     });
   });
 });
+
+describe("Azure DevOps posts every run's results (13 Oct)", () => {
+  it("comments on the story even after a green run that created nothing", () => {
+    const skill = storyToTestsSkill({ workItem: "1" });
+    const call = skill.finalReport?.([], { runId: "r1", status: "done" });
+    expect(call?.toolName).toBe("ado.wit_work_item_comment_write");
+    expect(call?.args).toMatchObject({ action: "add", workItemId: 1 });
+  });
+});

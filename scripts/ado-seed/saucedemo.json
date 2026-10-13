@@ -1,0 +1,257 @@
+{
+  "project": "attestqa-saucedemo",
+  "label": "aqa-seed",
+  "target": "SauceDemo (https://www.saucedemo.com), a hosted practice site; its demo users are listed on its own login page",
+  "note": "Evaluation backlog for attestqa v1.0.0 (research/EVALUATION_PLAN.md section 4). Run the stories in 'order'. 'kind', 'order', 'uiChange' and 'verify' are not posted to Azure DevOps.",
+  "verify": [
+    "That the hosted site still lists the demo users (standard, locked out, problem, performance glitch, error, visual) and their shared password; put the standard user in .env as AQA_APP_USER/AQA_APP_PASS and the others as AQA_LOCKED_USER, AQA_PROBLEM_USER, AQA_ERROR_USER.",
+    "Permission basis for a hosted site: it is published for test practice; keep to one worker and the default delay in targets.yaml.",
+    "The two 'ui-change' stories need a build we control: run saucelabs/sample-app-web locally for their second pass, or record them as not applicable on a hosted site.",
+    "That the problem and error users still behave as the two linked bugs describe."
+  ],
+  "epics": [
+    {
+      "ref": "signin",
+      "summary": "Signing in",
+      "description": [
+        "Getting into the shop and being kept out when the account cannot be used.",
+        "Target: SauceDemo hosted practice site. Demo users only."
+      ]
+    },
+    {
+      "ref": "inventory",
+      "summary": "Product list",
+      "description": [
+        "The list of products, sorting it, a product's own page, and adding from the list."
+      ]
+    },
+    {
+      "ref": "checkout",
+      "summary": "Cart and checkout",
+      "description": [
+        "The cart and the three checkout steps: information, overview and completion."
+      ]
+    },
+    {
+      "ref": "menu",
+      "summary": "Navigation menu",
+      "description": [
+        "The side menu: all items, about, logout and reset app state."
+      ]
+    }
+  ],
+  "stories": [
+    {
+      "ref": "login",
+      "order": 1,
+      "kind": "new-area",
+      "epic": "signin",
+      "summary": "Customer signs in with a valid user",
+      "description": [
+        "As a customer I want to sign in so that I can shop."
+      ],
+      "acceptance": [
+        "AC-1: Signing in with the standard user and its password shows the product list.",
+        "AC-2: A wrong password shows an error saying the username and password do not match, and the product list is not shown.",
+        "AC-3: Signing in with the username empty shows an error saying the username is required."
+      ]
+    },
+    {
+      "ref": "locked",
+      "order": 2,
+      "kind": "a11y-security",
+      "epic": "signin",
+      "summary": "A locked-out user cannot sign in",
+      "description": [
+        "As the shop I want a locked account to be kept out, with a message that says why."
+      ],
+      "acceptance": [
+        "AC-1: Signing in as the locked-out user shows an error saying the user has been locked out, and the product list is not shown.",
+        "AC-2: Opening the product list address directly without signing in shows the sign-in page with an error saying sign-in is needed.",
+        "AC-3: The sign-in page passes an automated WCAG 2.1 A/AA accessibility scan."
+      ]
+    },
+    {
+      "ref": "sorting",
+      "order": 3,
+      "kind": "new-area",
+      "epic": "inventory",
+      "summary": "Customer sorts the product list",
+      "description": [
+        "As a customer I want to sort the products by name or price."
+      ],
+      "acceptance": [
+        "AC-1: The list is sorted by name from A to Z when it first opens.",
+        "AC-2: Sorting by name from Z to A reverses that order.",
+        "AC-3: Sorting by price from low to high lists the cheapest product first, and from high to low the most expensive first."
+      ]
+    },
+    {
+      "ref": "itempage",
+      "order": 4,
+      "kind": "shared-epic",
+      "epic": "inventory",
+      "summary": "Customer opens a product's own page",
+      "description": [
+        "As a customer I want to read about a product before adding it."
+      ],
+      "acceptance": [
+        "AC-1: Choosing a product's name in the list opens its page with the same name, description and price as in the list.",
+        "AC-2: Adding the product from its page changes the button to Remove and the cart shows 1.",
+        "AC-3: Back to products returns to the product list."
+      ]
+    },
+    {
+      "ref": "addremove",
+      "order": 5,
+      "kind": "shared-epic",
+      "epic": "inventory",
+      "summary": "Customer adds and removes products from the list",
+      "description": [
+        "As a customer I want to add products to my cart straight from the list, and take them out again."
+      ],
+      "acceptance": [
+        "AC-1: Adding a product from the list changes its button to Remove and the cart badge shows the number of products added.",
+        "AC-2: Removing it changes the button back to Add to cart and lowers the cart badge; with nothing left the badge is not shown.",
+        "AC-3: Products added stay in the cart after moving to another page and back."
+      ]
+    },
+    {
+      "ref": "cart",
+      "order": 6,
+      "kind": "new-area",
+      "epic": "checkout",
+      "summary": "Customer reviews the cart",
+      "description": [
+        "As a customer I want to see what is in my cart before I check out."
+      ],
+      "acceptance": [
+        "AC-1: The cart lists each added product with its quantity, name and price.",
+        "AC-2: Removing a product in the cart takes it off the list and lowers the cart badge.",
+        "AC-3: Continue shopping returns to the product list with the cart unchanged."
+      ]
+    },
+    {
+      "ref": "info",
+      "order": 7,
+      "kind": "ui-change",
+      "epic": "checkout",
+      "summary": "Customer gives their details at checkout",
+      "description": [
+        "As a customer I want to be told what is missing before I can continue checking out."
+      ],
+      "acceptance": [
+        "AC-1: Continuing with first name, last name and postal code filled in goes to the order overview.",
+        "AC-2: Continuing with the first name empty shows an error saying the first name is required; the same holds for the last name and the postal code.",
+        "AC-3: Cancel returns to the cart with the cart unchanged."
+      ],
+      "uiChange": "Second pass on a local sample-app-web build: rename the postal code field's placeholder and change its data-test attribute."
+    },
+    {
+      "ref": "overview",
+      "order": 8,
+      "kind": "shared-epic",
+      "epic": "checkout",
+      "summary": "Customer checks the order totals before buying",
+      "description": [
+        "As a customer I want to see what I will pay before I confirm."
+      ],
+      "acceptance": [
+        "AC-1: The overview lists the products in the cart with their prices.",
+        "AC-2: The item total equals the sum of the listed prices.",
+        "AC-3: The total equals the item total plus the tax shown."
+      ],
+      "comments": [
+        "Product owner: tax is shown as its own line and is part of the total; testing the tax rate itself is out of scope."
+      ]
+    },
+    {
+      "ref": "complete",
+      "order": 9,
+      "kind": "ui-change",
+      "epic": "checkout",
+      "summary": "Customer completes the order",
+      "description": [
+        "As a customer I want to confirm my order and know it went through."
+      ],
+      "acceptance": [
+        "AC-1: Finishing from the overview shows a thank-you message for the order.",
+        "AC-2: After the order the cart is empty and the cart badge is not shown.",
+        "AC-3: Back home from the confirmation returns to the product list."
+      ],
+      "uiChange": "Second pass on a local sample-app-web build: rename the Finish button's text and move it above the totals."
+    },
+    {
+      "ref": "menureset",
+      "order": 10,
+      "kind": "a11y-security",
+      "epic": "menu",
+      "summary": "Customer resets the app state and signs out from the menu",
+      "description": [
+        "As a customer I want to start over, or leave, from the menu."
+      ],
+      "acceptance": [
+        "AC-1: Reset app state from the menu empties the cart and the cart badge is not shown.",
+        "AC-2: Logout from the menu shows the sign-in page.",
+        "AC-3: After logout, going back in the browser does not show the product list."
+      ],
+      "verify": [
+        "Whether Reset app state also resets the Remove buttons on the list without a reload; write AC-1 around what the site does on the day."
+      ]
+    },
+    {
+      "ref": "images",
+      "order": 11,
+      "kind": "linked-bug",
+      "epic": "inventory",
+      "summary": "Every product shows its own picture",
+      "description": [
+        "As a customer I want each product to show its own picture so that I know what I am buying."
+      ],
+      "acceptance": [
+        "AC-1: Each product in the list shows a picture, and no two products show the same picture.",
+        "AC-2: A product's picture on its own page is the same as in the list."
+      ]
+    },
+    {
+      "ref": "errorcheckout",
+      "order": 12,
+      "kind": "linked-bug",
+      "epic": "checkout",
+      "summary": "Every customer can finish an order",
+      "description": [
+        "As the shop I want every customer who reaches the overview to be able to finish the order."
+      ],
+      "acceptance": [
+        "AC-1: A customer who fills in first name, last name and postal code reaches the overview with those details accepted.",
+        "AC-2: Finishing from the overview shows the thank-you message, whichever demo customer is signed in."
+      ]
+    }
+  ],
+  "bugs": [
+    {
+      "ref": "bug-images",
+      "story": "images",
+      "state": "Active",
+      "summary": "Problem user sees the same picture for every product",
+      "description": [
+        "Steps: sign in as the problem user and look at the product list.",
+        "EXPECTED: each product shows its own picture.",
+        "ACTUAL: every product shows the same picture.",
+        "Filed by a person, not by attestqa."
+      ]
+    },
+    {
+      "ref": "bug-error",
+      "story": "errorcheckout",
+      "state": "Active",
+      "summary": "Error user cannot finish an order",
+      "description": [
+        "Steps: sign in as the error user, add a product, check out, fill in the details, finish.",
+        "EXPECTED: the thank-you message.",
+        "ACTUAL: the order is not completed (the exact symptom to be confirmed on the day: a field that does not take input, or Finish that does nothing).",
+        "Filed by a person, not by attestqa."
+      ]
+    }
+  ]
+}

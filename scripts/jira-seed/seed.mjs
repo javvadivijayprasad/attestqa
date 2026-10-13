@@ -1,7 +1,14 @@
 // Seeds a Jira project with the attestqa practice backlog (backlog.json).
 //
-//   node scripts/jira-seed/seed.mjs            # dry run: prints what it would create
-//   node scripts/jira-seed/seed.mjs --apply    # creates it
+//   node scripts/jira-seed/seed.mjs                          # dry run of backlog.json
+//   node scripts/jira-seed/seed.mjs --file=toolshop.json     # dry run of another backlog
+//   node scripts/jira-seed/seed.mjs --file=toolshop.json --apply   # creates it
+//   ... --create-project    # create the project first if missing (needs Jira admin)
+//
+// A backlog has either one "epic" (backlog.json) or several "epics", each
+// story naming its epic by ref. Fields the seeder does not post — "kind",
+// "order", "uiChange", "verify" — are notes for the evaluation, kept out of
+// the tracker so the agent never sees them.
 //
 // Reads JIRA_BASE_URL, JIRA_EMAIL and JIRA_API_TOKEN (or JIRA_PAT) from the
 // environment or from .env in the current directory. The token never leaves
@@ -18,6 +25,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const apply = process.argv.includes("--apply");
 const envFile = process.argv.find((a) => a.startsWith("--env="))?.slice(6) ?? ".env";
+const planFile = process.argv.find((a) => a.startsWith("--file="))?.slice(7) ?? "backlog.json";
 
 function loadEnv(path) {
   if (!existsSync(path)) return;
@@ -72,12 +80,53 @@ function adf(lines, acceptance) {
   return { type: "doc", version: 1, content };
 }
 
-const plan = JSON.parse(readFileSync(join(here, "backlog.json"), "utf8"));
+const plan = JSON.parse(readFileSync(join(here, planFile), "utf8"));
+const epics = plan.epics ?? [{ ref: "epic", ...plan.epic }];
+const epicOf = (s) => s.epic ?? epics[0].ref;
+
+// Refs name epics, stories and bugs in one namespace; a story named like its
+// epic overwrote the epic's key in the printed list (Toolshop "contact").
+{
+  const all = [...epics.map((e) => e.ref), ...plan.stories.map((s) => s.ref), ...plan.bugs.map((b) => b.ref)];
+  const dup = all.filter((r, i) => all.indexOf(r) !== i);
+  if (dup.length) {
+    console.error(`duplicate ref(s) in ${planFile}: ${[...new Set(dup)].join(", ")} — every epic, story and bug needs its own ref`);
+    process.exit(1);
+  }
+}
 const P = plan.project;
 const LABEL = plan.label;
 
 const me = await jira("GET", "/myself");
 console.log(`Jira ${base} as ${me.displayName} — ${apply ? "APPLY" : "dry run (add --apply to create)"}`);
+
+// --create-project: make the project if it is missing. Company-managed Scrum,
+// because its issue types (Epic, Story, Bug, Sub-task) are what the seed and
+// the attestqa Jira adapter expect. Needs a Jira administrator account.
+const haveProject = await jira("GET", `/project/${P}`).then(
+  () => true,
+  () => false,
+);
+if (!haveProject) {
+  if (!process.argv.includes("--create-project")) {
+    console.error(`Project ${P} not found. Add --create-project to create it (needs Jira admin).`);
+    process.exit(1);
+  }
+  if (!apply) {
+    console.log(`  + project ${P} "${plan.projectName ?? P}" (company-managed Scrum) — would be created`);
+    console.log("\n(dry run stops here: issue types cannot be read until the project exists)");
+    process.exit(0);
+  }
+  await jira("POST", "/project", {
+    key: P,
+    name: plan.projectName ?? P,
+    projectTypeKey: "software",
+    projectTemplateKey: "com.pyxis.greenhopper.jira:gh-simplified-scrum-classic",
+    leadAccountId: me.accountId,
+    description: plan.target ?? "attestqa evaluation backlog",
+  });
+  console.log(`  + project ${P} created`);
+}
 
 // Issue type names differ between team-managed and company-managed projects
 // (Subtask vs Sub-task), so read them from the project instead of guessing.
@@ -133,15 +182,15 @@ const storyType = typeOf("Story");
 const bugType = typeOf("Bug");
 const subType = typeOf("subtask");
 
-console.log("\nEpic");
-await create("epic", epicType, plan.epic.summary, adf(plan.epic.description));
+console.log("\nEpics");
+for (const e of epics) await create(e.ref, epicType, e.summary, adf(e.description));
 
 console.log("\nStories");
 for (const s of plan.stories) {
-  const parent = apply ? { parent: { key: keys.epic } } : {};
+  const parent = apply ? { parent: { key: keys[epicOf(s)] } } : {};
   await create(s.ref, storyType, s.summary, adf(s.description, s.acceptance), parent);
   for (const t of s.subtasks ?? []) {
-    await create(`${s.ref}-task`, subType, t.summary, adf([t.summary]), apply ? { parent: { key: keys[s.ref] } } : {});
+    await create(`${s.ref}-task-${t.summary.slice(0, 12)}`, subType, t.summary, adf([t.summary]), apply ? { parent: { key: keys[s.ref] } } : {});
   }
   for (const c of s.comments ?? []) {
     if (!apply) {
@@ -191,5 +240,5 @@ console.log("\nKeys:", JSON.stringify(keys));
 if (apply)
   console.log(
     `\nIn ai-quality.config.yaml, allow them with agent.scope.work_items: ["${P}-*"]` +
-      ` — then: aqa run "Write tests for ${keys.login}" --config ...`,
+      ` — then: aqa run "Write tests for ${keys[plan.stories[0].ref]}" --config ...`,
   );

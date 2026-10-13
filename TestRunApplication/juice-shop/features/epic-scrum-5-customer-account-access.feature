@@ -46,23 +46,13 @@ Feature: Customer account access
 
   @story:SCRUM-8 @bug:SCRUM-12 @design:D5 @type:confirmation @technique:state-transition
   Scenario: Bug SCRUM-12: Session token is still accepted by the server after logout
-    When I find the Email field and enter "[EMAIL]"
-    And I find the Password field and enter "[PASSWORD]"
+    When I find the Email field and enter "aqa_user_email"
+    And I find the Password field and enter "aqa_user_pass"
     And I click "Log in"
     Then the account menu is displayed
     When I click "Account"
     And I click "Logout"
     Then the session token is not accepted by the server after logout
-
-  @story:SCRUM-8 @bug:SCRUM-12 @design:D5 @type:confirmation @technique:state-transition
-  Scenario: bug #SCRUM-12: Session token is still accepted by the server after logout
-    When I find the Email field and enter "[EMAIL]"
-    And I find the Password field and enter "password"
-    And I click "Log in"
-    Then the account menu is displayed
-    When I click "Account"
-    And I click "Logout"
-    Then the session token is rejected by the server after logout
 
   # ---------------------------------------------------------------------------
   # SCRUM-6: Customer signs in with email and password
@@ -126,7 +116,7 @@ Feature: Customer account access
   @story:SCRUM-10 @ac:1 @design:D14 @type:functional @technique:state-transition
   Scenario: AC-1: A new customer who fills in all registration fields is sent to the login page
     Given I navigate to "/#/register"
-    When I find the Email field and enter "newuser_unique@example.com"
+    When I find the Email field and enter a unique new email
     And I find the Password field and enter "Test1234!"
     And I find the Repeat Password field and enter "Test1234!"
     And I select a security question

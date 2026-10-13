@@ -244,6 +244,16 @@ export function modelConfig(raw: unknown, where: string): ModelConfig {
 // ---------------------------------------------------------------------------
 
 export function loadDotEnv(file = ".env", env: NodeJS.ProcessEnv = process.env): string[] {
+  // "--env .env.booker,.env": several files, the first one to set a variable
+  // wins — so one application's project and test account sit in a small file
+  // of their own, layered over the shared credentials.
+  if (file.includes(",")) {
+    return file
+      .split(",")
+      .map((f) => f.trim())
+      .filter(Boolean)
+      .flatMap((f) => loadDotEnv(f, env));
+  }
   const path = resolve(file);
   if (!existsSync(path)) return [];
   const loaded: string[] = [];

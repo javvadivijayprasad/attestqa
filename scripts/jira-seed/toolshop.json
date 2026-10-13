@@ -1,0 +1,288 @@
+{
+  "project": "TOOL",
+  "projectName": "Toolshop (attestqa evaluation)",
+  "label": "aqa-seed",
+  "target": "Practice Software Testing \"Toolshop\", run locally with Docker (UI at http://localhost:4200 - verify)",
+  "note": "Evaluation backlog for attestqa v1.0.0 (research/EVALUATION_PLAN.md section 4). Run the stories in 'order'. 'kind', 'order', 'uiChange' and 'verify' are not posted to Jira.",
+  "verify": [
+    "Repository, image names and ports of the local Docker setup; record in TestRunApplication/targets.yaml.",
+    "Default customer and admin accounts (expected: customer@practicesoftwaretesting.com and admin@practicesoftwaretesting.com, password welcome01). Put the customer in .env as AQA_APP_USER/AQA_APP_PASS, never in this file.",
+    "Whether the 'with bugs' edition is still published; if so, use it for the seeded-fault runs only, never for authoring.",
+    "Reproduce both linked bugs on the build under test before seeding. A bug that does not reproduce is filed as Done, or replaced by one that does in the same area."
+  ],
+  "epics": [
+    {
+      "ref": "catalogue",
+      "summary": "Product catalogue",
+      "description": [
+        "Everything a shopper does to find a tool: browsing the list, filtering, searching, sorting and opening a product.",
+        "Target: Toolshop running locally. Test accounts only."
+      ]
+    },
+    {
+      "ref": "cart",
+      "summary": "Cart and checkout",
+      "description": [
+        "Putting tools in the cart, changing it, and paying for an order."
+      ]
+    },
+    {
+      "ref": "account",
+      "summary": "Customer account",
+      "description": [
+        "Registering, signing in and out, and the customer's own lists such as favourites."
+      ]
+    },
+    {
+      "ref": "contact",
+      "summary": "Contact",
+      "description": [
+        "How a customer gets in touch with the shop."
+      ]
+    },
+    {
+      "ref": "admin",
+      "summary": "Shop administration",
+      "description": [
+        "What an administrator does in the back office."
+      ]
+    }
+  ],
+  "stories": [
+    {
+      "ref": "browse",
+      "order": 1,
+      "kind": "new-area",
+      "epic": "catalogue",
+      "summary": "Shopper browses the catalogue page by page",
+      "description": [
+        "As a shopper I want to browse the tools on sale page by page so that I can see the whole range.",
+        "The product list is the home page."
+      ],
+      "acceptance": [
+        "AC-1: The home page lists products, each with its name, its price and an image.",
+        "AC-2: Below the list there are page controls; choosing page 2 shows a different set of products.",
+        "AC-3: The control for the page being shown is marked as the current page."
+      ]
+    },
+    {
+      "ref": "filter",
+      "order": 2,
+      "kind": "shared-epic",
+      "epic": "catalogue",
+      "summary": "Shopper filters products by category and brand",
+      "description": [
+        "As a shopper I want to narrow the list to one kind of tool or one brand so that I find what I need faster.",
+        "The filters are in the side panel of the product list."
+      ],
+      "acceptance": [
+        "AC-1: Ticking a category shows only products in that category.",
+        "AC-2: Ticking a brand shows only products of that brand.",
+        "AC-3: Unticking the filter shows the full list again."
+      ],
+      "subtasks": [
+        {
+          "summary": "Keep the chosen filters when the shopper changes page"
+        }
+      ]
+    },
+    {
+      "ref": "search",
+      "order": 3,
+      "kind": "shared-epic",
+      "epic": "catalogue",
+      "summary": "Shopper searches products by name",
+      "description": [
+        "As a shopper I want to search by name so that I can go straight to a tool I know."
+      ],
+      "acceptance": [
+        "AC-1: Searching for a word that appears in product names shows only products whose names contain that word.",
+        "AC-2: Searching for a word no product name contains shows a message that no products were found, and no products.",
+        "AC-3: Clearing the search shows the full list again."
+      ],
+      "verify": [
+        "Exact text of the no-results message and of the search heading."
+      ]
+    },
+    {
+      "ref": "sort",
+      "order": 4,
+      "kind": "ui-change",
+      "epic": "catalogue",
+      "summary": "Shopper sorts products by name and price",
+      "description": [
+        "As a shopper I want to sort the list so that I can compare tools by price or find them by name."
+      ],
+      "acceptance": [
+        "AC-1: Sorting by name from A to Z lists the products in alphabetical order of name.",
+        "AC-2: Sorting by price from low to high lists the cheapest product first.",
+        "AC-3: Sorting by price from high to low lists the most expensive product first."
+      ],
+      "comments": [
+        "Product owner: sorting applies to whatever is currently listed, so with a filter ticked it sorts only the filtered products. That is intended."
+      ],
+      "uiChange": "After the first run: give the sort control a new visible label and id, and move it from above the list into the side panel. Run the story again against that build."
+    },
+    {
+      "ref": "detail",
+      "order": 5,
+      "kind": "shared-epic",
+      "epic": "catalogue",
+      "summary": "Shopper opens a product's detail page",
+      "description": [
+        "As a shopper I want to see a tool's details before I buy it."
+      ],
+      "acceptance": [
+        "AC-1: Opening a product from the list shows its name, its price, its description and an Add to cart button.",
+        "AC-2: The quantity can be raised and lowered with the + and - buttons and never goes below 1.",
+        "AC-3: A related products section lists other products, and choosing one opens its own detail page."
+      ]
+    },
+    {
+      "ref": "add",
+      "order": 6,
+      "kind": "new-area",
+      "epic": "cart",
+      "summary": "Shopper adds tools to the cart and changes quantities",
+      "description": [
+        "As a shopper I want to put tools in my cart and adjust how many I take."
+      ],
+      "acceptance": [
+        "AC-1: Adding a product to the cart shows a confirmation, and the cart icon in the header shows the number of items in the cart.",
+        "AC-2: In the cart, changing a line's quantity updates that line's total and the cart total.",
+        "AC-3: Removing a line takes it out of the cart and updates the cart total."
+      ]
+    },
+    {
+      "ref": "signin",
+      "order": 7,
+      "kind": "a11y-security",
+      "epic": "account",
+      "summary": "Customer signs in and signs out",
+      "description": [
+        "As a registered customer I want to sign in with my email and password, and to sign out when I am done.",
+        "The sign-in page is reached from Sign in in the header."
+      ],
+      "acceptance": [
+        "AC-1: A registered customer who enters a correct email and password is signed in and sees their account page.",
+        "AC-2: A wrong password shows an error message and the customer stays on the sign-in page; the message does not say whether the email has an account.",
+        "AC-3: Choosing Sign out from the customer menu signs the customer out, and the header offers Sign in again.",
+        "AC-4: The sign-in page passes an automated WCAG 2.1 A/AA accessibility scan."
+      ]
+    },
+    {
+      "ref": "register",
+      "order": 8,
+      "kind": "ui-change",
+      "epic": "account",
+      "summary": "New customer registers an account",
+      "description": [
+        "As a new customer I want to create an account so that I can check out and keep favourites.",
+        "Registration is reached from the sign-in page."
+      ],
+      "acceptance": [
+        "AC-1: Filling in every required field with valid values and submitting creates the account and takes the customer to the sign-in page.",
+        "AC-2: Submitting with a required field left empty shows a message at that field, and no account is created.",
+        "AC-3: A password that does not meet the stated password rules is refused with a message that names the rule."
+      ],
+      "subtasks": [
+        {
+          "summary": "Show the password rules next to the password field"
+        }
+      ],
+      "uiChange": "After the first run: rename the email field's visible label and change its id. Run the story again against that build."
+    },
+    {
+      "ref": "checkout",
+      "order": 9,
+      "kind": "linked-bug",
+      "epic": "cart",
+      "summary": "Signed-in customer checks out and pays",
+      "description": [
+        "As a signed-in customer with tools in my cart I want to pay for them in one go."
+      ],
+      "acceptance": [
+        "AC-1: A signed-in customer can go from the cart through the checkout steps to payment without being asked to sign in again.",
+        "AC-2: The billing address step is filled in from the customer's profile.",
+        "AC-3: Paying with cash on delivery confirms the payment, and the order is confirmed."
+      ],
+      "comments": [
+        "Product owner: bank transfer and credit card are out of scope for this story; cash on delivery is enough to prove the flow."
+      ]
+    },
+    {
+      "ref": "favourites",
+      "order": 10,
+      "kind": "a11y-security",
+      "epic": "account",
+      "summary": "Customer keeps a list of favourite tools",
+      "description": [
+        "As a customer I want to save tools to a favourites list so that I can come back to them."
+      ],
+      "acceptance": [
+        "AC-1: A signed-in customer can add a product to favourites from its detail page and then sees it in their favourites list.",
+        "AC-2: Removing a product from the favourites list takes it off the list.",
+        "AC-3: A visitor who is not signed in and opens the favourites page is sent to the sign-in page and sees no favourites."
+      ]
+    },
+    {
+      "ref": "contactform",
+      "order": 11,
+      "kind": "new-area",
+      "epic": "contact",
+      "summary": "Customer sends a message with the contact form",
+      "description": [
+        "As a customer I want to send the shop a message so that I can ask about an order or a product."
+      ],
+      "acceptance": [
+        "AC-1: Submitting the form with first name, last name, email, a subject and a message of the required length shows a thank-you message.",
+        "AC-2: Each required field left empty shows a message at that field, and the form is not sent.",
+        "AC-3: An email address without an @ is refused with a message about the email format."
+      ],
+      "verify": [
+        "The minimum message length the form enforces, so test data can be chosen around it."
+      ]
+    },
+    {
+      "ref": "adminproducts",
+      "order": 12,
+      "kind": "linked-bug",
+      "epic": "admin",
+      "summary": "Administrator manages the product list",
+      "description": [
+        "As an administrator I want to see and find products in the back office so that I can keep the catalogue right."
+      ],
+      "acceptance": [
+        "AC-1: A signed-in administrator can open the product list in the back office, which shows each product's name and price.",
+        "AC-2: Searching the admin product list by name shows only products whose names match.",
+        "AC-3: A customer account that opens the admin product list address does not see the list."
+      ]
+    }
+  ],
+  "bugs": [
+    {
+      "ref": "bug-checkout",
+      "story": "checkout",
+      "status": "In Progress",
+      "summary": "Billing address step is not filled in from the customer's profile",
+      "description": [
+        "Steps: sign in as a customer whose profile has a full address, add a product, go to checkout, continue to the billing address step.",
+        "EXPECTED: the address fields show the profile address.",
+        "ACTUAL: one or more address fields are empty (to be confirmed on the build under test before seeding).",
+        "Filed by a person, not by attestqa."
+      ]
+    },
+    {
+      "ref": "bug-adminsearch",
+      "story": "adminproducts",
+      "status": "In Progress",
+      "summary": "Admin product search does not narrow the list",
+      "description": [
+        "Steps: sign in as administrator, open the product list, search for part of one product's name.",
+        "EXPECTED: only products whose names match are listed.",
+        "ACTUAL: products that do not match stay in the list (to be confirmed on the build under test before seeding).",
+        "Filed by a person, not by attestqa."
+      ]
+    }
+  ]
+}

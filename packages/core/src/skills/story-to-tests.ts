@@ -8,7 +8,6 @@ import { lockedScenarios, makeStoryRefusal } from "./story-rules.js";
 import { composeRunReport } from "../mcp/adapters/summary.js";
 import { composeQaRecord } from "../report/qa-record.js";
 import { readSourceFiles } from "../report/coverage.js";
-import { asRecord } from "../verify/evidence.js";
 import { chooseRoute } from "../route/route.js";
 import {
   approvedDesign,
@@ -940,26 +939,14 @@ export function storyToTestsSkill(
         // quoted ledger step numbers, and addressed the verifier. Everything
         // above it is counted; it is shown on the CLI instead.
       });
-      // Post only when there is something a reader of the story needs. A
-      // green re-run that created nothing and proposed nothing says it in the
-      // run's own summary; a comment per run is how a story ended up with
-      // twelve reports and no information.
-      const suite = asRecord(r.suite);
-      const newsworthy =
-        !suite ||
-        suite["green"] !== true ||
-        r.createdCaseIds.length > 0 ||
-        r.bugsFiled.length + r.bugsDropped.length + r.bugsDenied.length > 0 ||
-        r.knownBugsNotReproduced.length > 0;
-      // Jira (ADR-004): the story's one QA sub-task — test cases in its
-      // description, every run's results as a comment. A results log is the
-      // point here, so it is posted whenever the design is approved, not only
-      // when something is newsworthy.
+      // Every run's results go to the story, as with Jira (ADR-004): one
+      // comment per run is the results log a reviewer and the evaluation read
+      // (Vijay, 13 Oct). It was once posted only when something was
+      // "newsworthy", which left a green AB#1 run with no record on the story.
       if (tracker === "jira") {
         if (!options.workspaceDir) return undefined;
         return qaRecordCall(events, "results", ctx.runId, ctx.status);
       }
-      if (!newsworthy) return undefined;
       return {
         toolName: "ado.wit_work_item_comment_write",
         args: { action: "add", workItemId: Number(options.workItem), text: r.text },

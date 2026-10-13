@@ -1,0 +1,105 @@
+# attestqa evaluation (research/EVALUATION_PLAN.md) - Restful-Booker Platform, tracker Azure DevOps (project attestqa-booker).
+# Backlog: scripts/ado-seed/booker.json. Run from packages/core:
+#   node dist/cli.js run "Write tests for <id>" --config examples/eval/booker.config.yaml \
+#     --workspace ../../TestRunApplication/booker --env .env.booker,.env
+# .env.booker (git-ignored; template: examples/eval/env.booker.example) holds this app's
+# project and test account; .env holds the shared keys. The first file to set a variable wins.
+#
+# agentic-qa — fleet-wide agent config (PLAN §0). Copy to your repo root as
+# ai-quality.config.yaml and pass with `aqa run ... --config ai-quality.config.yaml`.
+agent:
+  # Where the model comes from. A bare name means Anthropic. For another
+  # provider, give the mapping — the credential comes from the environment
+  # (ANTHROPIC_API_KEY, OPENAI_API_KEY, AZURE_OPENAI_API_KEY, AQA_GATEWAY_API_KEY)
+  # or company sign-in, never from here.
+  # AQA_MODEL, if set, overrides the name and never the provider.
+  #
+  #   model:
+  #     provider: azure-openai         # anthropic | openai | azure-openai | local | gateway
+  #     name: gpt-4.1                  # the deployment name on Azure
+  #     endpoint: https://<resource>.openai.azure.com
+  #     api_version: 2024-10-21
+  #
+  #   model:
+  #     provider: local
+  #     name: llama3.1
+  #     endpoint: http://localhost:11434/v1
+  #
+  #   model:                             # your company's own OpenAI-compatible gateway
+  #     provider: gateway
+  #     name: approved-large             # the model name the gateway exposes
+  #     endpoint: https://llm-gateway.example.internal/v1
+  #     headers: { x-team: qa }         # non-secret only; credentials are refused here
+  #
+  #   auth: key (default) | none | entra | aws-sso
+  #     entra and aws-sso use company sign-in instead of a stored key; they need
+  #     @attestqa/auth-azure or @attestqa/auth-aws (from v1.1.0).
+  model: claude-sonnet-4-6
+  prompt_version: aqa-prompt-v0.1.0
+  budgets:
+    # A fix → run → fix loop costs roughly 14k tokens per cycle, most of it the
+    # fixed tool schemas. 400k bought about 30 cycles, which ran out mid-repair
+    # with four of five tests already passing; these numbers leave room to
+    # finish. Lower them for a cheap smoke run.
+    # 60 was not enough once stage 2 was added: the design cycle, the feature
+    # file, the scaffold and the implementation all come out of the same
+    # allowance, and a run ended with the suite never run (20260922T231736Z).
+    steps: 150 # AQA_STEP_BUDGET overrides
+    tokens: 1500000 # AQA_TOKEN_BUDGET overrides
+  # Stage 2 — ISTQB test types the test design must cover. The agent submits a
+  # design (one item per test: type, technique, conditions, expected, source)
+  # and a person approves it before any test is written. Remove this line to
+  # turn the design stage off. accessibility needs @axe-core/playwright.
+  test_types: ["functional", "security", "accessibility", "confirmation"]
+  # bdd2pw scaffolds with a deterministic rule table first. A step the rules cannot bind
+  # lands as `// TODO` unless this is set, in which case bdd2pw asks a model — caching the
+  # answer in <repo>/.bdd2pw/llm-cache.sqlite and logging every generated binding to
+  # artefacts/candidate-rules.jsonl for offline review. It reaches the generator ONLY when
+  # AI_GOVERNANCE_URL is also set (the ai-governance sidecar, e.g. http://127.0.0.1:4900):
+  # bdd2pw sanitises each prompt there and fails closed without it. Remove this line to
+  # scaffold rules-only, which is deterministic and leaves unbound steps visible.
+  llm_fallback: anthropic
+  # Ask before the first run of the suite in each run (later re-runs after a
+  # repair go ahead): test design, execution, and any bug are three decisions.
+  approve_execution: true
+  scope:
+    # Stage-1 context reads are
+    # refused for anything outside this list, and reported as refused.
+    # Booker backlog (scripts/ado-seed/booker.json), project attestqa-booker: 88-90 epics, 91-102 stories, 103-104 bugs.
+    work_items: ["88-104"]
+    repos: [] # repo names the agent may write to (none for slice 1)
+    # Azure Test Plans the agent may create cases/suites in. Entries are matched
+    # against the argument as passed, and the Azure DevOps MCP server uses the
+    # plan NAME when creating a plan but the numeric planId for suites and
+    # cases — so list both once the sandbox plan exists, e.g.
+    #   test_plans: ["Sandbox Plan", "3"]
+    test_plans: [] # no Test Plans access level (capabilities.test_plans: false)
+    branches_writable: ["agent/*"] # glob; protected branches are always destructive → refuse
+    # Where the agent may point a browser. An entry may be an origin (allowing
+    # every path under it), a path prefix, or a glob. Empty means the agent may
+    # not browse at all. Checked on every navigation; a link the agent follows
+    # or a redirect is NOT re-checked, so this scopes mistakes rather than
+    # containing a hostile page.
+    urls: ["http://localhost:8080"] # Restful-Booker Platform guest site and /admin, local Docker - verify the port in setup week
+  # What the ENVIRONMENT can do — not what the agent is allowed to do (policy)
+  # or where it may act (scope).
+  capabilities:
+    # Creating a test CASE is an ordinary work-item write and needs only Basic
+    # access. Creating a test PLAN or SUITE goes through the Test Plans service,
+    # which needs the Test Plans access level — a paid extension. Without it
+    # Azure DevOps answers "You are not authorized to access this API", and no
+    # argument or permission change fixes it. Set false on such an account: the
+    # run then creates cases linked to the story, skips the plan and suite, and
+    # records the omission in the verify event.
+    #
+    # false here because the sandbox organisation is on Basic: runs
+    # 20260914T015933Z-4a2806d0 and 20260914T031912Z-91b0bc56 both answered
+    # "not authorized" to create, with a PAT that already carries Test
+    # Management (read & write) — so it is the access level, not the token.
+    test_plans: false
+  policy:
+    read: execute
+    write_workspace: execute
+    write_branch: ask
+    write_record: ask
+    destructive: refuse

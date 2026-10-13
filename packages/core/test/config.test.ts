@@ -115,6 +115,17 @@ describe("loadDotEnv", () => {
     expect(loaded.sort()).toEqual(["A", "B", "C"]);
     expect(env).toEqual({ EXISTING: "old", A: "1", B: "two words", C: "x" });
   });
+  it("layers several files, the first to set a variable winning (--env .env.booker,.env)", () => {
+    const dir = tmp();
+    writeFileSync(join(dir, ".env.booker"), "AZURE_DEVOPS_PROJECT=attestqa-booker\n");
+    writeFileSync(
+      join(dir, ".env"),
+      "AZURE_DEVOPS_PROJECT=agentic-qa-sandbox\nAZURE_DEVOPS_PAT=p\n",
+    );
+    const env: NodeJS.ProcessEnv = {};
+    loadDotEnv(`${join(dir, ".env.booker")},${join(dir, ".env")}`, env);
+    expect(env).toEqual({ AZURE_DEVOPS_PROJECT: "attestqa-booker", AZURE_DEVOPS_PAT: "p" });
+  });
   it("fills in a defined-but-EMPTY ambient variable, which would otherwise shadow the file", () => {
     const f = join(tmp(), ".env");
     writeFileSync(f, "ANTHROPIC_API_KEY=sk-ant-real\nOTHER=x\n");

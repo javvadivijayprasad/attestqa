@@ -1,0 +1,255 @@
+{
+  "project": "attestqa-booker",
+  "label": "aqa-seed",
+  "target": "Restful-Booker Platform, run locally with Docker (guest site and /admin - verify ports)",
+  "note": "Evaluation backlog for attestqa v1.0.0 (research/EVALUATION_PLAN.md section 4). Run the stories in 'order'. 'kind', 'order', 'uiChange' and 'verify' are not posted to Azure DevOps.",
+  "verify": [
+    "Repository and docker-compose of the current Restful-Booker Platform, the guest and admin URLs, and the ports; record in TestRunApplication/targets.yaml.",
+    "Admin account (expected: admin / password). Put it in .env as AQA_APP_USER/AQA_APP_PASS, never in this file.",
+    "How to reset the app to its seed data between runs (restart the containers, or the reset the platform provides).",
+    "Reproduce both linked bugs on the build under test before seeding. A bug that does not reproduce is filed as Resolved, or replaced by one that does in the same area."
+  ],
+  "epics": [
+    {
+      "ref": "guest",
+      "summary": "Guest website",
+      "description": [
+        "What a visitor sees and does on the B&B's public site before booking.",
+        "Target: Restful-Booker Platform running locally. Test data only."
+      ]
+    },
+    {
+      "ref": "booking",
+      "summary": "Booking a room",
+      "description": [
+        "Choosing dates and giving guest details to book a room."
+      ]
+    },
+    {
+      "ref": "admin",
+      "summary": "B&B administration",
+      "description": [
+        "What the owner does in the admin area: rooms, messages, branding and the bookings report."
+      ]
+    }
+  ],
+  "stories": [
+    {
+      "ref": "home",
+      "order": 1,
+      "kind": "new-area",
+      "epic": "guest",
+      "summary": "Visitor sees the B&B and its rooms on the home page",
+      "description": [
+        "As a visitor I want to see what the B&B is and which rooms it offers, so that I can decide whether to stay."
+      ],
+      "acceptance": [
+        "AC-1: The home page shows the B&B's name and description.",
+        "AC-2: The home page lists the rooms, each with its type, a picture and a way to book it.",
+        "AC-3: The home page shows the B&B's contact details: address, phone and email."
+      ]
+    },
+    {
+      "ref": "contactvalid",
+      "order": 2,
+      "kind": "shared-epic",
+      "epic": "guest",
+      "summary": "Visitor is told what is wrong with the contact form",
+      "description": [
+        "As a visitor I want to know what to fix when my message cannot be sent."
+      ],
+      "acceptance": [
+        "AC-1: Submitting the contact form with every field empty shows a message for each required field, and nothing is sent.",
+        "AC-2: A phone number shorter than the allowed length is refused with a message giving the allowed length.",
+        "AC-3: A message shorter than the allowed length is refused with a message giving the allowed length."
+      ],
+      "verify": [
+        "The allowed lengths for phone, subject and message, so test data can be chosen around them."
+      ]
+    },
+    {
+      "ref": "contactinbox",
+      "order": 3,
+      "kind": "a11y-security",
+      "epic": "guest",
+      "summary": "Visitor's message reaches the owner, and only the owner",
+      "description": [
+        "As the owner I want visitors' messages to reach my admin inbox, and nobody else to be able to read them."
+      ],
+      "acceptance": [
+        "AC-1: After a visitor sends a valid message, the site thanks the visitor by name.",
+        "AC-2: The message then appears in the admin messages list with the visitor's name and subject.",
+        "AC-3: A visitor who is not signed in and opens the admin messages address does not see any messages."
+      ]
+    },
+    {
+      "ref": "dates",
+      "order": 4,
+      "kind": "new-area",
+      "epic": "booking",
+      "summary": "Guest chooses dates for a room",
+      "description": [
+        "As a guest I want to pick the nights I want to stay so that I can book a room."
+      ],
+      "acceptance": [
+        "AC-1: Choosing to book a room shows a calendar for that room.",
+        "AC-2: Selecting a check-in and a check-out date shows the chosen nights in the calendar and the price for the stay.",
+        "AC-3: Dates that are already booked are shown as unavailable."
+      ],
+      "verify": [
+        "How the current guest site shows the price and unavailable nights (calendar vs. summary)."
+      ]
+    },
+    {
+      "ref": "guestdetails",
+      "order": 5,
+      "kind": "shared-epic",
+      "epic": "booking",
+      "summary": "Guest gives their details to complete a booking",
+      "description": [
+        "As a guest I want to give my name and contact details so that the booking is in my name."
+      ],
+      "acceptance": [
+        "AC-1: With dates chosen, filling in first name, last name, email and phone and booking shows a booking confirmation with the dates.",
+        "AC-2: Booking with a required detail left empty shows a message for that field, and no booking is made.",
+        "AC-3: An email address without an @ is refused with a message about the email format."
+      ]
+    },
+    {
+      "ref": "adminlogin",
+      "order": 6,
+      "kind": "new-area",
+      "epic": "admin",
+      "summary": "Owner signs in to and out of the admin area",
+      "description": [
+        "As the owner I want to sign in to the admin area, and to sign out when I am done."
+      ],
+      "acceptance": [
+        "AC-1: Signing in with the admin username and password shows the admin area with its menu.",
+        "AC-2: A wrong password shows an error and the admin area is not shown.",
+        "AC-3: Choosing Logout signs the owner out and shows the sign-in form again."
+      ]
+    },
+    {
+      "ref": "createroom",
+      "order": 7,
+      "kind": "shared-epic",
+      "epic": "admin",
+      "summary": "Owner creates a room",
+      "description": [
+        "As the owner I want to add a room so that guests can book it."
+      ],
+      "acceptance": [
+        "AC-1: Creating a room with a room number, a type, accessibility, a price and some features adds it to the room list with those values.",
+        "AC-2: Creating a room without a room number or without a price is refused with a message, and no room is added.",
+        "AC-3: A newly created room appears on the guest home page."
+      ]
+    },
+    {
+      "ref": "editroom",
+      "order": 8,
+      "kind": "ui-change",
+      "epic": "admin",
+      "summary": "Owner edits and deletes a room",
+      "description": [
+        "As the owner I want to correct a room's details, or remove a room I no longer let."
+      ],
+      "acceptance": [
+        "AC-1: Editing a room's price and saving shows the new price in the room's details and in the room list.",
+        "AC-2: Deleting a room removes it from the room list.",
+        "AC-3: A deleted room no longer appears on the guest home page."
+      ],
+      "uiChange": "After the first run: rename the edit button's visible text and change the room list from a table to cards. Run the story again against that build."
+    },
+    {
+      "ref": "messages",
+      "order": 9,
+      "kind": "a11y-security",
+      "epic": "admin",
+      "summary": "Owner reads messages and they are marked as read",
+      "description": [
+        "As the owner I want to read visitors' messages and see which ones are new."
+      ],
+      "acceptance": [
+        "AC-1: The messages list shows each message's sender and subject, with unread messages marked.",
+        "AC-2: Opening a message shows its full text and contact details, and the message is then shown as read.",
+        "AC-3: The messages page passes an automated WCAG 2.1 A/AA accessibility scan."
+      ]
+    },
+    {
+      "ref": "branding",
+      "order": 10,
+      "kind": "ui-change",
+      "epic": "admin",
+      "summary": "Owner changes the B&B's branding",
+      "description": [
+        "As the owner I want to change the B&B's name and description so that the site shows the right details."
+      ],
+      "acceptance": [
+        "AC-1: Changing the B&B name and description in Branding and submitting shows a confirmation.",
+        "AC-2: The guest home page then shows the new name and description.",
+        "AC-3: Submitting Branding with the name empty is refused with a message, and the guest site keeps the old name."
+      ],
+      "comments": [
+        "Product owner: the tests must put the original branding back when they finish, because every other story's home page checks depend on it."
+      ],
+      "uiChange": "After the first run: rename the Branding menu entry and the submit button's text. Run the story again against that build."
+    },
+    {
+      "ref": "report",
+      "order": 11,
+      "kind": "linked-bug",
+      "epic": "admin",
+      "summary": "Owner sees bookings in the report calendar",
+      "description": [
+        "As the owner I want to see which rooms are booked on which nights."
+      ],
+      "acceptance": [
+        "AC-1: The report shows a calendar with each booking as an entry on its nights.",
+        "AC-2: A booking made on the guest site appears in the report on its nights, with the guest's name.",
+        "AC-3: Moving to the next month shows that month's bookings."
+      ]
+    },
+    {
+      "ref": "doublebooking",
+      "order": 12,
+      "kind": "linked-bug",
+      "epic": "booking",
+      "summary": "A room cannot be booked twice for the same night",
+      "description": [
+        "As the owner I want a room never to be booked twice for the same night."
+      ],
+      "acceptance": [
+        "AC-1: Trying to book a room for nights that are already booked is refused with a message saying the dates are not available.",
+        "AC-2: After the refusal the room's existing booking is unchanged in the report.",
+        "AC-3: Booking the same room for free nights straight after the existing booking succeeds."
+      ]
+    }
+  ],
+  "bugs": [
+    {
+      "ref": "bug-report",
+      "story": "report",
+      "state": "Active",
+      "summary": "Report does not show bookings made on the guest site until the page is reloaded",
+      "description": [
+        "Steps: open the admin report, make a booking on the guest site in another tab, return to the report.",
+        "EXPECTED: the new booking appears on its nights.",
+        "ACTUAL: it appears only after a full reload (to be confirmed on the build under test before seeding).",
+        "Filed by a person, not by attestqa."
+      ]
+    },
+    {
+      "ref": "bug-double",
+      "story": "doublebooking",
+      "state": "Active",
+      "summary": "Overlapping booking that starts on another booking's last night is accepted",
+      "description": [
+        "Steps: book a room for three nights; then book the same room starting on the last of those nights.",
+        "EXPECTED: refused, because that night is taken.",
+        "ACTUAL: the second booking is accepted (to be confirmed on the build under test before seeding).",
+        "Filed by a person, not by attestqa."
+      ]
+    }
+  ]
+}
