@@ -484,7 +484,8 @@ function firstError(spec: { tests?: Array<{ results?: unknown[] }> }): string {
       // of a Playwright error is the one that names the problem, and the tail
       // of a coloured one began "…22m failed" — escape-code debris.
       if (!err?.message) continue;
-      const first = head(stripAnsi(err.message), 600);
+      const clean = (m: string) => withoutBrowserLogs(stripAnsi(m));
+      const first = head(clean(err.message), 600);
       // On a TEST timeout, Playwright's first error is only "Test timeout of
       // 30000ms exceeded." — the action that was stuck, and the locator it was
       // waiting for, are in a later entry of `errors`. Without it the heal step
@@ -492,12 +493,23 @@ function firstError(spec: { tests?: Array<{ results?: unknown[] }> }): string {
       // selector: (not named in the error message)" for a click waiting on
       // getByRole('button', { name: 'Log in' })).
       const stuck = (res.errors ?? [])
-        .map((e) => stripAnsi(e.message ?? ""))
-        .find((m) => m !== stripAnsi(err.message ?? "") && /waiting for|Call log/i.test(m));
+        .map((e) => clean(e.message ?? ""))
+        .find((m) => m !== clean(err.message ?? "") && /waiting for|Call log/i.test(m));
       return stuck ? `${first}\n${head(stuck, 600)}` : first;
     }
   }
   return "";
+}
+
+/**
+ * Playwright's "Browser logs:" block — with an installed Chrome, the whole
+ * launch command line — sits between the error and its "Call log:". Kept, it
+ * filled the 600 characters a failure is cut to, and the locator the click was
+ * waiting for never reached triage or heal (20261013T024302Z: four tests
+ * reported as "locator.click: Test timeout" and nothing else).
+ */
+export function withoutBrowserLogs(message: string): string {
+  return message.replace(/\n?Browser logs:[\s\S]*?(?=\n\s*Call log:|$)/, "");
 }
 
 /** Characters that mean something to a command interpreter. */

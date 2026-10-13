@@ -115,6 +115,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
    */
   const deferredBugs: ProposedCall[] = [];
   let byName = new Map<string, ToolDescriptor>();
+  /** Every tool the skill allows, whatever role is active (see runtimeCall). */
+  let skillTools = new Map<string, ToolDescriptor>();
 
   /** Settle held bug proposals against the FINAL result, then ask once. */
   async function settleDeferredBugs(): Promise<void> {
@@ -181,7 +183,11 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     why?: string,
     opts: { coveredBy?: string } = {},
   ): Promise<boolean> {
-    const tool = byName.get(toolName);
+    // The runtime's own calls are judged against the skill's whole toolset,
+    // not the current role's: the heal role sees five tools, and the run's
+    // closing post to Jira was refused as "unknown tool" because a healer
+    // happened to be active when the run ended (20261013T024302Z).
+    const tool = byName.get(toolName) ?? skillTools.get(toolName);
     const call = withRuntimeArgs({ toolName, args }, tool);
     let verdict = withExecutionApproval(call, gate.judge(call, tool));
     // Covered by an approval the reviewer has already given (see Skill.afterApproved).
@@ -301,11 +307,13 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
    * model turn left to feed a refusal back to.
    */
   async function askThenExecute(proposed: ProposedCall[], note: string): Promise<void> {
-    const calls = proposed.map((c) => withRuntimeArgs(c, byName.get(c.toolName)));
+    // As in runtimeCall: the end of a run is judged against the whole toolset.
+    const toolOf = (name: string) => byName.get(name) ?? skillTools.get(name);
+    const calls = proposed.map((c) => withRuntimeArgs(c, toolOf(c.toolName)));
     const approvalId = approvalIdFor(++approvals);
     const verdicts = calls.map((call) => ({
       call,
-      v: gate.judge(call, byName.get(call.toolName)),
+      v: gate.judge(call, toolOf(call.toolName)),
     }));
     for (const { call, v } of verdicts) {
       ledger.append(
@@ -453,6 +461,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     const allowed = new Set(skill.allowedTools);
     const visible: ToolDescriptor[] = all.filter((t) => allowed.has(`${t.server}.${t.name}`));
     byName = new Map<string, ToolDescriptor>(visible.map((t) => [`${t.server}.${t.name}`, t]));
+    skillTools = new Map(byName);
     // Primary sources are what the job is ABOUT — the story, a file, a parsed
     // feature — so they get a much larger window than a step result.
     const sourceTools = new Set(skill.sourceTools ?? []);

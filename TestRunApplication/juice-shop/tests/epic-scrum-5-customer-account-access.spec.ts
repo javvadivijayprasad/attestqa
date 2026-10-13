@@ -458,6 +458,23 @@ test.describe("Customer account access", () => {
   test("AC-1: A new customer who fills in all registration fields is sent to the login page", async ({ page }) => {
     await test.step("Given I navigate to the registration page", async () => {
       await page.goto("/#/register");
+      await page.waitForLoadState("networkidle");
+    });
+
+    await test.step("Dismiss cookie consent if present on registration page", async () => {
+      const dismissBtn = page.getByRole("button", { name: "dismiss cookie message" });
+      const visible = await dismissBtn.isVisible();
+      if (visible) {
+        await dismissBtn.click();
+      }
+    });
+
+    await test.step("Dismiss welcome banner if present on registration page", async () => {
+      const closeBtn = page.getByRole("button", { name: "Close Welcome Banner" });
+      const visible = await closeBtn.isVisible();
+      if (visible) {
+        await closeBtn.click();
+      }
     });
 
     await test.step("Precondition: registration page is ready", async () => {
@@ -480,7 +497,7 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("And I select a security question", async () => {
-      await page.getByLabel("Selection list for the security question").click();
+      await page.getByRole("combobox", { name: "Selection list for the security question" }).click();
       await page.locator("mat-option").first().click();
     });
 

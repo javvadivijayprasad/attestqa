@@ -9,6 +9,7 @@ import { isKnownBroken } from "../src/design/ids.js";
 import { testsPreExisted } from "../src/route/route.js";
 import { FsTools, nearest } from "../src/mcp/adapters/fs.js";
 import { sameSelectorFailures } from "../src/mcp/adapters/heal.js";
+import { withoutBrowserLogs } from "../src/mcp/adapters/pw.js";
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -876,5 +877,24 @@ describe("an in-place edit changes the file (20261013T011552Z)", () => {
       events,
     );
     expect(next ?? "").not.toMatch(/lose an assertion|quarantined/);
+  });
+});
+
+describe("an installed Chrome's launch log does not hide the stuck locator (20261013T024302Z)", () => {
+  it("drops the Browser logs block and keeps the Call log", () => {
+    const msg = [
+      "Error: locator.click: Test timeout of 30000ms exceeded.",
+      "Browser logs:",
+      "",
+      "<launching> C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe --disable-field-trial-config " +
+        "--disable-background-networking ".repeat(30),
+      "<launched> pid=1234",
+      "Call log:",
+      "  - waiting for locator('mat-select')",
+    ].join("\n");
+    const out = withoutBrowserLogs(msg);
+    expect(out).not.toMatch(/Browser logs|chrome\.exe/);
+    expect(out).toMatch(/waiting for locator\('mat-select'\)/);
+    expect(out.length).toBeLessThan(200);
   });
 });
