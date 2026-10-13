@@ -389,9 +389,10 @@ export function validateDesign(
     } else if (task !== undefined) {
       if (!facts.tasks.includes(task))
         problems.push(`${at}: covers task #${task}, which is not one of the story's tasks`);
-    } else if (
-      !(it.covers.toLowerCase() === "story" && (it.type === "accessibility" || noCriteria))
-    ) {
+    } else if (!(
+      it.covers.toLowerCase() === "story" &&
+      (it.type === "accessibility" || noCriteria)
+    )) {
       problems.push(
         `${at}: covers "${it.covers}" — name a criterion (AC-2), a bug (bug #48) or a task (task #46)`,
       );

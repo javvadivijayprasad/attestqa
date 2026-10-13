@@ -1,6 +1,7 @@
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
 import type { FetchLike } from "./tcg.js";
 import { AGENT_TAG } from "../../verify/story-to-tests.js";
+import { QA_LABEL, QA_SUMMARY_PREFIX, type QaBlock } from "../../report/qa-record.js";
 
 /**
  * In-process `jira` adapter: requirements from Jira, read-only, plus the one
@@ -15,9 +16,12 @@ import { AGENT_TAG } from "../../verify/story-to-tests.js";
  *
  * ── What it can and cannot do ──
  * It can read an issue, its comments and links, and run a JQL search. It can
- * create an issue of type Bug and link it to the story. It cannot edit, assign,
- * transition, comment on or delete anything: those tools do not exist, so no
- * instruction or prompt can reach them (capability removal, AQ-01 §9).
+ * create an issue of type Bug and link it to the story. It can keep ONE QA
+ * sub-task per story (ADR-004): create it, rewrite that sub-task's description
+ * when the approved design changes, and add a comment with each run's results —
+ * the runtime posts it, never the model. It cannot edit any other field or any
+ * other issue, assign, transition or delete anything: those tools do not exist,
+ * so no instruction or prompt can reach them (capability removal, AQ-01 §9).
  */
 
 export interface JiraConnection {
@@ -107,6 +111,33 @@ export class JiraTools implements ToolClient {
         policyClass: "write_record",
         scopeArgs: { workItem: "storyKey" },
       },
+      {
+        server: this.server,
+        name: "record_qa",
+        description:
+          "Posted by the runtime at the end of a run, never by the agent: keep the story's one QA " +
+          "sub-task — test cases in its description, this run's results as a comment.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            storyKey: key,
+            projectKey: { type: "string" },
+            summary: { type: "string" },
+            designHash: { type: "string" },
+            description: { type: "array" },
+            comment: { type: "array" },
+            mode: {
+              type: "string",
+              enum: ["cases", "results"],
+              description:
+                "cases: create or update the test cases only; results: also add this run's results",
+            },
+          },
+          required: ["storyKey", "projectKey", "summary", "designHash", "description"],
+        },
+        policyClass: "write_record",
+        scopeArgs: { workItem: "storyKey" },
+      },
     ];
   }
 
@@ -122,9 +153,11 @@ export class JiraTools implements ToolClient {
           return await this.search(args);
         case "create_bug":
           return await this.createBug(args);
+        case "record_qa":
+          return await this.recordQa(args);
         default:
           return fail(
-            `unknown jira tool: ${name}. This adapter can read issues, comments and searches, and create Bugs; nothing else.`,
+            `unknown jira tool: ${name}. This adapter can read issues, comments and searches, create Bugs, and keep a story's QA sub-task; nothing else.`,
           );
       }
     } catch (e) {
@@ -278,10 +311,148 @@ export class JiraTools implements ToolClient {
     });
   }
 
+  /**
+   * The story's one QA sub-task (ADR-004). Found by label under that story and
+   * nowhere else; created when missing; its description rewritten only when
+   * the design hash changed; one comment per call. If the project has no
+   * sub-task type, the record goes to the story as a comment and says why.
+   */
+  private async recordQa(args: Record<string, unknown>): Promise<ToolResult> {
+    const storyKey = issueKey(args["storyKey"]);
+    const projectKey = typeof args["projectKey"] === "string" ? args["projectKey"] : "";
+    const summary = typeof args["summary"] === "string" ? args["summary"].trim() : "";
+    const designHash = typeof args["designHash"] === "string" ? args["designHash"] : "";
+    const description = blocks(args["description"]);
+    const comment = blocks(args["comment"]);
+    // "cases" right after the design is approved: the test cases, no comment.
+    // "results" at the end of the run: the same, plus this run's results.
+    const casesOnly = args["mode"] === "cases";
+    if (!storyKey) return fail(`"storyKey" must be the story's issue key`);
+    if (!/^[A-Z][A-Z0-9_]+$/.test(projectKey)) return fail(`"projectKey" must be a project key`);
+    if (!summary.startsWith(QA_SUMMARY_PREFIX))
+      return fail(`a QA sub-task's summary starts with "${QA_SUMMARY_PREFIX}"`);
+    if (!designHash || description.length === 0)
+      return fail(`"designHash" and "description" are required`);
+    if (!casesOnly && comment.length === 0)
+      return fail(`"comment" is required unless mode is "cases"`);
+    const v3 = (this.conn.apiVersion ?? 3) === 3;
+    const render = (b: QaBlock[]) => (v3 ? toAdfBlocks(b) : toWiki(b));
+
+    // 1. Find it: this story's sub-task carrying our label, and only that.
+    const jql = `parent = ${storyKey} AND labels = "${QA_LABEL}" ORDER BY created ASC`;
+    const found = await this.request(
+      "GET",
+      v3
+        ? `/search/jql?jql=${encodeURIComponent(jql)}&maxResults=5&fields=description,labels,parent`
+        : `/search?jql=${encodeURIComponent(jql)}&maxResults=5&fields=description,labels,parent`,
+    );
+    if (!found.ok) return found;
+    const hits = ((found.body as { issues?: Array<Record<string, unknown>> }).issues ?? []).filter(
+      (i) => {
+        const f = (i["fields"] ?? {}) as Record<string, unknown>;
+        const labels = Array.isArray(f["labels"]) ? (f["labels"] as unknown[]).map(String) : [];
+        return (
+          labels.includes(QA_LABEL) && str((f["parent"] as { key?: string })?.key) === storyKey
+        );
+      },
+    );
+
+    let qaKey = hits[0] ? str(hits[0]["key"]) : "";
+    let created = false;
+    let descriptionUpdated = false;
+    if (!qaKey) {
+      // 2. Create it.
+      const type = await this.subtaskType(projectKey);
+      if (!type) {
+        const fallback = await this.request(
+          "POST",
+          `/issue/${encodeURIComponent(storyKey)}/comment`,
+          {
+            body: render([
+              {
+                kind: "paragraph",
+                text: "This project has no sub-task type, so attestqa's QA record is posted here.",
+              },
+              ...description,
+              ...(casesOnly ? [] : comment),
+            ]),
+          },
+        );
+        if (!fallback.ok) return fallback;
+        return ok({
+          storyKey,
+          qaKey: null,
+          postedTo: storyKey,
+          reason: "no sub-task type in project",
+        });
+      }
+      const res = await this.request("POST", `/issue`, {
+        fields: {
+          project: { key: projectKey },
+          parent: { key: storyKey },
+          issuetype: { id: type },
+          summary,
+          description: render(description),
+          labels: [AGENT_TAG, QA_LABEL],
+        },
+      });
+      if (!res.ok) return res;
+      qaKey = str((res.body as { key?: string }).key);
+      created = true;
+    } else {
+      // 3. Its description follows the approved design — rewritten only when that changed.
+      const current = toText(
+        ((hits[0]?.["fields"] ?? {}) as Record<string, unknown>)["description"],
+      );
+      if (!current.includes(`attestqa design ${designHash}`)) {
+        const upd = await this.request("PUT", `/issue/${encodeURIComponent(qaKey)}`, {
+          fields: { description: render(description) },
+        });
+        if (!upd.ok) return upd;
+        descriptionUpdated = true;
+      }
+    }
+
+    if (casesOnly) return ok({ storyKey, qaKey, created, descriptionUpdated, mode: "cases" });
+
+    // 4. This run's results.
+    const posted = await this.request("POST", `/issue/${encodeURIComponent(qaKey)}/comment`, {
+      body: render(comment),
+    });
+    if (!posted.ok) return posted;
+    return ok({
+      storyKey,
+      qaKey,
+      created,
+      descriptionUpdated,
+      commentId: str((posted.body as { id?: string }).id),
+    });
+  }
+
+  /** The id of the project's sub-task issue type ("Subtask" or "Sub-task", by site). */
+  private async subtaskType(projectKey: string): Promise<string | undefined> {
+    const meta = await this.request(
+      "GET",
+      `/issue/createmeta/${encodeURIComponent(projectKey)}/issuetypes`,
+    );
+    const pick = (list: unknown): string | undefined => {
+      const arr = Array.isArray(list) ? (list as Array<Record<string, unknown>>) : [];
+      const t = arr.find((x) => x["subtask"] === true);
+      return t ? str(t["id"]) : undefined;
+    };
+    if (meta.ok) {
+      const b = meta.body as Record<string, unknown>;
+      const found = pick(b["issueTypes"] ?? b["values"]);
+      if (found) return found;
+    }
+    const all = await this.request("GET", `/issuetype`);
+    return all.ok ? pick(all.body) : undefined;
+  }
+
   // ---------------------------------------------------------------------------
 
   private async request(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "PUT",
     path: string,
     body?: unknown,
   ): Promise<ToolResult & { body?: unknown }> {
@@ -465,4 +636,73 @@ function links(v: unknown): Array<{
     }
   }
   return out;
+}
+
+function blocks(v: unknown): QaBlock[] {
+  return Array.isArray(v)
+    ? (v as QaBlock[]).filter((b) => b && typeof b === "object" && "kind" in b)
+    : [];
+}
+
+function adfText(text: string): Record<string, unknown> {
+  return text ? { type: "paragraph", content: [{ type: "text", text }] } : { type: "paragraph" };
+}
+
+/** Atlassian Document Format (Cloud): headings, paragraphs, real tables, code. */
+export function toAdfBlocks(doc: QaBlock[]): Record<string, unknown> {
+  const cell = (type: "tableHeader" | "tableCell", text: string) => ({
+    type,
+    content: [adfText(text)],
+  });
+  return {
+    type: "doc",
+    version: 1,
+    content: doc.map((b) => {
+      switch (b.kind) {
+        case "heading":
+          return {
+            type: "heading",
+            attrs: { level: 3 },
+            content: [{ type: "text", text: b.text }],
+          };
+        case "code":
+          return { type: "codeBlock", content: b.text ? [{ type: "text", text: b.text }] : [] };
+        case "table":
+          return {
+            type: "table",
+            content: [
+              { type: "tableRow", content: b.header.map((h) => cell("tableHeader", h)) },
+              ...b.rows.map((r) => ({
+                type: "tableRow",
+                content: r.map((c) => cell("tableCell", c)),
+              })),
+            ],
+          };
+        default:
+          return adfText(b.text);
+      }
+    }),
+  };
+}
+
+/** Jira wiki markup (Data Center): the same document. */
+export function toWiki(doc: QaBlock[]): string {
+  const esc = (t: string) => t.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+  return doc
+    .map((b) => {
+      switch (b.kind) {
+        case "heading":
+          return `h3. ${b.text}`;
+        case "code":
+          return `{code}${b.text}{code}`;
+        case "table":
+          return [
+            `||${b.header.map(esc).join("||")}||`,
+            ...b.rows.map((r) => `|${r.map((c) => esc(c) || " ").join("|")}|`),
+          ].join("\n");
+        default:
+          return b.text;
+      }
+    })
+    .join("\n\n");
 }

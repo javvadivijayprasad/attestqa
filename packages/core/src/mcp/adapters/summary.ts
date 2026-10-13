@@ -48,7 +48,10 @@ export interface LedgerView {
 export class SummaryTools implements ToolClient {
   readonly server = "aqa";
 
-  constructor(private readonly ledger: LedgerView, private readonly opts: SummaryOptions = {}) {}
+  constructor(
+    private readonly ledger: LedgerView,
+    private readonly opts: SummaryOptions = {},
+  ) {}
 
   async listTools(): Promise<ToolDescriptor[]> {
     return [
@@ -360,7 +363,7 @@ function render(r: Rendered): string {
     // story had a defect — the body of the report then said the opposite, two
     // paragraphs down (20260925T184615Z). What another story's tests did is
     // context, and is reported as context.
-    const others = writtenOff ? [] : r.otherStoryFailures ?? [];
+    const others = writtenOff ? [] : (r.otherStoryFailures ?? []);
     if (!writtenOff) {
       const failedHere = Math.max(0, n("failed") - others.length);
       const verdict = failedHere === 0 && n("skipped") === 0 ? "green" : "NOT green";
@@ -416,7 +419,7 @@ function render(r: Rendered): string {
     // reading this story most needs to act on, and the thing a failure count
     // would have hidden.
     // A pass in a run that measured nothing is not "did not reproduce".
-    const known = writtenOff ? [] : r.knownBugsNotReproduced ?? [];
+    const known = writtenOff ? [] : (r.knownBugsNotReproduced ?? []);
     if (known.length > 0) {
       lines.push("");
       lines.push("**Known bugs that did NOT reproduce:**");

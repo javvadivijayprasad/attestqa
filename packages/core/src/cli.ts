@@ -1,5 +1,6 @@
 import { replayRules } from "./replay/rules.js";
 import {
+  readSourceFiles,
   renderCoverage,
   storyCoverage,
   type Ledger as RunLedger,
@@ -66,8 +67,8 @@ export function ownBdd2pw(): { cli: string; version: string } | undefined {
       typeof pkg.bin === "string"
         ? pkg.bin
         : typeof pkg.bin === "object" && pkg.bin !== null
-        ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
-        : undefined;
+          ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
+          : undefined;
     if (typeof bin !== "string") return undefined;
     const cli = join(dirname(pkgPath), bin);
     if (!existsSync(cli)) return undefined;
@@ -153,8 +154,8 @@ export interface CliIo {
 export async function main(argv: string[], io: CliIo = stdio()): Promise<number> {
   const [cmd, ...rest] = argv;
   try {
-    if (!cmd || cmd === "--help" || cmd === "-h") return io.out(USAGE), 0;
-    if (cmd === "--version" || cmd === "-v") return io.out(`${VERSION}\n`), 0;
+    if (!cmd || cmd === "--help" || cmd === "-h") return (io.out(USAGE), 0);
+    if (cmd === "--version" || cmd === "-v") return (io.out(`${VERSION}\n`), 0);
     if (cmd === "replay") return replay(rest, io);
     if (cmd === "discover") return await discover(rest, io);
     if (cmd === "check-rules") return await checkRules(rest, io);
@@ -189,10 +190,10 @@ function stdio(): CliIo {
 
 function replay(args: string[], io: CliIo): number {
   const target = positional(args)[0];
-  if (!target) return io.err("aqa replay: missing <path>\n"), 1;
+  if (!target) return (io.err("aqa replay: missing <path>\n"), 1);
   const out = flag(args, "--out");
   const file = resolveLedgerFile(resolve(target));
-  if (!file) return io.err(`aqa replay: no ${LEDGER_FILE} found under ${target}\n`), 1;
+  if (!file) return (io.err(`aqa replay: no ${LEDGER_FILE} found under ${target}\n`), 1);
   const events = readLedgerFile(file);
   const md = renderMarkdown(events);
   if (out && out !== "-") {
@@ -384,9 +385,9 @@ export async function discover(args: string[], io: CliIo, deps: ToolingDeps = {}
 
 export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Promise<number> {
   const request = positional(args)[0];
-  if (!request) return io.err(`aqa run: missing "<request>"\n`), 1;
+  if (!request) return (io.err(`aqa run: missing "<request>"\n`), 1);
   const configPath = flag(args, "--config");
-  if (!configPath) return io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1;
+  if (!configPath) return (io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1);
   const config = await loadAgentConfig(configPath);
 
   if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
@@ -482,14 +483,14 @@ async function live(
   // over the file (standard dotenv precedence) and silently shadows it, which
   // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
   const credVar = credentialVarFor(config.model);
-  const credValue = credVar ? process.env[credVar] ?? "" : "";
+  const credValue = credVar ? (process.env[credVar] ?? "") : "";
   const keySource = !credVar
     ? "no credential needed"
     : loaded.includes(credVar)
-    ? `${credVar} ${mask(credValue)} from ${envFile}`
-    : credValue
-    ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
-    : `${credVar} is not set anywhere`;
+      ? `${credVar} ${mask(credValue)} from ${envFile}`
+      : credValue
+        ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
+        : `${credVar} is not set anywhere`;
   io.err(
     `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(
       config.model,
@@ -808,8 +809,8 @@ export function liveLine(e: AnyRunEvent): string {
           s["frameworkFound"] === undefined
             ? ""
             : s["frameworkFound"]
-            ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
-            : "aqa: framework — NONE FOUND; run aqa init-framework first\n";
+              ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
+              : "aqa: framework — NONE FOUND; run aqa init-framework first\n";
         return (
           fw +
           `aqa: context — story ${n("storyRead") ? "read" : "NOT READ"}, ` +
@@ -999,8 +1000,8 @@ export function pickTracker(
         ? "jira"
         : "ado"
       : !parseWorkItemRef(request) && jiraRef
-      ? "jira"
-      : "ado");
+        ? "jira"
+        : "ado");
   if (tracker === "jira" && !env.jira)
     return {
       error:
@@ -1011,44 +1012,6 @@ export function pickTracker(
 }
 
 /** `aqa check-rules`: today's rules against recorded runs. See USAGE. */
-/** Feature and spec files under a workspace, skipping what is never source. */
-function sourceFiles(root: string): { features: SourceFile[]; specs: SourceFile[] } {
-  const features: SourceFile[] = [];
-  const specs: SourceFile[] = [];
-  const skip = new Set([
-    "node_modules",
-    ".git",
-    ".aqa",
-    ".aqa-report",
-    "test-results",
-    "playwright-report",
-    ".bdd2pw",
-    "dist",
-  ]);
-  const walk = (dir: string, depth: number) => {
-    if (depth > 6) return;
-    for (const name of readdirSync(dir)) {
-      if (skip.has(name)) continue;
-      const full = join(dir, name);
-      const st = statSync(full);
-      if (st.isDirectory()) walk(full, depth + 1);
-      else if (name.endsWith(".feature"))
-        features.push({ path: relativeTo(root, full), text: readFileSync(full, "utf8") });
-      else if (/\.(spec|test)\.[cm]?[jt]sx?$/.test(name))
-        specs.push({ path: relativeTo(root, full), text: readFileSync(full, "utf8") });
-    }
-  };
-  walk(root, 0);
-  return { features, specs };
-}
-
-function relativeTo(root: string, full: string): string {
-  return full
-    .slice(root.length + 1)
-    .split("\\")
-    .join("/");
-}
-
 export function coverage(args: string[], io: CliIo): number {
   const workspace = flag(args, "--workspace");
   if (!workspace) {
@@ -1067,7 +1030,7 @@ export function coverage(args: string[], io: CliIo): number {
   const storyId = story === undefined ? undefined : normId(story);
   const stories = storyCoverage(
     ledgers,
-    sourceFiles(root),
+    readSourceFiles(root),
     storyId === undefined ? {} : { story: storyId },
   );
   const text = args.includes("--json")

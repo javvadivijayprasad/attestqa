@@ -488,6 +488,12 @@ export interface AgentConfig {
    * prompt through that sidecar and fails closed without it.
    */
   llm_fallback?: "anthropic" | "openai" | "gemini";
+  /**
+   * Ask a person before the first suite run of a run. Later runs in the same
+   * run (re-runs after a repair) go ahead under that approval. Absent or false:
+   * the suite runs without asking, as before.
+   */
+  approve_execution?: boolean;
 }
 
 export const DEFAULT_POLICY: PolicyTable = {
@@ -615,9 +621,19 @@ export interface Skill {
    * decision — or undefined when there is nothing a reader needs to know. It
    * goes through the gate and an approval like any other write.
    */
+  /**
+   * Calls the RUNTIME makes straight after a person approved a batch, covered
+   * by that same approval — e.g. posting an approved test design to the
+   * tracker. They still pass the gate (a refusal stands); they are not put to
+   * the reviewer a second time, and the approval prompt says they will happen.
+   */
+  afterApproved?: (
+    executed: Array<{ toolName: string; args: Record<string, unknown> }>,
+    events: AnyRunEvent[],
+  ) => Array<{ toolName: string; args: Record<string, unknown> }>;
   finalReport?: (
     events: AnyRunEvent[],
-    ctx: { runId: string; agentNote?: string },
+    ctx: { runId: string; agentNote?: string; status?: string },
   ) => { toolName: string; args: Record<string, unknown> } | undefined;
 }
 

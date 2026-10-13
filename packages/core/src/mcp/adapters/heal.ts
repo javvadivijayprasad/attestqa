@@ -275,8 +275,8 @@ function swallows(title: string, events: Parameters<typeof completedCalls>[0]): 
       c.toolName === "fs.write_file"
         ? String(c.args["content"] ?? "")
         : typeof asRecord(c.result)?.["content"] === "string"
-        ? String(asRecord(c.result)?.["content"])
-        : "";
+          ? String(asRecord(c.result)?.["content"])
+          : "";
     if (!text) continue;
     const body = bodyOf(text, title);
     if (body !== undefined && CATCHES.test(body)) return true;

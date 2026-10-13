@@ -1,5 +1,6 @@
 import type { PreflightDigest, PreflightRead } from "../types.js";
 import { asArray, asRecord } from "../verify/evidence.js";
+import { QA_SUMMARY_PREFIX } from "../report/qa-record.js";
 import { acLabels } from "../triage/settle.js";
 import { featurePathFor, specPathFor, type StoryFacts } from "../design/test-design.js";
 import { KNOWN_BROKEN_STATE, normId, type TrackerId } from "../design/ids.js";
@@ -167,7 +168,9 @@ export async function gatherJiraStoryContext(
       if (!sb.ok || items.length > 0)
         out.push(
           "",
-          `OTHER STORIES UNDER THIS ${str(pr["type"]).toUpperCase() || "PARENT"} — behaviour that belongs ` +
+          `OTHER STORIES UNDER THIS ${
+            str(pr["type"]).toUpperCase() || "PARENT"
+          } — behaviour that belongs ` +
             "to one of these is NOT this story's to test. If an open bug below is about one of them, say " +
             "so and leave it:",
         );
@@ -186,7 +189,12 @@ export async function gatherJiraStoryContext(
   out.push("");
 
   // ---- sub-tasks -------------------------------------------------------------
-  const subtasks = asArray(s["subtasks"]).map((x) => asRecord(x) ?? {});
+  // attestqa's own QA sub-task (ADR-004) is this runtime's output, not a
+  // requirement: reading it back would make yesterday's test cases into
+  // today's acceptance criteria.
+  const subtasks = asArray(s["subtasks"])
+    .map((x) => asRecord(x) ?? {})
+    .filter((t) => !str(t["summary"]).startsWith(QA_SUMMARY_PREFIX));
   const taskIds = subtasks
     .map((t) => normId(t["key"]))
     .filter((k): k is TrackerId => k !== undefined);
@@ -270,7 +278,9 @@ export async function gatherJiraStoryContext(
       out.push(
         `OPEN BUGS — ${humanBugs.length} filed by people` +
           (open.length > humanBugs.length
-            ? `; ${open.length - humanBugs.length} proposed by this runtime and never confirmed were left out.`
+            ? `; ${
+                open.length - humanBugs.length
+              } proposed by this runtime and never confirmed were left out.`
             : "."),
         "Each state asks something different of you:",
       );

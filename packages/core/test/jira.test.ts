@@ -250,9 +250,9 @@ describe("the one write: a Bug, linked to its story", () => {
     expect(r.result).toMatchObject({ key: "QA-20", storyKey: "QA-12", linked: true });
   });
 
-  it("offers no tool that edits, transitions, comments on or deletes anything", async () => {
+  it("offers no tool that edits a story, transitions or deletes anything (record_qa keeps only its own QA sub-task)", async () => {
     const names = (await new JiraTools(CLOUD).listTools()).map((d) => d.name).sort();
-    expect(names).toEqual(["create_bug", "get_issue", "list_comments", "search"]);
+    expect(names).toEqual(["create_bug", "get_issue", "list_comments", "record_qa", "search"]);
     const r = await new JiraTools(CLOUD, { fetch: fake({}) }).call("jira", "edit_issue", {
       key: "QA-12",
     });

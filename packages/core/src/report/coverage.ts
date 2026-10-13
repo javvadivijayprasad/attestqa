@@ -1,3 +1,5 @@
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import {
@@ -324,4 +326,42 @@ export function renderCoverage(stories: StoryCoverage[]): string {
 /** For callers that already hold a story id as text. */
 export function storyIdOf(text: string | undefined): TrackerId | undefined {
   return text ? normId(text) : undefined;
+}
+
+/** Feature and spec files under a workspace, skipping what is never source. */
+export function readSourceFiles(root: string): { features: SourceFile[]; specs: SourceFile[] } {
+  const features: SourceFile[] = [];
+  const specs: SourceFile[] = [];
+  const skip = new Set([
+    "node_modules",
+    ".git",
+    ".aqa",
+    ".aqa-report",
+    "test-results",
+    "playwright-report",
+    ".bdd2pw",
+    "dist",
+  ]);
+  const walk = (dir: string, depth: number) => {
+    if (depth > 6) return;
+    for (const name of readdirSync(dir)) {
+      if (skip.has(name)) continue;
+      const full = join(dir, name);
+      const st = statSync(full);
+      if (st.isDirectory()) walk(full, depth + 1);
+      else if (name.endsWith(".feature"))
+        features.push({ path: relativeTo(root, full), text: readFileSync(full, "utf8") });
+      else if (/\.(spec|test)\.[cm]?[jt]sx?$/.test(name))
+        specs.push({ path: relativeTo(root, full), text: readFileSync(full, "utf8") });
+    }
+  };
+  walk(root, 0);
+  return { features, specs };
+}
+
+function relativeTo(root: string, full: string): string {
+  return full
+    .slice(root.length + 1)
+    .split("\\")
+    .join("/");
 }

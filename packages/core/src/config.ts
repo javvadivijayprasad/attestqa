@@ -138,6 +138,13 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
     llm_fallback = v as AgentConfig["llm_fallback"];
   }
 
+  let approve_execution: boolean | undefined;
+  if (agent["approve_execution"] !== undefined) {
+    if (typeof agent["approve_execution"] !== "boolean")
+      throw new ConfigError(`${source}: agent.approve_execution must be true or false`);
+    approve_execution = agent["approve_execution"];
+  }
+
   return {
     model,
     prompt_version,
@@ -147,6 +154,7 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
     capabilities,
     ...(test_types ? { test_types } : {}),
     ...(llm_fallback ? { llm_fallback } : {}),
+    ...(approve_execution !== undefined ? { approve_execution } : {}),
   };
 }
 
@@ -173,7 +181,9 @@ export function modelConfig(raw: unknown, where: string): ModelConfig {
   const provider = str(raw["provider"]);
   if (provider === undefined || !knownProvider(provider))
     throw new ConfigError(
-      `${where}.provider must be one of ${[...MODEL_PROVIDERS, ...registeredProviderNames()].join(", ")}`,
+      `${where}.provider must be one of ${[...MODEL_PROVIDERS, ...registeredProviderNames()].join(
+        ", ",
+      )}`,
     );
   const name = str(raw["name"]);
   if (!name)

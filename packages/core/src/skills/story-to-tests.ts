@@ -1,11 +1,13 @@
 import { routePathOf } from "../route/route.js";
-import type { Skill } from "../types.js";
+import type { AnyRunEvent, Skill } from "../types.js";
 import { StoryToTestsVerifier, type StoryToTestsOptions } from "../verify/story-to-tests.js";
 import { gatherStoryContext } from "./story-context.js";
 import { gatherJiraStoryContext } from "./jira-story-context.js";
 import type { Tracker } from "../design/ids.js";
 import { lockedScenarios, makeStoryRefusal } from "./story-rules.js";
 import { composeRunReport } from "../mcp/adapters/summary.js";
+import { composeQaRecord } from "../report/qa-record.js";
+import { readSourceFiles } from "../report/coverage.js";
 import { asRecord } from "../verify/evidence.js";
 import { chooseRoute } from "../route/route.js";
 import {
@@ -114,6 +116,9 @@ export const JIRA_TRACKER_TOOLS = [
   // Bug creation only, after a person approves it; the adapter links it to the
   // story and labels it agentic-qa.
   "jira.create_bug",
+  // The story's QA sub-task (ADR-004). Posted by the runtime at the end of the
+  // run; a proposal from the agent is refused (`agentRunReport`).
+  "jira.record_qa",
 ];
 
 export function trackerTools(tracker: Tracker, tools: readonly string[]): string[] {
@@ -126,7 +131,8 @@ export function trackerTools(tracker: Tracker, tools: readonly string[]): string
 
 export function trackerSources(tracker: Tracker): string[] {
   return trackerTools(tracker, STORY_TO_TESTS_SOURCES).filter(
-    (x) => tracker === "ado" || !["jira.list_comments", "jira.create_bug"].includes(x),
+    (x) =>
+      tracker === "ado" || !["jira.list_comments", "jira.create_bug", "jira.record_qa"].includes(x),
   );
 }
 
@@ -868,6 +874,38 @@ export function storyToTestsSkill(
   const { project, ...options } = input;
   const tracker: Tracker = options.tracker ?? "ado";
   const canCreatePlans = tracker === "ado" && options.requireSuiteMembership !== false;
+  /** The `jira.record_qa` call for this run (ADR-004), or undefined with nothing to record. */
+  const qaRecordCall = (
+    events: AnyRunEvent[],
+    mode: "cases" | "results",
+    runId: string,
+    status?: string,
+  ): { toolName: string; args: Record<string, unknown> } | undefined => {
+    if (!options.workspaceDir) return undefined;
+    const key = String(options.workItem);
+    const title = storyFacts(events)?.story?.title;
+    const record = composeQaRecord(events, {
+      runId,
+      storyKey: key,
+      ...(title ? { storyTitle: title } : {}),
+      files: readSourceFiles(options.workspaceDir),
+      ...(status ? { status } : {}),
+    });
+    if (!record) return undefined;
+    return {
+      toolName: "jira.record_qa",
+      args: {
+        storyKey: record.storyKey,
+        projectKey: key.split("-")[0] ?? "",
+        summary: record.summary,
+        designHash: record.designHash,
+        description: record.description,
+        mode,
+        ...(mode === "results" ? { comment: record.comment } : {}),
+      },
+    };
+  };
+
   return {
     name: "story-to-tests",
     workItem: options.workItem,
@@ -877,6 +915,14 @@ export function storyToTestsSkill(
       // baseline even when the run never read it.
       ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
     }),
+    // ADR-004: once the design is approved, its test cases go to the story's
+    // QA sub-task straight away — covered by that approval, not asked again.
+    afterApproved: (executed, events) => {
+      if (tracker !== "jira" || !options.workspaceDir) return [];
+      if (!executed.some((c) => c.toolName === "aqa.test_design")) return [];
+      const call = qaRecordCall(events, "cases", `design-${events.length}`);
+      return call ? [call] : [];
+    },
     finalReport: (events, ctx) => {
       const r = composeRunReport(events, ctx.runId, {
         workItem: options.workItem,
@@ -905,10 +951,15 @@ export function storyToTestsSkill(
         r.createdCaseIds.length > 0 ||
         r.bugsFiled.length + r.bugsDropped.length + r.bugsDenied.length > 0 ||
         r.knownBugsNotReproduced.length > 0;
+      // Jira (ADR-004): the story's one QA sub-task — test cases in its
+      // description, every run's results as a comment. A results log is the
+      // point here, so it is posted whenever the design is approved, not only
+      // when something is newsworthy.
+      if (tracker === "jira") {
+        if (!options.workspaceDir) return undefined;
+        return qaRecordCall(events, "results", ctx.runId, ctx.status);
+      }
       if (!newsworthy) return undefined;
-      // Jira: the report stays with the run. There is no tool that comments on
-      // a Jira issue, by design — so there is nothing to post with.
-      if (tracker === "jira") return undefined;
       return {
         toolName: "ado.wit_work_item_comment_write",
         args: { action: "add", workItemId: Number(options.workItem), text: r.text },
@@ -942,6 +993,12 @@ export function storyToTestsSkill(
       if (!design || !options.workspaceDir) return undefined;
       const facts = storyFacts(events);
       if (!facts) return undefined;
+      // ADR-004: in Jira this one approval also covers the QA sub-task.
+      const jiraLine =
+        tracker === "jira"
+          ? "Approving also posts these test cases to the story's QA sub-task in Jira now, and " +
+            "this run's results there at the end."
+          : "";
       const read = (rel: string | undefined): string | undefined => {
         if (!rel) return undefined;
         const full = join(options.workspaceDir as string, rel);
@@ -960,7 +1017,7 @@ export function storyToTestsSkill(
         ...(read(specPathFor(facts)) ? { specText: read(specPathFor(facts)) as string } : {}),
         ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
       });
-      if (covered.size === 0) return undefined;
+      if (covered.size === 0) return jiraLine ? { note: jiraLine } : undefined;
       const lines = [...covered].map(
         ([id, hit]) => `  ${id} → "${hit.scenario}" (matched on ${hit.how})`,
       );
@@ -977,6 +1034,7 @@ export function storyToTestsSkill(
           : `What is NEW: ${fresh} item(s) — read ${
               fresh === 1 ? "that one" : "those"
             } most closely, ${fresh === 1 ? "it is" : "they are"} the work this run will do.`,
+        ...(jiraLine ? ["", jiraLine] : []),
       ].join("\n");
       return { note, covered };
     },
@@ -1058,7 +1116,9 @@ export function storyToTestsSkill(
         path: "A2",
         reason:
           `the approved design adds ${missing.length} item(s) no scenario covers yet ` +
-          `(${missing.join(", ")}) — add their scenarios and scaffold; every existing scenario stays as it is`,
+          `(${missing.join(
+            ", ",
+          )}) — add their scenarios and scaffold; every existing scenario stays as it is`,
         // What is locked is what existed at THIS moment. Scenarios the run
         // adds afterwards for the new items stay its own to correct.
         because: {

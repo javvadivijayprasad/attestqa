@@ -445,4 +445,251 @@ test.describe("Customer account access", () => {
       ).toEqual([]);
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // SCRUM-10: New customer registers an account
+  // ---------------------------------------------------------------------------
+
+  // @story:SCRUM-10
+  // @ac:1
+  // @design:D14
+  // @type:functional
+  // @technique:state-transition
+  test("AC-1: A new customer who fills in all registration fields is sent to the login page", async ({ page }) => {
+    await test.step("Given I navigate to the registration page", async () => {
+      await page.goto("/#/register");
+    });
+
+    await test.step("Precondition: registration page is ready", async () => {
+      await expect(page.getByRole("heading", { name: "User Registration" })).toBeVisible({ timeout: 5000 });
+      await expect(page.getByLabel("Email address field")).toBeVisible({ timeout: 5000 });
+    });
+
+    const uniqueEmail = `aqa-reg-${Date.now()}@example.com`;
+
+    await test.step("When I find the Email field and enter a unique new email", async () => {
+      await page.getByLabel("Email address field").fill(uniqueEmail);
+    });
+
+    await test.step("And I find the Password field and enter a valid password", async () => {
+      await page.getByLabel("Field for the password").fill("Test1234!");
+    });
+
+    await test.step("And I find the Repeat Password field and enter the same password", async () => {
+      await page.getByLabel("Field to confirm the password").fill("Test1234!");
+    });
+
+    await test.step("And I select a security question", async () => {
+      await page.getByLabel("Selection list for the security question").click();
+      await page.locator("mat-option").first().click();
+    });
+
+    await test.step("And I find the Answer field and enter an answer", async () => {
+      await page.getByPlaceholder("Answer to your security question").fill("MyAnswer");
+    });
+
+    await test.step("Precondition: Register button is enabled before clicking", async () => {
+      await expect(page.locator("button[type='submit']")).toBeEnabled({ timeout: 5000 });
+    });
+
+    await test.step("And I click Register", async () => {
+      await page.locator("button[type='submit']").click();
+    });
+
+    await test.step("Then the URL contains '/#/login'", async () => {
+      await expect(page).toHaveURL(new RegExp("/#/login"), { timeout: 10000 });
+    });
+  });
+
+  // @story:SCRUM-10
+  // @ac:2
+  // @design:D15
+  // @type:functional
+  // @technique:boundary-value-analysis
+  test("AC-2: Register button is disabled when password and repeat password differ", async ({ page }) => {
+    await test.step("Given I navigate to the registration page", async () => {
+      await page.goto("/#/register");
+    });
+
+    await test.step("Precondition: registration page is ready", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Password field and enter a password", async () => {
+      await page.locator("input[type='password']").first().fill("Test1234!");
+    });
+
+    await test.step("And I find the Repeat Password field and enter a different password", async () => {
+      await page.locator("input[type='password']").nth(1).fill("Different99!");
+    });
+
+    await test.step("Then the Register button is disabled", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeDisabled();
+    });
+  });
+
+  // @story:SCRUM-10
+  // @ac:2
+  // @design:D16
+  // @type:functional
+  // @technique:boundary-value-analysis
+  test("AC-2: Register button is enabled when password and repeat password match", async ({ page }) => {
+    await test.step("Given I navigate to the registration page", async () => {
+      await page.goto("/#/register");
+    });
+
+    await test.step("Precondition: registration page is ready", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter an email", async () => {
+      await page.getByLabel("Email").fill(`aqa-enabled-${Date.now()}@example.com`);
+    });
+
+    await test.step("And I find the Password field and enter a password", async () => {
+      await page.locator("input[type='password']").first().fill("Test1234!");
+    });
+
+    await test.step("And I find the Repeat Password field and enter the same password", async () => {
+      await page.locator("input[type='password']").nth(1).fill("Test1234!");
+    });
+
+    await test.step("And I select a security question", async () => {
+      await page.locator("mat-select").click();
+      await page.locator("mat-option").first().click();
+    });
+
+    await test.step("And I find the Answer field and enter an answer", async () => {
+      await page.getByPlaceholder("Answer to your security question").fill("MyAnswer");
+    });
+
+    await test.step("Then the Register button is enabled", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeEnabled({ timeout: 5000 });
+    });
+  });
+
+  // @story:SCRUM-10
+  // @ac:3
+  // @design:D17
+  // @type:functional
+  // @technique:equivalence-partitioning
+  test("AC-3: Registering with an email that already has an account is refused with a message", async ({ page }) => {
+    await test.step("Given I navigate to the registration page", async () => {
+      await page.goto("/#/register");
+    });
+
+    await test.step("Precondition: registration page is ready", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter an already-registered email", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "");
+    });
+
+    await test.step("And I find the Password field and enter a password", async () => {
+      await page.locator("input[type='password']").first().fill("Test1234!");
+    });
+
+    await test.step("And I find the Repeat Password field and enter the same password", async () => {
+      await page.locator("input[type='password']").nth(1).fill("Test1234!");
+    });
+
+    await test.step("And I select a security question", async () => {
+      await page.locator("mat-select").click();
+      await page.locator("mat-option").first().click();
+    });
+
+    await test.step("And I find the Answer field and enter an answer", async () => {
+      await page.getByPlaceholder("Answer to your security question").fill("MyAnswer");
+    });
+
+    await test.step("Precondition: Register button is enabled (all fields filled correctly)", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeEnabled({ timeout: 5000 });
+    });
+
+    await test.step("And I click Register", async () => {
+      await page.locator("button").filter({ hasText: "Register" }).click();
+    });
+
+    await test.step("Then the page displays a message saying the email must be unique", async () => {
+      await expect(page.getByText("Email must be unique")).toBeVisible({ timeout: 10000 });
+    });
+  });
+
+  // @story:SCRUM-10
+  // @design:D18
+  // @type:accessibility
+  // @technique:checklist-based
+  test("AC-story: Registration page passes axe-core WCAG A/AA scan", async ({ page }) => {
+    await test.step("Given I navigate to the registration page", async () => {
+      await page.goto("/#/register");
+    });
+
+    await test.step("Precondition: registration page is ready", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("Then the registration form has no axe violations", async () => {
+      const results = await new AxeBuilder({ page })
+        .include("mat-card, form")
+        .withTags(["wcag2a", "wcag2aa"])
+        .analyze();
+      expect(
+        results.violations.map((v) => v.id).sort(),
+        "axe-core WCAG A/AA violations on the registration page"
+      ).toEqual([]);
+    });
+  });
+
+  // @story:SCRUM-10
+  // @ac:1
+  // @design:D19
+  // @type:security
+  // @technique:error-guessing
+  test("AC-1 (security): Duplicate email registration error does not reveal extra account details", async ({ page }) => {
+    await test.step("Given I navigate to the registration page", async () => {
+      await page.goto("/#/register");
+    });
+
+    await test.step("Precondition: registration page is ready", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step("When I find the Email field and enter an already-registered email", async () => {
+      await page.getByLabel("Email").fill(process.env["AQA_APP_USER"] ?? "");
+    });
+
+    await test.step("And I find the Password field and enter a password", async () => {
+      await page.locator("input[type='password']").first().fill("Test1234!");
+    });
+
+    await test.step("And I find the Repeat Password field and enter the same password", async () => {
+      await page.locator("input[type='password']").nth(1).fill("Test1234!");
+    });
+
+    await test.step("And I select a security question", async () => {
+      await page.locator("mat-select").click();
+      await page.locator("mat-option").first().click();
+    });
+
+    await test.step("And I find the Answer field and enter an answer", async () => {
+      await page.getByPlaceholder("Answer to your security question").fill("MyAnswer");
+    });
+
+    await test.step("Precondition: Register button is enabled (all fields filled correctly)", async () => {
+      await expect(page.locator("button").filter({ hasText: "Register" })).toBeEnabled({ timeout: 5000 });
+    });
+
+    await test.step("And I click Register", async () => {
+      await page.locator("button").filter({ hasText: "Register" }).click();
+    });
+
+    await test.step("Then the error message says 'Email must be unique' and does not reveal account details beyond email already in use", async () => {
+      await expect(page.getByText("Email must be unique")).toBeVisible({ timeout: 10000 });
+      // The message must say only that the email is taken — it must not reveal whether a
+      // password is set, when the account was created, or any other detail about the existing account.
+      await expect(page.getByText("password")).not.toBeVisible();
+      await expect(page.getByText("account details")).not.toBeVisible();
+    });
+  });
 });

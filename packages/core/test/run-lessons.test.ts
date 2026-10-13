@@ -80,7 +80,7 @@ describe("triage: failures that never reached the product", () => {
 
 describe("the live line says what triage actually knows", () => {
   const ev = (verdicts: unknown[]) =>
-    ({ kind: "triage", payload: { verdicts } } as unknown as AnyRunEvent);
+    ({ kind: "triage", payload: { verdicts } }) as unknown as AnyRunEvent;
 
   it("does not present a no-pattern default as a product defect", () => {
     const line = liveLine(ev([{ category: "real-defect", confidence: 0.1, rationale: "x" }]));
@@ -299,7 +299,7 @@ describe("completing the design after a re-route: add once, then scaffold", () =
         because: { appendOnly: true, missing: ["D5"], locked: lockedScenarios(OLD) },
         denied: [],
       },
-    } as unknown as AnyRunEvent);
+    }) as unknown as AnyRunEvent;
   const call = (toolName: string, args: Record<string, unknown>): AnyRunEvent[] => {
     const callId = ++id;
     const [server, name] = toolName.split(".");
@@ -824,5 +824,57 @@ describe("items sharing a criterion each find their own scenario (20261012T22013
       "AC-3c: case c",
       "AC-3d: case d",
     ]);
+  });
+});
+
+describe("an in-place edit changes the file (20261013T011552Z)", () => {
+  const PATH = "tests/x.spec.ts";
+  const ORIGINAL =
+    'test("a", async ({ page }) => {\n  await page.getByLabel("Email").fill(x);\n  expect(1).toBe(1);\n});';
+  let n = 0;
+  const call = (toolName: string, args: Record<string, unknown>, result: unknown) => {
+    const id = ++n;
+    const [server, name] = toolName.split(".");
+    return [
+      { eventId: id, kind: "call", payload: { server, toolName: name, args, startedAt: 0 } },
+      {
+        eventId: ++n,
+        kind: "observation",
+        payload: { eventIdOfCall: id, ok: true, result, artefacts: [], durationMs: 1 },
+      },
+    ];
+  };
+  const events = [
+    { eventId: 0, kind: "route", payload: { path: "B", because: {} } },
+    ...call(
+      "fs.read_file",
+      { path: PATH, fromLine: 1, toLine: 4 },
+      { path: PATH, content: ORIGINAL, lines: 4, fromLine: 1, toLine: 4 },
+    ),
+    ...call(
+      "fs.replace_in_file",
+      { path: PATH, old: '"Email"', new: '"Email address field"' },
+      { replaced: 1 },
+    ),
+  ] as unknown as AnyRunEvent[];
+
+  it("lets the agent re-read lines it has just edited", () => {
+    const again = storyRefusal(
+      { toolName: "fs.read_file", args: { path: PATH, fromLine: 1, toLine: 4 } },
+      events,
+    );
+    expect(again ?? "").not.toMatch(/already read/);
+  });
+
+  it("judges the next edit against the file as edited, not as first read", () => {
+    // Applies only to the edited text; against the stale view "Email address field" would not exist.
+    const next = storyRefusal(
+      {
+        toolName: "fs.replace_in_file",
+        args: { path: PATH, old: '"Email address field"', new: '"Email address"' },
+      },
+      events,
+    );
+    expect(next ?? "").not.toMatch(/lose an assertion|quarantined/);
   });
 });

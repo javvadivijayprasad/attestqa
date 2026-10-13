@@ -152,15 +152,24 @@ attestqa picks from the story reference: a key like `SHOP-12` means Jira, a numb
 means Azure DevOps. `--tracker jira|ado` overrides it. Both work through the same rules; the
 differences are listed below.
 
-|                                      | Jira                                                                           | Azure DevOps                                                                |
-| ------------------------------------ | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Credentials                          | `JIRA_BASE_URL` + `JIRA_EMAIL` + `JIRA_API_TOKEN`, or `JIRA_PAT`               | `AZURE_DEVOPS_ORG_URL` + `AZURE_DEVOPS_PROJECT` + `AZURE_DEVOPS_PAT`        |
-| Acceptance criteria                  | from the description, or a custom field (`JIRA_AC_FIELD`)                      | the Acceptance Criteria field                                               |
-| What attestqa may write              | only a new **Bug**, after you approve it                                       | Bugs and test cases, after you approve; test plans if your licence has them |
-| Where tests are recorded             | the feature file's `@story:SHOP-12` scenarios (Jira keeps no test cases)       | linked test cases, plus the feature file                                    |
-| Bug states treated as "known broken" | Active, In Progress, Reopened, In Development, In Review, Code Review, Blocked | Active                                                                      |
+|                                      | Jira                                                                                   | Azure DevOps                                                                |
+| ------------------------------------ | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Credentials                          | `JIRA_BASE_URL` + `JIRA_EMAIL` + `JIRA_API_TOKEN`, or `JIRA_PAT`                       | `AZURE_DEVOPS_ORG_URL` + `AZURE_DEVOPS_PROJECT` + `AZURE_DEVOPS_PAT`        |
+| Acceptance criteria                  | from the description, or a custom field (`JIRA_AC_FIELD`)                              | the Acceptance Criteria field                                               |
+| What attestqa may write              | a new **Bug**, and the story's one **QA sub-task** (see below), each after you approve | Bugs and test cases, after you approve; test plans if your licence has them |
+| Where tests are recorded             | a QA sub-task under the story, plus the feature file                                   | linked test cases, plus the feature file                                    |
+| Bug states treated as "known broken" | Active, In Progress, Reopened, In Development, In Review, Code Review, Blocked         | Active                                                                      |
 
 attestqa never edits a story's fields, in either tracker.
+
+**The Jira QA sub-task.** Jira has no test-case item, so attestqa keeps one sub-task per story,
+named `QA (attestqa): tests for SHOP-12 — …`. Its **description** holds the current test cases (ID,
+criterion, type, conditions, expected result, the automated test, and what was excluded and why);
+each run adds a **comment** with every case's result. It is created as soon as you approve a test design — **approving the design also posts its test
+cases there** — and each run's results are added as a comment at the end. Its description changes
+only when the test cases do (a changed design, or a test written for a case). It is the only issue
+whose field attestqa ever edits, and it never changes its status — moving it to Done is yours. If your project has no sub-task type, the same record goes onto the
+story as a comment.
 
 ---
 
@@ -217,6 +226,12 @@ check; the verifier holds the tests to it.
 
 Later approvals — filing a bug, for example — work the same way. Nothing is written to Jira or
 Azure DevOps without a `y` from you.
+
+**Approving execution.** With `approve_execution: true` in the config (the Jira example sets it),
+the first run of the suite in each run waits for you; re-runs after a repair go ahead under that
+approval. With Jira that gives three decisions per story, in order: the test design (which also
+posts the test cases to the QA sub-task), the execution, and any bug — bugs are put to you only
+after execution has finished, for tests still failing in the final run.
 
 ### Approving from a file instead
 

@@ -24,6 +24,8 @@ import { splitQualified } from "./tools.js";
  * loop where a reviewer and a model argue through the terminal.
  */
 const MAX_DESIGN_DENIALS = 2;
+/** The tool that runs the suite — the one `agent.approve_execution` gates. */
+const SUITE_TOOL = "pw.run_tests";
 
 export interface LoopDeps {
   /** The natural-language request from the engineer. */
@@ -145,6 +147,26 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   }
 
   /**
+   * `agent.approve_execution`: the first suite run of a run waits for a
+   * person; after one approval, re-runs (a repair, a re-check) go ahead.
+   */
+  let executionApproved = false;
+  function withExecutionApproval(
+    call: { toolName: string },
+    v: ReturnType<typeof gate.judge>,
+  ): ReturnType<typeof gate.judge> {
+    if (!config.approve_execution || executionApproved) return v;
+    if (call.toolName !== SUITE_TOOL || v.decision !== "execute") return v;
+    return {
+      ...v,
+      decision: "ask",
+      reason:
+        "agent.approve_execution: the first run of the suite waits for a person; later runs in " +
+        "this run go ahead under that approval",
+    };
+  }
+
+  /**
    * A call the RUNTIME makes on its own account, mid-run — today, the suite.
    *
    * Judged by the gate, put to a reviewer when the policy says `ask`, written
@@ -157,10 +179,18 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     toolName: string,
     args: Record<string, unknown>,
     why?: string,
+    opts: { coveredBy?: string } = {},
   ): Promise<boolean> {
     const tool = byName.get(toolName);
     const call = withRuntimeArgs({ toolName, args }, tool);
-    const verdict = gate.judge(call, tool);
+    let verdict = withExecutionApproval(call, gate.judge(call, tool));
+    // Covered by an approval the reviewer has already given (see Skill.afterApproved).
+    if (verdict.decision === "ask" && opts.coveredBy)
+      verdict = {
+        ...verdict,
+        decision: "execute",
+        reason: `${verdict.reason} — covered by approval ${opts.coveredBy}`,
+      };
     const approvalId = verdict.decision === "ask" ? approvalIdFor(++approvals) : undefined;
     ledger.append(
       "policy",
@@ -198,6 +228,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         },
         clock.now(),
       );
+      if (result.decision === "approved" && call.toolName === SUITE_TOOL) executionApproved = true;
       if (result.decision !== "approved") {
         history.push({
           toolName: call.toolName,
@@ -342,15 +373,39 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     }
   }
 
+  /** The approval an earlier runtime call to this same tool was covered by, if any. */
+  function coveringApproval(toolName: string): string | undefined {
+    const target = splitQualified(toolName);
+    if (!target) return undefined;
+    for (const e of [...ledger.read()].reverse()) {
+      if (e.kind !== "call") continue;
+      const p = e.payload as unknown as Record<string, unknown>;
+      if (p["server"] !== target.server || p["toolName"] !== target.name) continue;
+      const m = /covered by approval (\S+)/.exec(String(p["why"] ?? ""));
+      if (m?.[1]) return m[1];
+    }
+    return undefined;
+  }
+
   /** The run report, posted by the runtime once everything else is over. */
-  async function postFinalReport(): Promise<void> {
+  async function postFinalReport(status: RunStatus): Promise<void> {
     if (!skill.finalReport) return;
     const agentNote = notes[notes.length - 1];
     const call = skill.finalReport(ledger.read(), {
       runId: ledger.runId,
+      status,
       ...(agentNote ? { agentNote } : {}),
     });
     if (!call) return;
+    // The Jira QA record's results were promised in the design approval
+    // ("…and this run's results there at the end"): post them under it.
+    const covering = coveringApproval(call.toolName);
+    if (covering) {
+      await runtimeCall(call.toolName, call.args, `covered by approval ${covering}`, {
+        coveredBy: covering,
+      });
+      return;
+    }
     await askThenExecute(
       [call],
       "The run is over. This is its report, composed from the ledger, for the story's discussion.",
@@ -368,7 +423,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       }
       // Last of all, so the report can say how the bug decision went.
       try {
-        await postFinalReport();
+        await postFinalReport(status);
       } catch {
         /* likewise */
       }
@@ -722,7 +777,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         // An operation the environment has already refused is refused here,
         // BEFORE the approval batch is assembled — so the reviewer is never
         // asked to approve a call that is known to be dead on arrival.
-        const gateVerdict = gate.judge(call, tool);
+        const gateVerdict = withExecutionApproval(call, gate.judge(call, tool));
         const quoted = deniedOps.get(operationKey(call.toolName, call.args));
         verdicts.push({
           call,
@@ -915,9 +970,11 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         );
         approved = result.decision === "approved";
         denialReason = result.reason ?? "";
+        if (approved && calls.some((c) => c.toolName === SUITE_TOOL)) executionApproved = true;
       }
 
       // Execute in order; refused/denied calls are fed back to the model as history.
+      const approvedAndDone: ProposedCall[] = [];
       for (const { call, verdict } of verdicts) {
         if (verdict.decision === "refuse") {
           history.push({
@@ -979,6 +1036,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         // operation for the rest of the run, and the model is told so in the
         // same breath as the failure — otherwise it does the reasonable thing
         // and tries again with different arguments (observed: four times).
+        if (verdict.decision === "ask" && ok) approvedAndDone.push(call);
         const refusedForever = ok ? undefined : authorizationFailure(result);
         const opKey = operationKey(call.toolName, call.args);
         if (refusedForever) deniedOps.set(opKey, refusedForever);
@@ -999,6 +1057,15 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         const changedTheWorld =
           artefacts.length > 0 || (byName.get(call.toolName)?.policyClass ?? "read") !== "read";
         if (ok && changedTheWorld) executed.clear();
+      }
+
+      // What the approval just given also covers — e.g. posting the approved
+      // test cases to the story's QA sub-task — done now, without asking again.
+      if (approved && approvalId && approvedAndDone.length > 0 && skill.afterApproved) {
+        for (const follow of skill.afterApproved(approvedAndDone, ledger.read()))
+          await runtimeCall(follow.toolName, follow.args, `covered by approval ${approvalId}`, {
+            coveredBy: approvalId,
+          });
       }
 
       // If a denied approval blocked every call this cycle and nothing else can happen, stop.

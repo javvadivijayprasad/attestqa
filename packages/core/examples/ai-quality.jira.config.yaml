@@ -55,6 +55,11 @@ agent:
   # bdd2pw sanitises each prompt there and fails closed without it. Remove this line to
   # scaffold rules-only, which is deterministic and leaves unbound steps visible.
   llm_fallback: anthropic
+  # Ask before the first run of the suite in each run (later re-runs after a
+  # repair go ahead). With Jira this gives three decisions per story: the test
+  # design (which also posts the test cases to the story's QA sub-task), the
+  # execution, and any bug.
+  approve_execution: true
   scope:
     # Jira practice backlog (scripts/jira-seed/backlog.json): SCRUM-5 epic,
     # SCRUM-6/8/10 stories, SCRUM-7/9/11 sub-tasks, SCRUM-12 the open bug.

@@ -118,3 +118,62 @@ Feature: Customer account access
   @story:SCRUM-6 @design:D13 @type:accessibility @technique:checklist-based
   Scenario: AC-story: Login page passes axe-core WCAG A/AA scan
     Then the page has no axe violations
+
+  # ---------------------------------------------------------------------------
+  # SCRUM-10: New customer registers an account
+  # ---------------------------------------------------------------------------
+
+  @story:SCRUM-10 @ac:1 @design:D14 @type:functional @technique:state-transition
+  Scenario: AC-1: A new customer who fills in all registration fields is sent to the login page
+    Given I navigate to "/#/register"
+    When I find the Email field and enter "newuser_unique@example.com"
+    And I find the Password field and enter "Test1234!"
+    And I find the Repeat Password field and enter "Test1234!"
+    And I select a security question
+    And I find the Answer field and enter "MyAnswer"
+    And I click "Register"
+    Then the URL contains "/#/login"
+
+  @story:SCRUM-10 @ac:2 @design:D15 @type:functional @technique:boundary-value-analysis
+  Scenario: AC-2: Register button is disabled when password and repeat password differ
+    Given I navigate to "/#/register"
+    When I find the Password field and enter "Test1234!"
+    And I find the Repeat Password field and enter "Different99!"
+    Then the Register button is disabled
+
+  @story:SCRUM-10 @ac:2 @design:D16 @type:functional @technique:boundary-value-analysis
+  Scenario: AC-2: Register button is enabled when password and repeat password match
+    Given I navigate to "/#/register"
+    When I find the Email field and enter "match@example.com"
+    And I find the Password field and enter "Test1234!"
+    And I find the Repeat Password field and enter "Test1234!"
+    And I select a security question
+    And I find the Answer field and enter "MyAnswer"
+    Then the Register button is enabled
+
+  @story:SCRUM-10 @ac:3 @design:D17 @type:functional @technique:equivalence-partitioning
+  Scenario: AC-3: Registering with an email that already has an account is refused with a message
+    Given I navigate to "/#/register"
+    When I find the Email field and enter "aqa_user_email"
+    And I find the Password field and enter "Test1234!"
+    And I find the Repeat Password field and enter "Test1234!"
+    And I select a security question
+    And I find the Answer field and enter "MyAnswer"
+    And I click "Register"
+    Then the page displays "Email must be unique"
+
+  @story:SCRUM-10 @design:D18 @type:accessibility @technique:checklist-based
+  Scenario: AC-story: Registration page passes axe-core WCAG A/AA scan
+    Given I navigate to "/#/register"
+    Then the page has no axe violations
+
+  @story:SCRUM-10 @ac:1 @design:D19 @type:security @technique:error-guessing
+  Scenario: AC-1 (security): Duplicate email registration error does not reveal extra account details
+    Given I navigate to "/#/register"
+    When I find the Email field and enter "aqa_user_email"
+    And I find the Password field and enter "Test1234!"
+    And I find the Repeat Password field and enter "Test1234!"
+    And I select a security question
+    And I find the Answer field and enter "MyAnswer"
+    And I click "Register"
+    Then the page displays "Email must be unique"

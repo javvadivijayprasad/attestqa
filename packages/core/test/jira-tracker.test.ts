@@ -175,6 +175,7 @@ describe("the story-to-tests skill against Jira", () => {
     expect(skill.allowedTools.some((t) => t.startsWith("ado."))).toBe(false);
     expect(skill.sourceTools).toContain("jira.get_issue");
     expect(skill.sourceTools).not.toContain("jira.create_bug");
+    expect(skill.sourceTools).not.toContain("jira.record_qa");
     // Azure DevOps keeps exactly the list it had.
     const ado = storyToTestsSkill({ workItem: "44" });
     expect(ado.allowedTools.some((t) => t.startsWith("jira."))).toBe(false);
@@ -185,6 +186,7 @@ describe("the story-to-tests skill against Jira", () => {
       "jira.list_comments",
       "jira.search",
       "jira.create_bug",
+      "jira.record_qa",
       "b",
     ]);
   });

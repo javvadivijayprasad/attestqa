@@ -222,7 +222,7 @@ export function coveredCriteria(
   // Test cases READ this run — the preflight reads the story's existing ones.
   for (const c of successful(calls, "ado.wit_work_item", "get_batch")) {
     const rec = asRecord(c.result);
-    const items = asArray(rec ? rec["value"] ?? rec["workItems"] : payloadOf(c.result));
+    const items = asArray(rec ? (rec["value"] ?? rec["workItems"]) : payloadOf(c.result));
     for (const w of items) {
       const f = asRecord(asRecord(w)?.["fields"]) ?? {};
       if (f["System.WorkItemType"] !== "Test Case") continue;
@@ -256,6 +256,12 @@ function agentRunReport(call: {
   toolName: string;
   args: Record<string, unknown>;
 }): string | undefined {
+  // The Jira QA record (ADR-004) is the runtime's alone: counted from the ledger.
+  if (call.toolName === "jira.record_qa")
+    return (
+      "the QA sub-task is kept by the runtime at the end of the run, counted from the ledger — " +
+      "do not post it. Put anything a reader should know in your final message."
+    );
   if (call.toolName !== "ado.wit_work_item_comment_write") return;
   const text = String(call.args["text"] ?? "");
   if (!/##\s*agentic-qa run\b/i.test(text)) return;
@@ -355,17 +361,42 @@ function lastKnownContent(
   workspaceDir?: string,
 ): string | undefined {
   const calls = completedCalls(events);
+  // In-place edits since the last full view, newest first. They are replayed
+  // onto that view, so "the file as it is now" includes them — judging a write
+  // against the file before an edit judges it against something gone
+  // (20261013T011552Z).
+  const edits: Array<{ old: string; new: string; all: boolean }> = [];
+  const replay = (base: string): string =>
+    edits.reduceRight(
+      (text, e) => (e.all ? text.split(e.old).join(e.new) : text.replace(e.old, e.new)),
+      base,
+    );
   for (let i = calls.length - 1; i >= 0; i--) {
     const c = calls[i];
     if (!c || !c.ok) continue;
     if (c.toolName === "bdd2pw.scaffold") return undefined;
     if (String(c.args["path"] ?? "") !== path) continue;
-    if (c.toolName === "fs.write_file") return String(c.args["content"] ?? "");
+    if (c.toolName === "fs.replace_in_file") {
+      const o = c.args["old"];
+      const n = c.args["new"];
+      if (typeof o === "string" && typeof n === "string")
+        edits.push({ old: o, new: n, all: c.args["all"] === true });
+      continue;
+    }
+    if (c.toolName === "fs.write_file") return replay(String(c.args["content"] ?? ""));
     if (c.toolName === "fs.read_file") {
       // A ranged read is a fragment, never the file. See `fileTextFromEvents`.
       if (isPartialRead(c.args, c.result)) continue;
       const content = asRecord(c.result)?.["content"];
-      if (typeof content === "string") return content;
+      if (typeof content === "string") return replay(content);
+    }
+  }
+  // Edits with no full view before them: the disk is the truth.
+  if (edits.length > 0 && workspaceDir) {
+    try {
+      return readFileSync(join(workspaceDir, path), "utf8");
+    } catch {
+      return undefined;
     }
   }
   // Nothing in the ledger: the file as it is on disk is the baseline. A run
@@ -449,7 +480,11 @@ function alreadyRead(
     // is a read of something new.
     if (c.toolName === "bdd2pw.scaffold") return;
     if (String(c.args["path"] ?? "") !== path) continue;
-    if (c.toolName === "fs.write_file") return;
+    // An in-place edit changes the file as much as a write does. 20261013T011552Z:
+    // two edits succeeded, the re-read of the changed lines was refused as
+    // "nothing has changed it since", and the agent's next edits — rebuilt from
+    // the stale view — missed until the run stopped.
+    if (c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") return;
     if (c.toolName === "fs.read_file") {
       // A DIFFERENT window on the same file is a different read. Without this,
       // a file too long to survive the context budget could be read once,
@@ -461,7 +496,7 @@ function alreadyRead(
         "nothing has changed it since — its content is in your history above, and re-reading it " +
         "returns the same view. If it came back truncated, ask for the part you have not seen: " +
         "fs.read_file takes `fromLine` and `toLine`, and the result says how many lines the file " +
-        "has. (Writing the file, or scaffolding over it, makes it readable again in full.)" +
+        "has. (Writing or editing the file, or scaffolding over it, makes it readable again.)" +
         generatedElsewhere(path, events)
       );
     }
