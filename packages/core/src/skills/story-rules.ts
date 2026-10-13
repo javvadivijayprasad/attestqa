@@ -1716,7 +1716,21 @@ function writeOnExecutePath(
   if (before === undefined || before === after) return;
 
   const gone = removedLines(before, after).filter((l) => !isComment(l));
-  const unrepairable = gone.filter((l) => !LOCATOR_EXPR.test(l) && !CATCHES.test(l));
+  // An assertion is a claim even when it names a locator. "Contains a locator"
+  // used to make any line repairable, so `expect(page.getByText("x"))…` could be
+  // deleted on the execute path (20261013T160220Z: the D19 check was rewritten
+  // through exactly that gap — faithfully, that time). A removed assertion is
+  // allowed only when the same claim, locators set aside, is still there.
+  const claimsAfter = new Set(
+    after
+      .split("\n")
+      .filter((l) => /\bexpect\s*\(/.test(l))
+      .map(claimOf),
+  );
+  const unrepairable = gone.filter((l) => {
+    if (/\bexpect\s*\(/.test(l)) return !claimsAfter.has(claimOf(l));
+    return !LOCATOR_EXPR.test(l) && !CATCHES.test(l);
+  });
   if (unrepairable.length === 0) return;
   return (
     `this run took the execute path: ${path} already contains this story's tests, and this run is ` +
@@ -1765,6 +1779,11 @@ function staleRerun(
 }
 
 /** A Playwright locator, as it appears in a line of a spec. */
+/** An assertion line with its locators set aside: what it claims, not where it looks. */
+function claimOf(line: string): string {
+  return line.replace(LOCATOR_CALL, "<locator>").replace(/["'`]/g, '"').replace(/\s+/g, " ").trim();
+}
+
 const LOCATOR_EXPR = /getBy[A-Z]\w*\s*\(|\.locator\s*\(|frameLocator\s*\(|\$\$?\s*\(/;
 
 /**

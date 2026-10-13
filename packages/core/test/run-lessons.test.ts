@@ -914,3 +914,54 @@ describe("an ambiguous locator is the test's fault (20261013T145349Z)", () => {
     expect(again?.category).toBe("flake");
   });
 });
+
+describe("on the execute path an assertion is a claim, even when it names a locator (20261013T160220Z)", () => {
+  const PATH = "tests/x.spec.ts";
+  const BEFORE = [
+    'test("a", async ({ page }) => {',
+    '  await expect(page.getByText("Email must be unique")).toBeVisible();',
+    '  await expect(page.getByText("password")).not.toBeVisible();',
+    "});",
+  ].join("\n");
+  const events = [
+    { eventId: 0, kind: "route", payload: { path: "B", because: {} } },
+    {
+      eventId: 1,
+      kind: "call",
+      payload: { server: "fs", toolName: "read_file", args: { path: PATH }, startedAt: 0 },
+    },
+    {
+      eventId: 2,
+      kind: "observation",
+      payload: {
+        eventIdOfCall: 1,
+        ok: true,
+        result: { path: PATH, content: BEFORE },
+        artefacts: [],
+        durationMs: 1,
+      },
+    },
+  ] as unknown as AnyRunEvent[];
+  const write = (content: string) => ({ toolName: "fs.write_file", args: { path: PATH, content } });
+
+  it("refuses deleting an assertion that happens to contain a locator", () => {
+    const after = BEFORE.replace(
+      '  await expect(page.getByText("password")).not.toBeVisible();\n',
+      "",
+    );
+    expect(storyRefusal(write(after), events)).toMatch(/execute path/);
+  });
+
+  it("refuses rewriting what an assertion claims", () => {
+    const after = BEFORE.replace(
+      'await expect(page.getByText("password")).not.toBeVisible();',
+      'expect(await page.getByText("Email must be unique").textContent()).not.toMatch(/password/i);',
+    );
+    expect(storyRefusal(write(after), events)).toMatch(/execute path/);
+  });
+
+  it("still allows moving the locator inside an assertion", () => {
+    const after = BEFORE.replace('getByText("Email must be unique")', 'locator(".error")');
+    expect(storyRefusal(write(after), events) ?? "").not.toMatch(/execute path/);
+  });
+});

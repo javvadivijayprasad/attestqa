@@ -705,11 +705,14 @@ test.describe("Customer account access", () => {
     });
 
     await test.step("Then the error message says 'Email must be unique' and does not reveal account details beyond email already in use", async () => {
-      await expect(page.getByText("Email must be unique")).toBeVisible({ timeout: 10000 });
-      // The message must say only that the email is taken — it must not reveal whether a
-      // password is set, when the account was created, or any other detail about the existing account.
-      await expect(page.getByText("password")).not.toBeVisible();
-      await expect(page.getByText("account details")).not.toBeVisible();
+      const errorMsg = page.getByText("Email must be unique");
+      await expect(errorMsg).toBeVisible({ timeout: 10000 });
+      // The error message must contain only the "Email must be unique" text —
+      // it must not reveal password details, account creation date, or any other
+      // information about the existing account.
+      const errorText = await errorMsg.textContent();
+      expect(errorText, "Error message must not contain password details").not.toMatch(/password/i);
+      expect(errorText, "Error message must not reveal account creation details").not.toMatch(/created|account details/i);
     });
   });
 });
