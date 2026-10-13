@@ -375,7 +375,10 @@ export function validateDesign(
         );
       else {
         if (it.type !== "confirmation")
-          problems.push(`${at}: a test for bug #${bug} is type "confirmation"`);
+          problems.push(
+            `${at}: covers bug #${bug}, so its type must be "confirmation" (a re-test of a known bug), not "${it.type}" — ` +
+              'change "type" to "confirmation" and keep the item',
+          );
         if (isKnownBroken(b.state) && it.expectFail !== true)
           problems.push(
             `${at}: bug #${bug} is ${b.state} (known broken) — its test is EXPECTED to fail; set expectFail: true ` +

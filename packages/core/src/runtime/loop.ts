@@ -46,6 +46,21 @@ export interface LoopDeps {
 
 /** Cycles of pure repetition tolerated before the run is ended as blocked. */
 export const MAX_STALE_CYCLES = 3;
+/**
+ * How many design submissions in a row may be sent back for the SAME problem
+ * before the run stops. Each submission differs, so the repeated-call stop
+ * never sees it; observed: 50+ refusals for one item's type, the budget spent
+ * on a design that was never shown to the reviewer.
+ */
+export const MAX_SAME_DESIGN_PROBLEM = 6;
+
+/** A design problem without its item id, so "D7: …" and "D6: …" match. */
+export function designProblemKey(problem: string): string {
+  return problem
+    .replace(/^D[\w-]*:\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /** Key-order-independent signature of a call's arguments. */
 function stableArgs(args: Record<string, unknown>): string {
@@ -91,6 +106,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
    */
   const executed = new Set<string>();
   let staleCycles = 0;
+  /** Design problems sent back, and in how many submissions running. */
+  const designProblemRuns = new Map<string, number>();
   /**
    * Operations the environment has refused on authorization grounds, and the
    * sentence it refused them with. These are closed for the rest of the run:
@@ -950,6 +967,26 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
           verdict.decision === "ask" && approvalId ? { ...payload, approvalId } : payload,
           clock.now(),
         );
+      }
+
+      // Stop rule for the design stage: the same problem on every submission
+      // means the agent is not going to fix it; say which, and stop.
+      const designVerdict = verdicts.find((v) => v.call.toolName === "aqa.test_design");
+      if (designVerdict) {
+        const problems =
+          designVerdict.verdict.decision === "refuse"
+            ? designVerdict.verdict.reason.split("\n- ").slice(1).map(designProblemKey)
+            : [];
+        for (const k of [...designProblemRuns.keys()])
+          if (!problems.includes(k)) designProblemRuns.delete(k);
+        for (const k of new Set(problems))
+          designProblemRuns.set(k, (designProblemRuns.get(k) ?? 0) + 1);
+        const stuck = [...designProblemRuns].find(([, n]) => n >= MAX_SAME_DESIGN_PROBLEM);
+        if (stuck)
+          return finish(
+            "blocked",
+            `no progress on the test design: it was sent back ${stuck[1]} times running for the same problem — ${stuck[0]}`,
+          );
       }
 
       if (asks.length > 0 && approvalId) {

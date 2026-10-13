@@ -6,7 +6,7 @@ import { Ledger } from "../src/ledger/ledger.js";
 import { TableGate } from "../src/governance/policy.js";
 import { ScriptedApprover } from "../src/runtime/approval.js";
 import { SteppingClock } from "../src/runtime/clock.js";
-import { runLoop } from "../src/runtime/loop.js";
+import { runLoop, MAX_SAME_DESIGN_PROBLEM, designProblemKey } from "../src/runtime/loop.js";
 import { ScriptedModel, type ModelDecision } from "../src/runtime/model.js";
 import { StubTools, type ToolDescriptor, type ToolResult } from "../src/runtime/tools.js";
 import { ScriptedVerifier } from "../src/verify/scripted.js";
@@ -121,5 +121,53 @@ describe("Jira approval flow", () => {
     expect(s.approver.asked.map((a) => a.calls.map((c) => c.toolName))).toEqual([
       ["aqa.test_design"],
     ]);
+  });
+});
+
+describe("design stage stop rule", () => {
+  // Observed on AB#1 (13 Oct): the same item sent back 50+ times for one
+  // problem, never reaching the reviewer, until the budget ran out.
+  const submit = (i: number): ModelDecision => ({
+    calls: [{ toolName: "aqa.test_design", args: { items: [{ id: `D${i}` }] } }],
+    usage: u,
+  });
+  const refusing = (problem: (i: number) => string) => {
+    let n = 0;
+    return () => `the design has problems:\n- ${problem(++n)}`;
+  };
+
+  it("stops once the same problem is sent back MAX_SAME_DESIGN_PROBLEM times running", async () => {
+    const s = setup(
+      false,
+      Array.from({ length: 10 }, (_, i) => submit(i)),
+    );
+    const reason = refusing(
+      (n) => `D${n % 2 ? 7 : 6}: covers bug #49, so its type must be "confirmation"`,
+    );
+    s.deps.skill.refuse = (c) => (c.toolName === "aqa.test_design" ? reason() : undefined);
+    const r = await runLoop(s.deps);
+    expect(r.status).toBe("blocked");
+    expect(r.summary).toContain(`sent back ${MAX_SAME_DESIGN_PROBLEM} times running`);
+    expect(r.summary).toContain("covers bug #49");
+    // The design never reached the reviewer.
+    expect(s.approver.asked.flatMap((a) => a.calls.map((c) => c.toolName))).not.toContain(
+      "aqa.test_design",
+    );
+  });
+
+  it("keeps going while the problems change", async () => {
+    const s = setup(
+      false,
+      Array.from({ length: 8 }, (_, i) => submit(i)),
+    );
+    const reason = refusing((n) => `D${n}: problem number ${n}`);
+    s.deps.skill.refuse = (c) => (c.toolName === "aqa.test_design" ? reason() : undefined);
+    const r = await runLoop(s.deps);
+    expect(r.summary).not.toContain("no progress on the test design");
+  });
+
+  it("strips the item id so a renumbered item still counts", () => {
+    expect(designProblemKey("D7: covers bug #49")).toBe(designProblemKey("D6:  covers bug #49"));
+    expect(designProblemKey("D1-44: x")).toBe("x");
   });
 });
