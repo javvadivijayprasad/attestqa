@@ -80,7 +80,7 @@ agent:
     # not browse at all. Checked on every navigation; a link the agent follows
     # or a redirect is NOT re-checked, so this scopes mistakes rather than
     # containing a hostile page.
-    urls: ["http://localhost:8080"] # Restful-Booker Platform guest site and /admin, local Docker - verify the port in setup week
+    urls: ["http://localhost:3003"] # Restful-Booker Platform (guest site and /admin), run locally
   # What the ENVIRONMENT can do — not what the agent is allowed to do (policy)
   # or where it may act (scope).
   capabilities:

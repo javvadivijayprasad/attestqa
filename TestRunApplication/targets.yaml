@@ -19,15 +19,44 @@ targets:
     active_scan_authorised: {by: self (local instance), date: null, scope: "localhost:3000"}
     permission_basis: runs locally from the public image
     checked: null
-  - {id: saucedemo,   tier: H, url: "https://www.saucedemo.com", kind: e-commerce, permission_basis: null, checked: null, notes: "demo users provided; problem/glitch users give known faults"}
+  - id: saucedemo
+    tier: H
+    url: https://www.saucedemo.com
+    kind: e-commerce (hosted practice site)
+    tracker: azure-devops (project attestqa-saucedemo, items 105-122)
+    types: [web]
+    security_checks_allowed: false # UI checks only on a hosted site; no scanning
+    permission_basis: "published by Sauce Labs as a practice site, demo users listed on its login page - confirm on the day"
+    checked: null
+    notes: "workers 1; problem / error / visual users give the built-in faults; ui-change second passes need a local saucelabs/sample-app-web build"
   - {id: demoblaze,   tier: H, url: "https://www.demoblaze.com", kind: e-commerce, permission_basis: null, checked: null}
   - {id: parabank,    tier: H, url: "https://parabank.parasoft.com/parabank/index.htm", kind: banking, permission_basis: null, checked: null}
   - {id: the-internet, tier: H, url: "https://the-internet.herokuapp.com", kind: ui-controls, permission_basis: null, checked: null, notes: "uploads are public — generated files only"}
   - {id: uitestingplayground, tier: H, url: "http://uitestingplayground.com", kind: hard-ui-cases, permission_basis: null, checked: null}
   - {id: formy,       tier: H, url: "https://formy-project.herokuapp.com", kind: forms, permission_basis: null, checked: null}
   - {id: candymapper, tier: H, url: "https://candymapper.com", kind: deliberate-errors, permission_basis: null, checked: null}
-  - {id: toolshop,    tier: H, url: "https://practicesoftwaretesting.com", kind: e-commerce, permission_basis: null, checked: null, notes: "URL to verify"}
-  - {id: restful-booker-platform, tier: H, url: "https://automationintesting.online", kind: booking+admin, permission_basis: null, checked: null, notes: "URL to verify"}
+  - id: toolshop
+    tier: L
+    url: http://localhost:4200
+    kind: e-commerce (tools shop with search, filters, admin)
+    run: "testsmith-io/practice-software-testing: docker compose -f docker-compose.yml up -d; then docker exec -it pst-laravel-api-1 php artisan migrate:fresh --seed"
+    tracker: jira (project TOOL)
+    types: [web, api, security]
+    security_checks_allowed: true
+    permission_basis: runs locally from the public repository (SPRINT=sprint5; sprint5-with-bugs for seeded-fault runs only)
+    checked: null
+    notes: "API on :8091; default accounts as published (admin / customer); hosted copy at practicesoftwaretesting.com is NOT used"
+  - id: booker
+    tier: L
+    url: http://localhost:3003
+    kind: B&B booking + admin
+    run: "mwinteringham/restful-booker-platform: docker compose up -d (check its docker-compose.yml on the day)"
+    tracker: azure-devops (project attestqa-booker, items 88-104)
+    types: [web, api, security]
+    security_checks_allowed: true
+    permission_basis: runs locally from the public repository
+    checked: null
+    notes: "admin account as published; hosted copy at automationintesting.online is NOT used"
   - {id: todomvc,     tier: H, url: "https://demo.playwright.dev/todomvc", kind: spa-baseline, permission_basis: null, checked: null, notes: "URL to verify"}
 
   # API-only targets (release 0.2) — URLs to verify in Phase 0
