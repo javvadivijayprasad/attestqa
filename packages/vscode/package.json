@@ -15,7 +15,7 @@
     "url": "https://github.com/javvadivijayprasad/attestqa/issues"
   },
   "engines": {
-    "vscode": "^1.85.0"
+    "vscode": "^1.95.0"
   },
   "categories": [
     "Testing",
@@ -46,8 +46,13 @@
   "contributes": {
     "commands": [
       {
+        "command": "aqa.init",
+        "title": "Set up this folder",
+        "category": "attestqa"
+      },
+      {
         "command": "aqa.runStory",
-        "title": "Run story\u2026",
+        "title": "Run story…",
         "category": "attestqa"
       },
       {
@@ -165,7 +170,36 @@
           "markdownDescription": "Absolute path to the `aqa` executable. Leave empty to look in the workspace's `node_modules/.bin`, then on `PATH`."
         }
       }
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "aqa.runs",
+        "contents": "No attestqa runs in this folder yet.\n[Set up this folder](command:aqa.init)\nWrites ai-quality.config.yaml and a .env to fill in. Then run a story.\n[Run story…](command:aqa.runStory)\n[Open the user guide](command:aqa.openUserGuide)"
+      }
+    ],
+    "chatParticipants": [
+      {
+        "id": "attestqa.chat",
+        "name": "attestqa",
+        "fullName": "attestqa",
+        "description": "Write governed Playwright tests for a Jira or Azure DevOps story",
+        "isSticky": false,
+        "commands": [
+          {
+            "name": "dryrun",
+            "description": "Check the setup for a story without spending anything"
+          },
+          {
+            "name": "coverage",
+            "description": "Show which stories are covered by tests"
+          },
+          {
+            "name": "setup",
+            "description": "Set up this folder for attestqa"
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "compile": "tsc -p ./",

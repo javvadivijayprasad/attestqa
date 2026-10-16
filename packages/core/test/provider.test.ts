@@ -322,3 +322,102 @@ describe("the OpenAI-compatible adapter speaks the runtime's protocol", () => {
     expect(p.steps).toEqual(["Read the story", "Run the suite"]);
   });
 });
+
+describe("Claude through a company gateway, the way Claude Code reaches it", () => {
+  const base = { provider: "anthropic" as const, name: "claude-sonnet-4-6" };
+
+  it("accepts ANTHROPIC_AUTH_TOKEN in place of an API key, and reads ANTHROPIC_BASE_URL", async () => {
+    const { readRuntimeEnv } = await import("../src/config.js");
+    const env = readRuntimeEnv({
+      ANTHROPIC_AUTH_TOKEN: "gw-token",
+      ANTHROPIC_BASE_URL: "https://llm.acme.internal",
+    });
+    expect(env.anthropicAuthToken).toBe("gw-token");
+    expect(env.anthropicBaseUrl).toBe("https://llm.acme.internal");
+    expect(() => readRuntimeEnv({})).toThrow(/ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL/);
+  });
+
+  it("says where calls go and which variable carries the credential — never the value", () => {
+    const env: RuntimeEnv = {
+      anthropicApiKey: "",
+      anthropicAuthToken: "gw-token",
+      anthropicBaseUrl: "https://llm.acme.internal",
+      sandbox: false,
+    };
+    const line = describeModel(base, undefined, env);
+    expect(line).toBe(
+      "anthropic claude-sonnet-4-6 at https://llm.acme.internal (credential: ANTHROPIC_AUTH_TOKEN)",
+    );
+    expect(line).not.toContain("gw-token");
+    expect(buildModel({ config: base, env, promptVersion: "p" }).provider).toBe("anthropic");
+  });
+
+  it("an API key still wins when both are set, as it does for Claude Code", () => {
+    const env: RuntimeEnv = {
+      anthropicApiKey: "sk-ant-x",
+      anthropicAuthToken: "gw-token",
+      sandbox: false,
+    };
+    expect(describeModel(base, undefined, env)).toContain("credential: ANTHROPIC_API_KEY");
+  });
+
+  it("agent.model.endpoint overrides ANTHROPIC_BASE_URL for one project", () => {
+    const env: RuntimeEnv = {
+      anthropicApiKey: "",
+      anthropicAuthToken: "t",
+      anthropicBaseUrl: "https://from-env.example",
+      sandbox: false,
+    };
+    expect(
+      describeModel({ ...base, endpoint: "https://from-config.example" }, undefined, env),
+    ).toContain("at https://from-config.example");
+  });
+});
+
+describe("GitHub Copilot, through the attestqa VS Code extension", () => {
+  const copilot = { provider: "vscode-copilot" as const, name: "gpt-4.1" };
+  const plain: RuntimeEnv = { anthropicApiKey: "", sandbox: false };
+
+  it("refuses with a plain explanation outside VS Code (terminal, CI)", () => {
+    expect(() => buildModel({ config: copilot, env: plain, promptVersion: "p" })).toThrow(
+      /reached through the attestqa VS Code extension.*Run this story from VS Code/s,
+    );
+  });
+
+  it("goes to the extension's private address with its token, and nowhere else", () => {
+    const env: RuntimeEnv = {
+      ...plain,
+      vscodeLmEndpoint: "http://127.0.0.1:51234/v1",
+      vscodeLmToken: "one-run-secret",
+    };
+    const m = buildModel({ config: copilot, env, promptVersion: "p" });
+    expect(m.provider).toBe("vscode-copilot");
+    const e = endpointFor({ ...copilot, endpoint: "http://127.0.0.1:51234/v1" }, "one-run-secret");
+    expect(e.url).toBe("http://127.0.0.1:51234/v1/chat/completions");
+    expect(e.headers).toEqual({ authorization: "Bearer one-run-secret" });
+    expect(describeModel(copilot, undefined, env)).toBe(
+      "GitHub Copilot gpt-4.1 (through the attestqa VS Code extension)",
+    );
+  });
+
+  it("keeps the bridge's 'estimated' mark on the usage it records", async () => {
+    const m = new OpenAiCompatibleModel({
+      config: { ...copilot, endpoint: "http://127.0.0.1:1/v1" },
+      apiKey: "t",
+      transport: async () => ({
+        status: 200,
+        json: {
+          choices: [{ message: { content: "1. read the story" } }],
+          usage: { estimated: true, prompt_tokens: 900, completion_tokens: 40 },
+        },
+      }),
+    });
+    const { usage } = await m.plan({
+      request: "r",
+      tools: [],
+      history: [],
+      skillInstructions: "",
+    } as never);
+    expect(usage).toEqual({ inputTokens: 900, outputTokens: 40, estimated: true });
+  });
+});

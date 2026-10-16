@@ -446,3 +446,32 @@ describe("model call bounds", () => {
     await expect(m.decide(input())).rejects.toThrow(/timed out/i);
   });
 });
+
+describe("the connection reaches the SDK factory", () => {
+  it("passes the gateway token and address, and no API key, to the factory", async () => {
+    let seen: unknown;
+    const model = new AnthropicModel({
+      apiKey: "",
+      authToken: "gw-token",
+      baseURL: "https://llm.acme.internal",
+      factory: async (apiKey, _t, connection) => {
+        seen = { apiKey, connection };
+        return {
+          create: async () => ({
+            content: [{ type: "text", text: "1. step" }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+        } as never;
+      },
+    });
+    await model.plan({ request: "r", tools: [], history: [] } as never).catch(() => undefined);
+    expect(seen).toEqual({
+      apiKey: "",
+      connection: { authToken: "gw-token", baseURL: "https://llm.acme.internal" },
+    });
+  });
+
+  it("refuses to build with neither a key nor a token", () => {
+    expect(() => new AnthropicModel({ apiKey: "" })).toThrow(/API key or a gateway auth token/);
+  });
+});

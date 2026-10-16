@@ -42,6 +42,7 @@ export const CREDENTIAL_VAR: Record<string, string | null> = {
   openai: "OPENAI_API_KEY",
   "azure-openai": "AZURE_OPENAI_API_KEY",
   gateway: "AQA_GATEWAY_API_KEY",
+  "vscode-copilot": "AQA_VSCODE_LM_TOKEN",
   local: null,
 };
 
@@ -55,22 +56,36 @@ const TOKEN_PACKAGE: Record<string, string> = {
  * The environment variable a run will read its key from, or null when it reads
  * none (a local model, auth: none, or a token source).
  */
-export function credentialVarFor(config: ModelConfig, hasTokenSource = false): string | null {
+export function credentialVarFor(
+  config: ModelConfig,
+  hasTokenSource = false,
+  env?: RuntimeEnv,
+): string | null {
   const auth = config.auth ?? "key";
   if (auth !== "key" || hasTokenSource) return null;
+  // Claude through a company gateway, the way Claude Code reaches it.
+  if (config.provider === "anthropic" && env?.anthropicAuthToken && !env.anthropicApiKey)
+    return "ANTHROPIC_AUTH_TOKEN";
   return CREDENTIAL_VAR[config.provider] ?? null;
+}
+
+/** Where calls to Claude go: agent.model.endpoint, else ANTHROPIC_BASE_URL, else the Anthropic API. */
+export function anthropicBaseUrl(config: ModelConfig, env?: RuntimeEnv): string | undefined {
+  return config.endpoint ?? env?.anthropicBaseUrl;
 }
 
 export function credentialFor(config: ModelConfig, env: RuntimeEnv): string | undefined {
   switch (config.provider) {
     case "anthropic":
-      return env.anthropicApiKey || undefined;
+      return env.anthropicApiKey || env.anthropicAuthToken || undefined;
     case "openai":
       return env.openaiApiKey;
     case "azure-openai":
       return env.azureOpenAiApiKey;
     case "gateway":
       return env.gatewayApiKey;
+    case "vscode-copilot":
+      return env.vscodeLmToken;
     case "local":
       return env.openaiApiKey; // optional: some local servers accept a bearer token
     default:
@@ -98,22 +113,37 @@ export function buildModel(opts: BuildModelOptions): ModelClient {
       "provider anthropic takes an API key, not a sign-in token; remove agent.model.auth or use auth: key",
     );
 
+  if (config.provider === "vscode-copilot" && !opts.env.vscodeLmEndpoint)
+    throw new ConfigError(
+      "agent.model.provider is vscode-copilot: GitHub Copilot is reached through the attestqa VS Code " +
+        "extension. Run this story from VS Code (attestqa: Run story…); a terminal or CI process has no " +
+        "supported way to reach Copilot — use another model route there (see the user guide, 'Which model').",
+    );
+
   const key = opts.tokenSource || auth === "none" ? undefined : credentialFor(config, opts.env);
-  const needs = credentialVarFor(config, Boolean(opts.tokenSource));
+  const needs = credentialVarFor(config, Boolean(opts.tokenSource), opts.env);
   if (needs && !key)
     throw new ConfigError(
       `${needs} is not set — agent.model.provider is "${config.provider}", which reads its credential from ${needs}`,
     );
 
-  if (config.provider === "anthropic")
+  if (config.provider === "anthropic") {
+    const viaGateway = !opts.env.anthropicApiKey && Boolean(opts.env.anthropicAuthToken);
+    const baseURL = anthropicBaseUrl(config, opts.env);
     return new AnthropicModel({
-      apiKey: key as string,
+      apiKey: viaGateway ? "" : (key as string),
+      ...(viaGateway ? { authToken: opts.env.anthropicAuthToken as string } : {}),
+      ...(baseURL ? { baseURL } : {}),
       model: config.name,
       promptVersion: opts.promptVersion,
       warn,
     });
+  }
   return new OpenAiCompatibleModel({
-    config,
+    config:
+      config.provider === "vscode-copilot"
+        ? { ...config, endpoint: opts.env.vscodeLmEndpoint as string }
+        : config,
     ...(key ? { apiKey: key } : {}),
     ...(opts.tokenSource ? { tokenSource: opts.tokenSource } : {}),
     promptVersion: opts.promptVersion,
@@ -122,8 +152,16 @@ export function buildModel(opts: BuildModelOptions): ModelClient {
 }
 
 /** One line for the terminal: which provider, which model, where the credential comes from. */
-export function describeModel(config: ModelConfig, tokenSource?: TokenSource): string {
-  const endpoint = config.endpoint ? ` at ${config.endpoint}` : "";
+export function describeModel(
+  config: ModelConfig,
+  tokenSource?: TokenSource,
+  env?: RuntimeEnv,
+): string {
+  if (config.provider === "vscode-copilot")
+    return `GitHub Copilot ${config.name} (through the attestqa VS Code extension)`;
+  const base = config.provider === "anthropic" ? anthropicBaseUrl(config, env) : config.endpoint;
+  const endpoint = base ? ` at ${base}` : "";
+  const gatewayVar = credentialVarFor(config, Boolean(tokenSource), env);
   const auth = config.auth ?? "key";
   const where = tokenSource
     ? `sign-in: ${tokenSource.describe()}`
@@ -131,8 +169,8 @@ export function describeModel(config: ModelConfig, tokenSource?: TokenSource): s
       ? `sign-in: ${auth} (needs ${TOKEN_PACKAGE[auth]})`
       : auth === "none"
         ? "no credential"
-        : CREDENTIAL_VAR[config.provider]
-          ? `credential: ${CREDENTIAL_VAR[config.provider]}`
+        : gatewayVar
+          ? `credential: ${gatewayVar}`
           : "no credential";
   return `${config.provider} ${config.name}${endpoint} (${where})`;
 }

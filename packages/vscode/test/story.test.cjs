@@ -18,3 +18,14 @@ test("anything else is refused before aqa is started", () => {
   for (const raw of ["", "SHOP", "12-SHOP", "write tests", "SHOP-12; rm -rf /"])
     assert.equal(parseStoryRef(raw), undefined);
 });
+
+test("a story named in a Copilot Chat sentence", () => {
+  const { findStoryRef } = require("../out/story.js");
+  assert.equal(findStoryRef("write tests for scrum-6")?.label, "SCRUM-6");
+  assert.equal(findStoryRef("add 3 tests for SHOP-12 please")?.label, "SHOP-12");
+  assert.equal(findStoryRef("AB#44")?.label, "AB#44");
+  assert.equal(findStoryRef("story #91")?.label, "AB#91");
+  assert.equal(findStoryRef("write tests for story 91")?.label, "AB#91");
+  assert.equal(findStoryRef("write 2 tests"), undefined);
+  assert.equal(findStoryRef("hello"), undefined);
+});

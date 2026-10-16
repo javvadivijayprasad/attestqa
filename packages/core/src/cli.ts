@@ -6,6 +6,7 @@ import {
   type Ledger as RunLedger,
 } from "./report/coverage.js";
 import { NO_SIGNATURE_CONFIDENCE, TEST_CODE_RATIONALE } from "./triage/patterns.js";
+import { CONFIG_FILE, modelRoute, runInit, scopeEntry } from "./setup/init.js";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -102,6 +103,16 @@ export const JIRA_SERVERS = "jira,playwright,fs,bdd2pw,pw";
 const USAGE = `aqa — agentic QA runtime
 
 Usage:
+  aqa init [--tracker jira|ado] [--scope <KEY | id-range>] [--url <app url>]
+           [--model anthropic|claude-gateway|azure-openai|gateway|copilot] [--model-endpoint <url>]
+           [--model-name <name>] [--dir .] [--force]
+      Set up a Playwright project for attestqa: writes ai-quality.config.yaml (no secrets),
+      a .env with empty credential lines to fill in (never overwritten), and .gitignore
+      lines for .env and .aqa/. Asks for anything not given when run in a terminal.
+      --scope: a Jira project key (SHOP) or an Azure DevOps id or range (100-199).
+      --model: claude-gateway uses the same ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN as
+      Claude Code; azure-openai and gateway also need --model-endpoint and --model-name.
+
   aqa replay <path> [--out <file>]
       Render a ledger to Markdown (no network, no tools). <path> is a run dir, a ledger
       root (uses the latest run), or an events.jsonl file.
@@ -155,6 +166,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
   try {
     if (!cmd || cmd === "--help" || cmd === "-h") return (io.out(USAGE), 0);
     if (cmd === "--version" || cmd === "-v") return (io.out(`${VERSION}\n`), 0);
+    if (cmd === "init") return await init(rest, io);
     if (cmd === "replay") return replay(rest, io);
     if (cmd === "discover") return await discover(rest, io);
     if (cmd === "check-rules") return await checkRules(rest, io);
@@ -181,6 +193,114 @@ function stdio(): CliIo {
       process.stderr.write(s);
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// init
+// ---------------------------------------------------------------------------
+
+/** Asks one question on the terminal; undefined when there is no terminal to ask. */
+export type Ask = (question: string) => Promise<string | undefined>;
+
+async function terminalAsk(question: string): Promise<string | undefined> {
+  if (!process.stdin.isTTY) return undefined;
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return (await rl.question(question)).trim();
+  } finally {
+    rl.close();
+  }
+}
+
+export async function init(args: string[], io: CliIo, ask: Ask = terminalAsk): Promise<number> {
+  const need = async (name: string, question: string): Promise<string> => {
+    const given = flag(args, name) ?? (await ask(question));
+    if (!given)
+      throw new Error(`init needs ${name} (there is no terminal to ask on; see aqa --help)`);
+    return given;
+  };
+  const trackerRaw = (
+    await need("--tracker", "Where are your stories — jira or ado? ")
+  ).toLowerCase();
+  const tracker: Tracker | undefined =
+    trackerRaw === "jira"
+      ? "jira"
+      : ["ado", "azure", "azure-devops", "azuredevops"].includes(trackerRaw)
+        ? "ado"
+        : undefined;
+  if (!tracker)
+    return (io.err(`aqa init: --tracker must be jira or ado, not "${trackerRaw}"\n`), 1);
+  const scope = await need(
+    "--scope",
+    tracker === "jira"
+      ? "Jira project key the agent may work in (e.g. SHOP): "
+      : "Azure DevOps work item id or range the agent may work in (e.g. 100-199): ",
+  );
+  const url = await need(
+    "--url",
+    "Where does the application under test run (e.g. http://localhost:3000)? ",
+  );
+  const route = modelRoute(
+    await need(
+      "--model",
+      "Which model does your company use?\n" +
+        "  1  Claude with an Anthropic API key\n" +
+        "  2  Claude through your company's gateway (the same settings as Claude Code)\n" +
+        "  3  Azure OpenAI\n" +
+        "  4  Another OpenAI-compatible company gateway\n" +
+        "  5  GitHub Copilot (stories then run from VS Code, through the attestqa extension)\n" +
+        "1-5: ",
+    ),
+  );
+  let modelEndpoint = flag(args, "--model-endpoint");
+  let modelName = flag(args, "--model-name");
+  if (
+    route === "claude-gateway" &&
+    modelEndpoint === undefined &&
+    !process.env["ANTHROPIC_BASE_URL"]
+  )
+    modelEndpoint =
+      (await ask(
+        "Your gateway address (Claude Code's ANTHROPIC_BASE_URL; Enter to fill in later): ",
+      )) || undefined;
+  if (route === "azure-openai" || route === "gateway") {
+    modelEndpoint ??= await need(
+      "--model-endpoint",
+      route === "azure-openai"
+        ? "Azure OpenAI resource URL (e.g. https://<resource>.openai.azure.com): "
+        : "Gateway base URL (OpenAI-compatible, e.g. https://llm-gateway.acme.internal/v1): ",
+    );
+    modelName ??= await need(
+      "--model-name",
+      route === "azure-openai" ? "Deployment name: " : "Model name the gateway exposes: ",
+    );
+  }
+  const dir = resolve(flag(args, "--dir") ?? ".");
+
+  const r = runInit({
+    dir,
+    tracker,
+    scope,
+    url,
+    model: route,
+    ...(modelEndpoint ? { modelEndpoint } : {}),
+    ...(modelName ? { modelName } : {}),
+    force: args.includes("--force"),
+    env: process.env,
+  });
+  for (const f of r.written) io.out(`aqa init: wrote ${f}\n`);
+  for (const n of r.notes) io.out(`aqa init: ${n}\n`);
+  const example =
+    tracker === "jira" ? `${scopeEntry(tracker, scope).replace("*", "1")}` : scope.split("-")[0];
+  io.out(
+    `\nNext:\n` +
+      `  1. Fill in .env (keys and a test account).\n` +
+      `  2. Check the setup, spending nothing:\n` +
+      `     aqa run "Write tests for ${example}" --config ${CONFIG_FILE} --dry-run\n` +
+      `  3. Then the same without --dry-run. You approve the test design, the run and any bug.\n`,
+  );
+  return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +538,7 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
     io.out(`aqa run --dry-run: "${request}"\n`);
     io.out(`  tracker: ${picked.tracker === "jira" ? "Jira" : "Azure DevOps"}\n`);
     io.out(
-      `  config: model ${describeModel(config.model)}, budgets ${config.budgets.steps} steps / ${
+      `  config: model ${describeModel(config.model, undefined, readRuntimeEnv(process.env, { requireAnthropic: false }))}, budgets ${config.budgets.steps} steps / ${
         config.budgets.tokens
       } tokens\n`,
     );
@@ -481,7 +601,7 @@ async function live(
   // not for Anthropic by assumption. A stale key already in the shell wins
   // over the file (standard dotenv precedence) and silently shadows it, which
   // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
-  const credVar = credentialVarFor(config.model);
+  const credVar = credentialVarFor(config.model, false, env);
   const credValue = credVar ? (process.env[credVar] ?? "") : "";
   const keySource = !credVar
     ? "no credential needed"
@@ -493,6 +613,8 @@ async function live(
   io.err(
     `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(
       config.model,
+      undefined,
+      env,
     )}; ${keySource}\n`,
   );
 

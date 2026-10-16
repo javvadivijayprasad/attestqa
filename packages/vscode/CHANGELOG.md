@@ -7,6 +7,11 @@ First release as **attestqa** (previously the agentic-qa extension).
 - Run a story from **Jira** (`SHOP-12`) as well as Azure DevOps (`123`, `AB#123`).
 - The test design approval is shown item by item — coverage, type, technique, conditions,
   expected result, exclusions — instead of a truncated argument list.
+- **@attestqa in Copilot Chat**: `@attestqa write tests for SHOP-12` starts the same governed run,
+  with progress in the chat and approvals in attestqa's dialog; `/dryrun`, `/coverage`, `/setup`.
+- **GitHub Copilot**: run stories on your Copilot plan. The extension relays the engine's model
+  calls to VS Code's Language Model API through a private, per-run address; requires VS Code 1.95+.
+- New command **Set up this folder** (runs `aqa init`), also offered in the empty Runs view.
 - New commands: **Show coverage**, **Check rules on recent runs**, **Open the user guide**.
 - New setting `aqa.envFile`; `aqa.workspaceDir` now defaults to the open folder.
 - Progress notification shows the CLI's own progress lines.

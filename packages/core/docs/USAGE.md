@@ -24,7 +24,7 @@ For how it works inside, see [HOW-A-RUN-WORKS.md](HOW-A-RUN-WORKS.md) and
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | Node.js 20 or later                           | the runtime                                                                                                                 |
 | A Playwright project for the site under test  | where the tests are written; `npx playwright test` must work in it                                                          |
-| A model credential                            | Anthropic by default; OpenAI, Azure OpenAI, a local model or your company gateway also work                                 |
+| A model credential                            | Whatever route your company uses: Claude through its gateway (as Claude Code is set up), an Anthropic key, Azure OpenAI, or an OpenAI-compatible gateway |
 | Jira **or** Azure DevOps access               | to read stories; Jira: email + API token (Cloud) or a PAT (Data Center). Azure DevOps: a PAT with Work Items (read & write) |
 | The application, running                      | attestqa opens the real pages to find what is on them                                                                       |
 | A disposable test account in that application | never a real user, never an admin                                                                                           |
@@ -49,6 +49,22 @@ installed; it does not bundle its own copy. See [section 8](#8-in-vs-code).
 ## 3. Set up a project
 
 Do this once per application under test. Five steps.
+
+**The quick way:** in the Playwright project folder, run
+
+```
+aqa init
+```
+
+It asks four things — Jira or Azure DevOps, which stories the agent may work on (a Jira project
+key such as `SHOP`, or an Azure DevOps id range such as `100-199`), where the application runs, and
+which model route your company uses, Copilot included (see "Which model" in 3.2) —
+then writes `ai-quality.config.yaml`, a `.env` with empty credential lines to fill in, and
+`.gitignore` lines so neither `.env` nor the run records reach git. It never overwrites `.env`, and
+keeps an existing config unless you add `--force`. Without a terminal, give the answers as flags:
+`aqa init --tracker jira --scope SHOP --url http://localhost:3000`. In VS Code the same is
+**attestqa: Set up this folder**. Then fill in `.env` and go to 3.4. The sections below explain each
+file, for when you want to change what `aqa init` wrote.
 
 ### 3.1 The Playwright project
 
@@ -79,8 +95,11 @@ Create `.env` next to where you run `aqa` (`.env.example` lists every name). It 
 never commit it and never paste its values anywhere.
 
 ```ini
-# The model (one of these, matching agent.model in the config)
+# The model (one of these, matching agent.model in the config — see "Which model" below)
 ANTHROPIC_API_KEY=...
+# or, for Claude through your company's gateway (the same two values Claude Code uses):
+# ANTHROPIC_BASE_URL=https://llm-gateway.your-company.internal
+# ANTHROPIC_AUTH_TOKEN=...
 
 # Jira Cloud
 JIRA_BASE_URL=https://your-site.atlassian.net
@@ -102,6 +121,34 @@ AQA_APP_PASS=...
 A variable already set in your shell wins over `.env`. If authentication fails and `.env` looks
 right, look for a stale `ANTHROPIC_API_KEY` in your environment — the startup line says which source
 each key came from.
+
+#### Which model — your company's route
+
+Most companies do not hand out personal Anthropic keys. Use the route your company already has:
+
+- **Claude through the company gateway.** If Claude Code works on your machine through your
+  company's LLM gateway, attestqa uses the same two settings: `ANTHROPIC_BASE_URL` (the gateway)
+  and `ANTHROPIC_AUTH_TOKEN` (your gateway credential). When they are already in your environment
+  there is nothing to add; otherwise put them in `.env`. The config keeps `model: <name>`, using the
+  model name your gateway accepts. Gateways in front of Amazon Bedrock, Google Vertex or Microsoft
+  Foundry work the same way, as long as they offer Claude's own API format (as they must for
+  Claude Code). The run's first line shows the gateway address and which variable the credential
+  came from — never the credential.
+- **An Anthropic API key:** `ANTHROPIC_API_KEY`.
+- **Azure OpenAI** or **another OpenAI-compatible gateway:** a `provider` block in the config, with
+  the endpoint and model or deployment name (`aqa init` writes it), and the key in `.env`
+  (`AZURE_OPENAI_API_KEY`, `AQA_GATEWAY_API_KEY`).
+
+- **GitHub Copilot, in VS Code.** VS Code lends a person's Copilot models to extensions (after a
+  one-time consent prompt), so the attestqa extension can run a story on your Copilot plan: choose
+  **GitHub Copilot** in **attestqa: Set up this folder** and pick a model, then use **attestqa: Run
+  story…**. The config says `provider: vscode-copilot`; `.env` needs nothing for the model. For the
+  length of each run the extension relays the engine's model calls to Copilot through a private
+  address on your machine, guarded by a token made for that run. Every rule, approval and record is
+  the engine's, exactly as with any other model. Three things differ: usage counts against your
+  Copilot plan; Copilot reports no token counts, so the run record's token figures are estimates
+  (marked `estimated`); and it works only from VS Code — a terminal or CI run on Copilot stops at
+  once and says so, because VS Code gives other programs no supported access to Copilot.
 
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 
@@ -344,13 +391,21 @@ successful one because each cycle re-reads the context. To spend less: lower `bu
 
 The extension runs the same `aqa` with the same rules; it adds no rules of its own and removes none.
 
-1. Install **attestqa** from the Marketplace and open the folder that holds your config and `.env`.
-2. Set **attestqa: Workspace Dir** to your Playwright project (default `.`) and check
-   **attestqa: Config File**.
-3. Command palette → **attestqa: Run story…** → enter `SHOP-12` (Jira) or `123` (Azure DevOps).
-   Output streams to the **attestqa** output panel.
+1. Install **attestqa** from the Marketplace and open your Playwright project folder.
+2. **attestqa: Set up this folder** (also offered in the empty **attestqa** view) writes the config
+   and a `.env` to fill in, after four questions. For a config elsewhere, set **attestqa: Workspace
+   Dir** and **attestqa: Config File**.
+3. Start a run either way:
+   - in **Copilot Chat**, type `@attestqa write tests for SHOP-12` (or `@attestqa /dryrun SHOP-12`,
+     `@attestqa /coverage`). Progress appears in the chat. When the project is set up for GitHub
+     Copilot, the run uses the model picked in the chat's model menu;
+   - or Command palette → **attestqa: Run story…** → enter `SHOP-12` (Jira) or `123` (Azure DevOps).
+
+   Output streams to the **attestqa** output panel. Copilot's Agent mode is not used: there Copilot
+   would drive the tools itself and attestqa's rules and run record would be bypassed, so attestqa
+   runs the loop and the chat only starts it and reports on it.
 4. When the design is ready, a dialog shows it item by item. **Approve** or **Deny**. Closing the
-   dialog denies. **attestqa: Answer the pending approval** reopens it.
+   dialog denies. Nothing is approved by typing in the chat. **attestqa: Answer the pending approval** reopens it.
 5. **attestqa: Show coverage** opens the coverage report; **attestqa: Replay a run** opens a run as
    Markdown; **attestqa: Check rules on recent runs** runs check-rules. The **attestqa** view in the
    activity bar lists runs and their events.

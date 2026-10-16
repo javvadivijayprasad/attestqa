@@ -22,6 +22,12 @@ export interface ModelUsage {
    */
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  /**
+   * True when the provider does not report usage and the numbers are an
+   * estimate (VS Code's Language Model API, for Copilot). Absent otherwise, so
+   * every existing ledger is unchanged.
+   */
+  estimated?: boolean;
 }
 
 /**

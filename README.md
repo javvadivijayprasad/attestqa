@@ -12,7 +12,7 @@ extension on the VS Code Marketplace). The design set was approved on 10 October
   Azure DevOps, approve the design, read coverage and the ledger, use it from VS Code.
 - **[Roadmap](ROADMAP.md)** — what ships each month, and the later stages (API, web version,
   security, ETL).
-- **Try it:** `npm install -g attestqa`, then follow section 3 of the user guide.
+- **Try it:** `npm install -g attestqa`, then `aqa init` in your Playwright project (section 3 of the user guide).
 
 | Folder | Holds |
 |---|---|

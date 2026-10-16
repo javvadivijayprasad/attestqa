@@ -2,9 +2,12 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
 import { ApprovalWatcher } from "./approvals";
+import { copilotModels } from "./copilot";
+import { launchRun } from "./runner";
+import { registerChat } from "./chat";
 import { listRuns, RunsTreeProvider, type RunEvent, type RunSummary } from "./ledger";
 import { resolveRuntime, spawnAqa } from "./runtime";
-import { parseStoryRef, requestFor } from "./story";
+import { parseStoryRef } from "./story";
 
 /**
  * A thin client of the `aqa` CLI (ADR-003). Every rule lives in the engine; this
@@ -100,6 +103,8 @@ export function activate(context: vscode.ExtensionContext): void {
     log.appendLine(`opened event ${event.eventId} of ${run.runId}`);
   });
 
+  register("aqa.init", () => void setUpFolder(log, runs));
+  registerChat(context, log, runs, settings);
   register("aqa.runStory", () => void runStory(context, log, runs, false));
   register("aqa.dryRun", () => void runStory(context, log, runs, true));
 
@@ -167,6 +172,142 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 }
 
+/**
+ * "Set up this folder": asks the three things `aqa init` needs and runs it. The
+ * engine writes the files and validates the answers; this only collects them.
+ */
+async function setUpFolder(log: vscode.OutputChannel, runs: RunsTreeProvider): Promise<void> {
+  const folder = firstFolder();
+  if (!folder) return;
+  const runtime = await resolveRuntime(folder);
+  if (!runtime) return;
+
+  const tracker = await vscode.window.showQuickPick(
+    [
+      { label: "Jira", description: "stories in Jira Cloud or Data Center", value: "jira" },
+      { label: "Azure DevOps", description: "user stories in Azure Boards", value: "ado" },
+    ],
+    { title: "attestqa setup (1/4): where are your stories?", ignoreFocusOut: true },
+  );
+  if (!tracker) return;
+  const jira = tracker.value === "jira";
+  const scope = await vscode.window.showInputBox({
+    title: "attestqa setup (2/4): which stories may the agent work on?",
+    prompt: jira
+      ? "A Jira project key, e.g. SHOP (stories SHOP-1, SHOP-2, …)"
+      : "An Azure DevOps work item id or range, e.g. 100-199",
+    ignoreFocusOut: true,
+    validateInput: (v) =>
+      (jira ? /^[A-Za-z][A-Za-z0-9_]+(-\*)?$/ : /^\d+(-\d+)?$/).test(v.trim())
+        ? undefined
+        : jira
+          ? "Letters and digits, e.g. SHOP"
+          : "A number or a range, e.g. 100-199",
+  });
+  if (!scope) return;
+  const url = await vscode.window.showInputBox({
+    title: "attestqa setup (3/4): where does the application under test run?",
+    prompt: "The address the agent may open in a browser, e.g. http://localhost:3000",
+    value: "http://localhost:3000",
+    ignoreFocusOut: true,
+    validateInput: (v) => (/^https?:\/\/\S+$/.test(v.trim()) ? undefined : "Start with http:// or https://"),
+  });
+  if (!url) return;
+
+  // Most companies reach a model through their own route, not a personal key.
+  const model = await vscode.window.showQuickPick(
+    [
+      { label: "Claude — company gateway", description: "the same settings as Claude Code (ANTHROPIC_BASE_URL)", value: "claude-gateway" },
+      { label: "Claude — Anthropic API key", description: "ANTHROPIC_API_KEY", value: "anthropic" },
+      { label: "Azure OpenAI", description: "a deployment in your Azure OpenAI resource", value: "azure-openai" },
+      { label: "Other company gateway", description: "OpenAI-compatible", value: "gateway" },
+      { label: "GitHub Copilot", description: "your Copilot plan, through VS Code (stories run from VS Code)", value: "copilot" },
+    ],
+    {
+      title: "attestqa setup (4/4): which model does your company use?",
+      ignoreFocusOut: true,
+    },
+  );
+  if (!model) return;
+  const modelArgs = ["--model", model.value];
+  if (model.value === "copilot") {
+    const available = await copilotModels(); // shows VS Code's consent prompt the first time
+    if (available.length === 0) {
+      void vscode.window.showErrorMessage(
+        "VS Code offers no Copilot models. Sign in to GitHub Copilot in VS Code and allow attestqa to use it, then run setup again.",
+      );
+      return;
+    }
+    const family = await vscode.window.showQuickPick(
+      available.map((m) => ({ label: m.family, description: `${m.name} · up to ${m.maxInputTokens} input tokens` })),
+      { title: "Which Copilot model?", placeHolder: "A larger model writes better tests; quota use varies by model", ignoreFocusOut: true },
+    );
+    if (!family) return;
+    modelArgs.push("--model-name", family.label);
+  }
+  if (model.value === "claude-gateway") {
+    const gw = await vscode.window.showInputBox({
+      title: "Your company's Claude gateway",
+      prompt: "Claude Code's ANTHROPIC_BASE_URL. Leave empty if it is already set on this machine.",
+      ignoreFocusOut: true,
+    });
+    if (gw === undefined) return;
+    if (gw.trim()) modelArgs.push("--model-endpoint", gw.trim());
+  }
+  if (model.value === "azure-openai" || model.value === "gateway") {
+    const azure = model.value === "azure-openai";
+    const endpoint = await vscode.window.showInputBox({
+      title: azure ? "Azure OpenAI resource URL" : "Gateway base URL (OpenAI-compatible)",
+      prompt: azure ? "e.g. https://<resource>.openai.azure.com" : "e.g. https://llm-gateway.acme.internal/v1",
+      ignoreFocusOut: true,
+      validateInput: (v) => (/^https?:\/\/\S+$/.test(v.trim()) ? undefined : "Start with http:// or https://"),
+    });
+    if (!endpoint) return;
+    const name = await vscode.window.showInputBox({
+      title: azure ? "Deployment name" : "Model name the gateway exposes",
+      ignoreFocusOut: true,
+      validateInput: (v) => (v.trim() ? undefined : "Required"),
+    });
+    if (!name) return;
+    modelArgs.push("--model-endpoint", endpoint.trim(), "--model-name", name.trim());
+  }
+
+  const args = ["init", "--tracker", tracker.value, "--scope", scope.trim(), "--url", url.trim(), ...modelArgs, "--dir", "."];
+  const cfg = join(folder.uri.fsPath, settings().configFile);
+  if (existsSync(cfg)) {
+    const replace = await vscode.window.showWarningMessage(
+      `${settings().configFile} already exists in this folder.`,
+      { modal: true },
+      "Replace it",
+    );
+    if (replace !== "Replace it") return;
+    args.push("--force");
+  }
+
+  log.show(true);
+  log.appendLine(`$ aqa ${args.map(quote).join(" ")}`);
+  const code = await new Promise<number | null>((resolve) => {
+    const child = spawnAqa(runtime.command, args, { cwd: folder.uri.fsPath });
+    child.stdout.on("data", (d: Buffer) => log.append(d.toString()));
+    child.stderr.on("data", (d: Buffer) => log.append(d.toString()));
+    child.on("error", (err) => {
+      log.appendLine(`Could not run ${runtime.command}: ${err.message}`);
+      resolve(null);
+    });
+    child.on("close", resolve);
+  });
+  if (code !== 0) {
+    void vscode.window.showErrorMessage("attestqa setup failed. See the attestqa output for why.");
+    return;
+  }
+  runs.refresh();
+  const env = join(folder.uri.fsPath, ".env");
+  if (existsSync(env)) await vscode.window.showTextDocument(vscode.Uri.file(env), { preview: false });
+  void vscode.window.showInformationMessage(
+    "attestqa is set up. Fill in the empty values in .env (the attestqa output lists them), then run 'attestqa: Dry run'.",
+  );
+}
+
 async function runStory(
   context: vscode.ExtensionContext,
   log: vscode.OutputChannel,
@@ -192,70 +333,38 @@ async function runStory(
   if (!story) return;
   await context.workspaceState.update("aqa.lastStory", story.label);
 
-  const cfg = settings();
-  const args = [
-    "run",
-    requestFor(story),
-    "--config",
-    cfg.configFile,
-    "--workspace",
-    cfg.workspaceDir,
-    "--ledger",
-    cfg.ledgerDir,
-  ];
-  // The credentials file is passed by name; the extension never opens it.
-  if (existsSync(join(folder.uri.fsPath, cfg.envFile))) args.push("--env", cfg.envFile);
-  if (dryRun) {
-    args.push("--dry-run");
-  } else {
-    // File approval is what lets the editor answer instead of a terminal.
-    args.push("--approval", "file", "--approval-timeout", String(cfg.approvalTimeoutSeconds));
-  }
-
   log.show(true);
-  log.appendLine(`\n$ ${runtime.command} ${args.map(quote).join(" ")}`);
-
   await vscode.window.withProgress(
     {
       location: vscode.ProgressLocation.Notification,
       title: dryRun ? `attestqa: dry run for ${story.label}` : `attestqa: ${story.label}`,
       cancellable: true,
     },
-    (progress, token) =>
-      new Promise<void>((resolve) => {
-        const child = spawnAqa(runtime.command, args, { cwd: folder.uri.fsPath });
-
-        token.onCancellationRequested(() => {
-          log.appendLine("cancelled — stopping the run");
-          child.kill();
+    async (progress, token) => {
+      try {
+        const code = await launchRun({
+          folder,
+          command: runtime.command,
+          story,
+          dryRun,
+          settings: settings(),
+          log,
+          cancel: token,
+          onText: (text) => {
+            // The CLI's own progress lines ("aqa: …") are the progress message.
+            const line = text
+              .split(/\r?\n/)
+              .reverse()
+              .find((l) => l.startsWith("aqa: "));
+            if (line) progress.report({ message: line.slice(5, 120) });
+          },
         });
-
-        const onData = (d: Buffer): void => {
-          const text = d.toString();
-          log.append(text);
-          // The CLI's own progress lines ("aqa: …") are the progress message.
-          const line = text
-            .split(/\r?\n/)
-            .reverse()
-            .find((l) => l.startsWith("aqa: "));
-          if (line) progress.report({ message: line.slice(5, 120) });
-        };
-        child.stdout.on("data", onData);
-        child.stderr.on("data", onData);
-
-        child.on("error", (err) => {
-          log.appendLine(`failed to start: ${err.message}`);
-          void vscode.window.showErrorMessage(`Could not start aqa: ${err.message}`);
-          resolve();
-        });
-
-        child.on("close", (code) => {
-          log.appendLine(`\nexit ${code ?? "?"}`);
-          runs.refresh();
-          report(code, dryRun);
-          resolve();
-        });
-      }),
+        runs.refresh();
+        report(code, dryRun);
+      } catch (e) {
+        void vscode.window.showErrorMessage((e as Error).message);
+      }
+    },
   );
 }
 

@@ -60,6 +60,8 @@ export interface ChatResponse {
     finish_reason?: string | null;
   }>;
   usage?: {
+    /** Set by the attestqa VS Code bridge: Copilot reports no usage, so these are estimates. */
+    estimated?: boolean;
     prompt_tokens?: number;
     completion_tokens?: number;
     prompt_tokens_details?: { cached_tokens?: number };
@@ -136,6 +138,7 @@ export function endpointFor(
         bodyModel: config.name,
       };
     }
+    case "vscode-copilot":
     case "gateway": {
       // A company's own OpenAI-compatible gateway in front of whatever models it
       // allows. Its extra headers (team, cost centre) come from config and were
@@ -276,6 +279,7 @@ function usageOf(res: ChatResponse): ModelUsage {
   // present, left absent otherwise — same convention as the Anthropic adapter.
   const cached = res.usage?.prompt_tokens_details?.cached_tokens;
   if (typeof cached === "number") usage.cacheReadTokens = cached;
+  if (res.usage?.estimated === true) usage.estimated = true;
   return usage;
 }
 

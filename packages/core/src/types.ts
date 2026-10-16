@@ -433,7 +433,19 @@ export const DEFAULT_CAPABILITIES: CapabilitiesConfig = { test_plans: true };
  * `openai`, `azure-openai` and `local` share one wire format (OpenAI-compatible
  * chat completions with tools) and differ only in URL and authentication.
  */
-export type ModelProvider = "anthropic" | "openai" | "azure-openai" | "local" | "gateway";
+export type ModelProvider =
+  | "anthropic"
+  | "openai"
+  | "azure-openai"
+  | "local"
+  | "gateway"
+  /**
+   * GitHub Copilot's models, reached through the attestqa VS Code extension,
+   * which relays the calls to VS Code's Language Model API on a private local
+   * address (AQA_VSCODE_LM_ENDPOINT, with AQA_VSCODE_LM_TOKEN). A terminal or
+   * CI process has no supported way to reach Copilot.
+   */
+  | "vscode-copilot";
 
 /**
  * How the credential is obtained. Never the credential itself.

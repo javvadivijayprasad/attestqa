@@ -30,6 +30,7 @@ export const MODEL_PROVIDERS: readonly ModelProvider[] = [
   "azure-openai",
   "local",
   "gateway",
+  "vscode-copilot",
 ];
 export const MODEL_AUTHS: readonly ModelAuth[] = ["key", "none", "entra", "aws-sso"];
 
@@ -285,6 +286,16 @@ export function loadDotEnv(file = ".env", env: NodeJS.ProcessEnv = process.env):
 /** The environment the runtime needs (PLAN §0.2). Values are never printed. */
 export interface RuntimeEnv {
   anthropicApiKey: string;
+  /**
+   * ANTHROPIC_AUTH_TOKEN and ANTHROPIC_BASE_URL — the two variables Claude Code
+   * reads to reach Claude through a company LLM gateway. A machine where Claude
+   * Code works through the gateway therefore runs attestqa with no new key.
+   */
+  anthropicAuthToken?: string;
+  anthropicBaseUrl?: string;
+  /** Set by the attestqa VS Code extension when it relays model calls to Copilot. */
+  vscodeLmEndpoint?: string;
+  vscodeLmToken?: string;
   /** OPENAI_API_KEY — for provider openai, and for local servers that want one. */
   openaiApiKey?: string;
   /** AZURE_OPENAI_API_KEY — for provider azure-openai. */
@@ -310,8 +321,10 @@ export function readRuntimeEnv(
   opts: { requireAnthropic?: boolean } = {},
 ): RuntimeEnv {
   const key = env["ANTHROPIC_API_KEY"];
-  if (opts.requireAnthropic !== false && !key)
-    throw new ConfigError("ANTHROPIC_API_KEY is not set");
+  if (opts.requireAnthropic !== false && !key && !env["ANTHROPIC_AUTH_TOKEN"])
+    throw new ConfigError(
+      "ANTHROPIC_API_KEY is not set (or, for Claude through a company gateway, ANTHROPIC_AUTH_TOKEN with ANTHROPIC_BASE_URL)",
+    );
   const orgUrl = env["AZURE_DEVOPS_ORG_URL"];
   let azureDevOps: RuntimeEnv["azureDevOps"];
   if (orgUrl) {
@@ -323,6 +336,10 @@ export function readRuntimeEnv(
     azureDevOps = { orgUrl, org: orgNameFromUrl(orgUrl), pat, project };
   }
   const out: RuntimeEnv = { anthropicApiKey: key ?? "", sandbox: env["AQA_SANDBOX"] === "1" };
+  if (env["ANTHROPIC_AUTH_TOKEN"]) out.anthropicAuthToken = env["ANTHROPIC_AUTH_TOKEN"];
+  if (env["ANTHROPIC_BASE_URL"]) out.anthropicBaseUrl = env["ANTHROPIC_BASE_URL"];
+  if (env["AQA_VSCODE_LM_ENDPOINT"]) out.vscodeLmEndpoint = env["AQA_VSCODE_LM_ENDPOINT"];
+  if (env["AQA_VSCODE_LM_TOKEN"]) out.vscodeLmToken = env["AQA_VSCODE_LM_TOKEN"];
   if (env["OPENAI_API_KEY"]) out.openaiApiKey = env["OPENAI_API_KEY"];
   if (env["AZURE_OPENAI_API_KEY"]) out.azureOpenAiApiKey = env["AZURE_OPENAI_API_KEY"];
   if (env["AQA_GATEWAY_API_KEY"]) out.gatewayApiKey = env["AQA_GATEWAY_API_KEY"];

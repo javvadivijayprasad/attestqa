@@ -99,6 +99,8 @@ Requires Node 20+.
 ```bash
 npm install -g attestqa
 aqa --version
+cd my-playwright-project
+aqa init        # four questions; writes ai-quality.config.yaml and a .env to fill in
 ```
 
 Or run it from a clone:

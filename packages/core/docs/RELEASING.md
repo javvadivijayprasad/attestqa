@@ -181,6 +181,10 @@ expiry would not help. An extension release after that needs `vsce publish --azu
 (Microsoft Entra sign-in from the workflow, through workload identity federation) instead of
 `VSCE_PAT`; change `release.yml` before the first post-1.0.0 extension release.
 
+The extension uses GitHub Copilot's models through VS Code's Language Model API, so before each
+Marketplace release check it still follows GitHub's *Copilot extensibility acceptable development
+and use policy*, which VS Code's guide names as a condition of publishing such an extension.
+
 **Each release:**
 
 ```

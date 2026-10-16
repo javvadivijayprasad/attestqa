@@ -65,9 +65,20 @@ export interface TransportOptions {
   maxRetries: number;
 }
 
+/**
+ * Where a call goes and how it authenticates when that is not the Anthropic API
+ * with an API key: a company gateway (Claude Code's ANTHROPIC_BASE_URL) and a
+ * bearer token for it (ANTHROPIC_AUTH_TOKEN).
+ */
+export interface AnthropicConnection {
+  baseURL?: string;
+  authToken?: string;
+}
+
 export type MessagesFactory = (
   apiKey: string,
   transport?: TransportOptions,
+  connection?: AnthropicConnection,
 ) => Promise<MessagesApi>;
 
 /**
@@ -91,21 +102,42 @@ export type MessagesFactory = (
 export const DEFAULT_TRANSPORT: TransportOptions = { timeoutMs: 300_000, maxRetries: 2 };
 
 /** Default: the official SDK, imported lazily so unit tests never need it. */
-export const sdkMessagesFactory: MessagesFactory = async (apiKey, transport) => {
+export const sdkMessagesFactory: MessagesFactory = async (apiKey, transport, connection) => {
   const { timeoutMs, maxRetries } = transport ?? DEFAULT_TRANSPORT;
   const mod = (await import("@anthropic-ai/sdk")) as unknown as {
-    default: new (opts: { apiKey: string; timeout?: number; maxRetries?: number }) => {
+    default: new (opts: {
+      apiKey?: string | null;
+      authToken?: string | null;
+      baseURL?: string | null;
+      timeout?: number;
+      maxRetries?: number;
+    }) => {
       messages: MessagesApi;
     };
   };
   const Anthropic = mod.default;
+  // Explicit on every field: the SDK would otherwise fall back to whatever
+  // ANTHROPIC_* variables happen to be in the environment, and the run should
+  // use exactly the connection describeModel() reported.
+  const viaToken = Boolean(connection?.authToken);
   // The SDK retries a timed-out request itself; `maxRetries` bounds that, so the
   // worst case is (maxRetries + 1) × timeoutMs rather than forever.
-  return new Anthropic({ apiKey, timeout: timeoutMs, maxRetries }).messages;
+  return new Anthropic({
+    apiKey: viaToken ? null : apiKey,
+    authToken: viaToken ? (connection?.authToken as string) : null,
+    baseURL: connection?.baseURL ?? null,
+    timeout: timeoutMs,
+    maxRetries,
+  }).messages;
 };
 
 export interface AnthropicModelOptions {
+  /** An Anthropic API key — or, with `authToken`, unused. */
   apiKey: string;
+  /** A company gateway's bearer token (ANTHROPIC_AUTH_TOKEN); used instead of apiKey. */
+  authToken?: string;
+  /** A company gateway's address (ANTHROPIC_BASE_URL, or agent.model.endpoint). */
+  baseURL?: string;
   model?: string;
   promptVersion?: string;
   maxTokens?: number;
@@ -164,6 +196,7 @@ export class AnthropicModel implements ModelClient {
   readonly provider = "anthropic";
   readonly promptVersion: string;
   private readonly apiKey: string;
+  private readonly connection: AnthropicConnection;
   private readonly maxTokens: number;
   private readonly factory: MessagesFactory;
   private readonly transport: TransportOptions;
@@ -171,8 +204,13 @@ export class AnthropicModel implements ModelClient {
   private api: MessagesApi | undefined;
 
   constructor(opts: AnthropicModelOptions) {
-    if (!opts.apiKey) throw new Error("AnthropicModel requires an API key");
+    if (!opts.apiKey && !opts.authToken)
+      throw new Error("AnthropicModel requires an API key or a gateway auth token");
     this.apiKey = opts.apiKey;
+    this.connection = {
+      ...(opts.authToken ? { authToken: opts.authToken } : {}),
+      ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+    };
     this.model = opts.model ?? DEFAULT_MODEL;
     this.promptVersion = opts.promptVersion ?? DEFAULT_PROMPT_VERSION;
     // A generated spec for half a dozen scenarios does not fit in 4k.
@@ -183,7 +221,7 @@ export class AnthropicModel implements ModelClient {
   }
 
   private async messages(): Promise<MessagesApi> {
-    this.api ??= await this.factory(this.apiKey, this.transport);
+    this.api ??= await this.factory(this.apiKey, this.transport, this.connection);
     return this.api;
   }
 
