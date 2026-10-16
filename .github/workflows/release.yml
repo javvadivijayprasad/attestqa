@@ -4,7 +4,9 @@ name: release
 # "Run workflow" with dry_run (the default) does everything except publish.
 on:
   push:
-    tags: ["v*.*.*"]
+    # A release tag vX.Y.Z publishes. A pre-release tag (v1.0.0-rc.1, the
+    # evaluation freeze) marks a commit and publishes nothing.
+    tags: ["v*.*.*", "!v*.*.*-*"]
   workflow_dispatch:
     inputs:
       dry_run:
