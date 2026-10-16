@@ -84,7 +84,7 @@
     "vitest": "^2.0.0"
   },
   "dependencies": {
-    "@vijaypjavvadi/bdd2pw": "^4.5.2",
+    "@vijaypjavvadi/bdd2pw": "^4.5.4",
     "@vijaypjavvadi/pw-self-heal": "^1.2.2",
     "@anthropic-ai/sdk": "^0.125.0",
     "@modelcontextprotocol/sdk": "^1.12.0",

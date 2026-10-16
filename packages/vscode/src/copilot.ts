@@ -2,7 +2,16 @@ import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import * as vscode from "vscode";
-import { errorBody, sameToken, toPrompt, toResponse, type ToolCall, type WireRequest } from "./copilotWire";
+import {
+  errorBody,
+  pickModel,
+  sameToken,
+  tooLarge,
+  toPrompt,
+  toResponse,
+  type ToolCall,
+  type WireRequest,
+} from "./copilotWire";
 
 /**
  * Lets the attestqa engine use the person's GitHub Copilot models.
@@ -69,16 +78,9 @@ export class CopilotBridge implements vscode.Disposable {
 
     try {
       const prompt = toPrompt(body);
-      const model =
-        this.pinned ??
-        (
-          await vscode.lm.selectChatModels({
-            vendor: "copilot",
-            ...(prompt.family ? { family: prompt.family } : {}),
-          })
-        )[0];
+      const all = await vscode.lm.selectChatModels({ vendor: "copilot" });
+      const model = this.pinned ?? pickModel(all, prompt.family);
       if (!model) {
-        const all = await vscode.lm.selectChatModels({ vendor: "copilot" });
         return send(
           400,
           errorBody(
@@ -87,6 +89,12 @@ export class CopilotBridge implements vscode.Disposable {
               : "no Copilot models are available — sign in to GitHub Copilot in VS Code",
           ),
         );
+      }
+      const size = prompt.text.length + JSON.stringify(prompt.tools).length;
+      const overflow = tooLarge(size, model, all);
+      if (overflow) {
+        this.log.appendLine(`copilot: ${model.family} is too small for this step`);
+        return send(413, errorBody(`Copilot: ${overflow}`));
       }
       const cancel = new vscode.CancellationTokenSource();
       const timer = setTimeout(() => cancel.cancel(), 290_000); // under the engine's 300 s

@@ -1,3 +1,4 @@
+import { asRecord } from "../verify/evidence.js";
 import { routePathOf } from "../route/route.js";
 import type { AnyRunEvent, Skill } from "../types.js";
 import { StoryToTestsVerifier, type StoryToTestsOptions } from "../verify/story-to-tests.js";
@@ -864,6 +865,15 @@ ${
  * cannot perform an operation should not advertise it, or the run spends its
  * budget finding out.
  */
+/** The `because` of the latest route event: what the current plan was decided from. */
+function lastRoutePayload(events: AnyRunEvent[]): Record<string, unknown> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind === "route") return asRecord(asRecord(e.payload)?.["because"]);
+  }
+  return undefined;
+}
+
 export function storyToTestsSkill(
   input: StoryToTestsOptions & {
     /** Azure DevOps project, passed on every preflight read. */
@@ -1078,8 +1088,17 @@ export function storyToTestsSkill(
     },
     // Once a design is approved on path B, items no scenario covers yet mean
     // the run must add those scenarios — and only those. Switches once.
+    //
+    // And again when a later approval changes the design's numbers: an item
+    // renumbered after the first approval (D4 → D20) left the plan enforcing
+    // the old number, so every refusal named an item that no longer existed
+    // and the agent kept resubmitting the design (20261016T193254Z). The
+    // scenarios locked are still the ones that existed when the run switched.
     reroute: (events) => {
-      if (routePathOf(events) !== "B") return undefined;
+      const path = routePathOf(events);
+      const last = lastRoutePayload(events);
+      const completing = path === "A2" && last?.["appendOnly"] === true && last?.["from"] === "B";
+      if (path !== "B" && !completing) return undefined;
       const design = approvedDesign(events);
       const facts = storyFacts(events);
       if (!design || !facts || !options.workspaceDir) return undefined;
@@ -1099,6 +1118,11 @@ export function storyToTestsSkill(
       });
       const missing = design.items.filter((it) => !covered.has(it.id)).map((it) => it.id);
       if (missing.length === 0) return undefined;
+      if (completing) {
+        const before = new Set((last?.["missing"] as string[] | undefined) ?? []);
+        // Items finishing one by one shrink the list; only a NEW number is a new plan.
+        if (missing.every((id) => before.has(id))) return undefined;
+      }
       return {
         path: "A2",
         reason:
@@ -1112,7 +1136,7 @@ export function storyToTestsSkill(
           from: "B",
           appendOnly: true,
           missing,
-          locked: lockedScenarios(featureText ?? ""),
+          locked: completing ? (last?.["locked"] ?? []) : lockedScenarios(featureText ?? ""),
         },
         deny: [],
       };

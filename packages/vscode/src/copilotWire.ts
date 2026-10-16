@@ -101,3 +101,35 @@ export function sameToken(header: string | undefined, token: string): boolean {
   for (let i = 0; i < got.length; i++) diff |= got.charCodeAt(i) ^ token.charCodeAt(i);
   return diff === 0;
 }
+
+export interface ModelInfo {
+  family: string;
+  maxInputTokens: number;
+}
+
+/**
+ * Which Copilot model a run uses. The family the config or the chat named, if
+ * it is offered; otherwise ("auto") the one that takes the most input. The
+ * engine's cycles carry its rules and tool list, so a small model — the first
+ * one VS Code happens to list — overflows on the first real step.
+ */
+export function pickModel<T extends ModelInfo>(models: T[], family: string | undefined): T | undefined {
+  if (family) return models.find((m) => m.family === family);
+  return [...models].sort((a, b) => b.maxInputTokens - a.maxInputTokens)[0];
+}
+
+/** Undefined when the prompt fits; otherwise a sentence saying what to do instead. */
+export function tooLarge(promptChars: number, model: ModelInfo, all: ModelInfo[]): string | undefined {
+  const need = estimateTokens(promptChars);
+  if (need <= model.maxInputTokens) return undefined;
+  const bigger = all
+    .filter((m) => m.maxInputTokens >= need)
+    .sort((a, b) => b.maxInputTokens - a.maxInputTokens)
+    .map((m) => `${m.family} (${m.maxInputTokens})`);
+  return (
+    `this step needs about ${need} input tokens and ${model.family} takes ${model.maxInputTokens}. ` +
+    (bigger.length
+      ? `Choose a larger Copilot model — ${bigger.join(", ")} — in the config's agent.model.name or the chat's model menu.`
+      : "No Copilot model available to you takes that much; use another model route for this project.")
+  );
+}

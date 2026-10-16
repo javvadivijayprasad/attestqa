@@ -31,3 +31,6 @@ Thumbs.db
 # VS Code extension build output
 packages/vscode/out/
 *.vsix
+
+# local Copilot try-out copy of the Juice Shop workspace
+TestRunApplication/juice-shop-copilot/

@@ -25,6 +25,7 @@ import { isFullRun, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
 import { hasAgentTag } from "../verify/story-to-tests.js";
 import {
   approvedDesign,
+  coverageOf,
   kindTagsFor,
   scenarioTags,
   featurePathFor,
@@ -34,6 +35,8 @@ import {
   parseDesign,
   storyFacts,
   validateDesign,
+  type StoryFacts,
+  type TestDesign,
   type TestType,
 } from "../design/test-design.js";
 
@@ -125,7 +128,7 @@ export function makeStoryRefusal(
     call: { toolName: string; args: Record<string, unknown> },
     events: AnyRunEvent[],
   ): string | undefined =>
-    invalidDesign(call, events, types) ??
+    invalidDesign(call, events, types, opts.workspaceDir) ??
     designFirst(call, events) ??
     storyRefusal(call, events, where);
 }
@@ -135,16 +138,119 @@ function invalidDesign(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
   types: readonly TestType[],
+  workspaceDir?: string,
 ): string | undefined {
   if (call.toolName !== "aqa.test_design") return;
   const facts = storyFacts(events);
   if (!facts)
     return "no story context was read this run, so there is nothing to check a design against";
-  const problems = validateDesign(parseDesign(call.args), facts, types);
+  const design = parseDesign(call.args);
+  const problems = [
+    ...validateDesign(design, facts, types),
+    ...takenDesignIds(design, facts, events, workspaceDir),
+  ];
   if (problems.length === 0) return;
   return `the test design has ${
     problems.length
   } problem(s) — fix them and submit again:\n- ${problems.join("\n- ")}`;
+}
+
+/**
+ * A design item numbered like another story's scenario in the shared epic file.
+ *
+ * An epic file numbers design items across all its stories. A new item that
+ * reuses another story's number (SCRUM-6's accessibility item as D4, when D4 is
+ * SCRUM-8's) passes the design check, is approved, and is then refused when its
+ * scenario is written ("D4 would have more than one scenario") — so the agent
+ * renumbers it and the reviewer is asked to approve the same design twice
+ * (20261016T193254Z). Caught here, before anyone is asked.
+ */
+function takenDesignIds(
+  design: TestDesign,
+  facts: StoryFacts,
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string[] {
+  const path = featurePathFor(facts);
+  const mine = facts.story?.id;
+  if (!path || mine === undefined) return [];
+  const current = (p: string | undefined): string | undefined => {
+    if (!p) return undefined;
+    const known = lastKnownContent(p, events, workspaceDir);
+    if (known !== undefined || !workspaceDir) return known;
+    try {
+      return readFileSync(join(workspaceDir, p), "utf8");
+    } catch {
+      return undefined;
+    }
+  };
+  const feature = current(path);
+  if (!feature) return [];
+  const owners = scenarioStoryTags(feature);
+  const designTags = scenarioDesignTags(feature);
+  const taken = new Map<string, { story: TrackerId; scenario: string }>();
+  let highest = 0;
+  designTags.forEach((sc, i) => {
+    const stories = owners[i]?.stories ?? [];
+    for (const id of sc.designs) {
+      highest = Math.max(highest, Number(/^D(\d+)/.exec(id)?.[1] ?? 0));
+      if (stories.length > 0 && !stories.some((st) => sameId(st, mine)) && !taken.has(id))
+        taken.set(id, { story: stories[0] as TrackerId, scenario: sc.scenario });
+    }
+  });
+  for (const it of design.items)
+    highest = Math.max(highest, Number(/^D(\d+)/.exec(it.id)?.[1] ?? 0));
+
+  // An item this story's existing scenario already tests keeps that
+  // scenario's number. Told only "use the next free number", the agent
+  // renumbered all seven items D20–D26 while the story's own scenarios carried
+  // D6–D13; the design was approved, nothing matched, and the verifier
+  // blocked the run (20261016T201236Z).
+  const specText = current(specPathFor(facts));
+  const covered = coverageOf(design, {
+    featureText: feature,
+    ...(specText !== undefined ? { specText } : {}),
+    story: mine,
+  });
+  const problems: string[] = [];
+  const handled = new Set<string>();
+  for (const it of design.items) {
+    const hit = covered.get(it.id);
+    if (!hit) continue;
+    const ids = designTags.find((sc) => sc.scenario === hit.scenario)?.designs ?? [];
+    if (ids.length === 0 || ids.includes(it.id.toUpperCase())) continue;
+    handled.add(it.id);
+    problems.push(
+      `${it.id}: this story's scenario "${hit.scenario}" already tests it and carries ` +
+        `@design:${ids[0]} — give the item the id ${ids[0]}, so the design matches the feature file`,
+    );
+  }
+  // And every scenario this story already has must trace to the design, or
+  // the verifier blocks the run at the end ("scenario-not-in-design") after
+  // the whole suite was written against a design that left it out.
+  const designIds = new Set(design.items.map((it) => it.id.toUpperCase()));
+  const coveredScenarios = new Set([...covered.values()].map((v) => v.scenario));
+  designTags.forEach((sc, i) => {
+    const stories = owners[i]?.stories ?? [];
+    if (!stories.some((st) => sameId(st, mine))) return;
+    if (sc.designs.length === 0 || coveredScenarios.has(sc.scenario)) return;
+    if (sc.designs.some((id) => designIds.has(id))) return;
+    problems.push(
+      `this story's existing scenario "${sc.scenario}" (@design:${sc.designs[0]}) is not in the design — ` +
+        `add an item for it with the id ${sc.designs[0]}; every scenario of the story must trace to the approved design`,
+    );
+  });
+  for (const it of design.items) {
+    if (handled.has(it.id)) continue;
+    const other = taken.get(it.id.toUpperCase());
+    if (!other) continue;
+    highest += 1;
+    problems.push(
+      `${it.id}: that number already belongs to ${other.story}'s scenario "${other.scenario}" in ${path}, ` +
+        `which numbers design items across all its stories — use D${highest} (the next free number) instead`,
+    );
+  }
+  return problems;
 }
 
 /**

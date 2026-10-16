@@ -11,9 +11,13 @@ import { Page, Locator, expect } from "@playwright/test";
 
 export class LoginPage {
   readonly page: Page;
+  // Restored by hand 2026-10-16: a bdd2pw re-scaffold on 2026-10-13 emptied
+  // this Page Object while specs still call loginPage.loginButton.
+  readonly loginButton: Locator;
 
   constructor(page: Page) {
     this.page = page;
+    this.loginButton = page.locator("#loginButton");
   }
 
   async goto(): Promise<void> {

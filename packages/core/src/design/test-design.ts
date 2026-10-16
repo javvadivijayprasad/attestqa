@@ -573,8 +573,11 @@ export function renderDesign(
 export function coverageOf(
   design: TestDesign,
   opts: { featureText?: string; specText?: string; story?: TrackerId },
-): Map<string, { scenario: string; how: "criterion" | "bug" | "design id" }> {
-  const out = new Map<string, { scenario: string; how: "criterion" | "bug" | "design id" }>();
+): Map<string, { scenario: string; how: "criterion" | "bug" | "type" | "design id" }> {
+  const out = new Map<
+    string,
+    { scenario: string; how: "criterion" | "bug" | "type" | "design id" }
+  >();
   const feature = opts.featureText;
   if (!feature) return out;
 
@@ -628,6 +631,29 @@ export function coverageOf(
       if (pick) {
         const how = ac !== undefined && pick.acs.includes(ac) ? "criterion" : "bug";
         out.set(it.id, { scenario: pick.scenario, how });
+        continue;
+      }
+    }
+    // An item that covers the story itself (accessibility) has no criterion or
+    // bug to match on: run 20261016T201236Z designed the axe scan as a new D26
+    // while this story's "AC-story: Login page passes axe-core WCAG A/AA scan"
+    // (D13) already existed, and a second copy of that test was written. A
+    // scenario of this story with the same declared type and no criterion or
+    // bug tag is that test.
+    if (ac === undefined && bug === undefined) {
+      const claimed = new Set([...out.values()].map((v) => v.scenario));
+      const same = tagged.filter(
+        (sc) =>
+          isReal(sc.scenario) &&
+          sc.acs.length === 0 &&
+          sc.bugs.length === 0 &&
+          sc.types.includes(it.type),
+      );
+      const pick =
+        same.find((sc) => sc.designs.includes(it.id.toUpperCase())) ??
+        same.find((sc) => !claimed.has(sc.scenario));
+      if (pick) {
+        out.set(it.id, { scenario: pick.scenario, how: "type" });
         continue;
       }
     }

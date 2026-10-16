@@ -48,3 +48,19 @@ test("only this run's token is accepted", () => {
   assert.equal(sameToken("abc123", "abc123"), false);
   assert.equal(sameToken(undefined, "abc123"), false);
 });
+
+test("auto means the Copilot model that takes the most input, not the first one listed", () => {
+  const { pickModel, tooLarge } = require("../out/copilotWire.js");
+  const models = [
+    { family: "gpt-4o-mini", maxInputTokens: 12000 },
+    { family: "claude-sonnet-4", maxInputTokens: 128000 },
+    { family: "gpt-4.1", maxInputTokens: 64000 },
+  ];
+  assert.equal(pickModel(models, undefined).family, "claude-sonnet-4");
+  assert.equal(pickModel(models, "gpt-4.1").family, "gpt-4.1");
+  assert.equal(pickModel(models, "nope"), undefined);
+  assert.equal(tooLarge(40000, models[1], models), undefined);
+  const msg = tooLarge(160000, models[0], models);
+  assert.match(msg, /about 40000 input tokens and gpt-4o-mini takes 12000/);
+  assert.match(msg, /claude-sonnet-4 \(128000\), gpt-4.1 \(64000\)/);
+});
