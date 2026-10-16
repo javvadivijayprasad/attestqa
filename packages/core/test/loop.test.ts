@@ -151,7 +151,7 @@ describe("stop rules", () => {
       "verify",
       "end",
     ]);
-    expect(readFileSync(join(d.ledger.dir, "summary.md"), "utf8")).toContain("# agentic-qa replay");
+    expect(readFileSync(join(d.ledger.dir, "summary.md"), "utf8")).toContain("# attestqa replay");
   });
 
   it("budget: step budget exhausted → exit 4", async () => {

@@ -62,7 +62,7 @@ export const sdkSessionFactory: SessionFactory = async (spec) => {
     ...(spec.cwd ? { cwd: spec.cwd } : {}),
     stderr: "pipe",
   });
-  const client = new Client({ name: "agentic-qa", version: "0.1.0" });
+  const client = new Client({ name: "attestqa", version: "1.0.0" });
   await client.connect(transport);
   return {
     listTools: () => client.listTools() as Promise<{ tools: McpToolInfo[] }>,

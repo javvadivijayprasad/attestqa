@@ -75,7 +75,7 @@ describe("renderLine (platform run-page messages — keep stable)", () => {
 describe("renderMarkdown", () => {
   it("produces a report with header, stats and a full timeline", () => {
     const md = renderMarkdown(events);
-    expect(md).toMatch(/^# agentic-qa replay — run 20260912T160000Z-fixture1/);
+    expect(md).toMatch(/^# attestqa replay — run 20260912T160000Z-fixture1/);
     expect(md).toContain("**Status:** done");
     expect(md).toContain("**Tool calls:** 7 (0 failed)");
     const rows = md.split("\n").filter((l) => /^\| \d+ \|/.test(l));

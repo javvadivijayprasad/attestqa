@@ -51,7 +51,7 @@ describe("aqa replay", () => {
     const out = join(tmp(), "report.md");
     const { cli } = io();
     expect(await main(["replay", FIXTURE_DIR, "--out", out], cli)).toBe(0);
-    expect(readFileSync(out, "utf8")).toContain("# agentic-qa replay");
+    expect(readFileSync(out, "utf8")).toContain("# attestqa replay");
   });
   it("exits 1 for a missing path", async () => {
     const { cli } = io();

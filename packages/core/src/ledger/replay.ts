@@ -150,12 +150,12 @@ export function computeStats(events: AnyRunEvent[]): ReplayStats {
 }
 
 export function renderMarkdown(events: AnyRunEvent[]): string {
-  if (events.length === 0) return "# agentic-qa replay\n\n_Empty ledger._\n";
+  if (events.length === 0) return "# attestqa replay\n\n_Empty ledger._\n";
   const runId = events[0]!.runId;
   const stats = computeStats(events);
   const request = events.find((e) => e.kind === "request");
   const lines: string[] = [];
-  lines.push(`# agentic-qa replay — run ${runId}`);
+  lines.push(`# attestqa replay — run ${runId}`);
   lines.push("");
   if (request && request.kind === "request") {
     lines.push(`**Request:** ${request.payload.text}  `);

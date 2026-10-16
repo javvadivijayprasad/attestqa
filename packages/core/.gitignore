@@ -43,3 +43,6 @@ playwright-report/
 # are moved to instead of deleted. Both are working state, never source.
 .aqa-report/
 _to_delete/
+
+# local editor settings (the attestqa extension reads aqa.* from here)
+.vscode/
