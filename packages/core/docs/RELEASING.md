@@ -175,6 +175,12 @@ that does not match it.
    the secret `VSCE_PAT`. The publisher `vijaypjavvadi` already exists (bdd2pw, sel2pw,
    usagecontract are published under it).
 
+Both secrets were added on 16 Oct 2026. The Marketplace token expires on **30 Nov 2026**:
+Azure DevOps stops accepting tokens scoped to all organisations on 1 Dec 2026, so a longer
+expiry would not help. An extension release after that needs `vsce publish --azure-credential`
+(Microsoft Entra sign-in from the workflow, through workload identity federation) instead of
+`VSCE_PAT`; change `release.yml` before the first post-1.0.0 extension release.
+
 **Each release:**
 
 ```
