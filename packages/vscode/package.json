@@ -2,7 +2,7 @@
   "name": "attestqa-vscode",
   "displayName": "attestqa",
   "description": "Governed agentic testing in VS Code: write Playwright tests from Jira or Azure DevOps stories, approve the test design in the editor, and read coverage and the run ledger. A client of the attestqa CLI.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "vijaypjavvadi",
   "license": "MIT",
   "repository": {

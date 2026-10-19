@@ -1,3 +1,4 @@
+import { presentEnvFiles } from "./env-files";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as vscode from "vscode";
@@ -35,10 +36,10 @@ export interface RunParams {
 
 export class RunSetupError extends Error {}
 
-export function runArgs(story: StoryRef, s: RunSettings, dryRun: boolean, hasEnvFile: boolean): string[] {
+export function runArgs(story: StoryRef, s: RunSettings, dryRun: boolean, envFiles: string[]): string[] {
   const args = ["run", requestFor(story), "--config", s.configFile, "--workspace", s.workspaceDir, "--ledger", s.ledgerDir];
   // The credentials file is passed by name; the extension never opens it.
-  if (hasEnvFile) args.push("--env", s.envFile);
+  if (envFiles.length > 0) args.push("--env", envFiles.join(","));
   if (dryRun) args.push("--dry-run");
   // File approval is what lets the editor answer instead of a terminal.
   else args.push("--approval", "file", "--approval-timeout", String(s.approvalTimeoutSeconds));
@@ -48,7 +49,7 @@ export function runArgs(story: StoryRef, s: RunSettings, dryRun: boolean, hasEnv
 /** Runs `aqa run` to the end; resolves with its exit code. */
 export async function launchRun(p: RunParams): Promise<number | null> {
   const root = p.folder.uri.fsPath;
-  const args = runArgs(p.story, p.settings, p.dryRun, existsSync(join(root, p.settings.envFile)));
+  const args = runArgs(p.story, p.settings, p.dryRun, presentEnvFiles(root, p.settings.envFile));
 
   // GitHub Copilot: VS Code lends its models to extensions, not to the engine
   // process, so the run's model calls are relayed through a private address.

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- `aqa.envFile` can list several credential files, comma-separated (`.env.toolshop,.env`), as `aqa run --env` takes them. Before, the list was checked as one file name, `--env` was left out, and the run read `.env` alone.
+
 ## 1.0.0 — attestqa release v1.0.0 (15 November 2026)
 
 First release as **attestqa** (previously the agentic-qa extension).

@@ -29,3 +29,16 @@ test("a story named in a Copilot Chat sentence", () => {
   assert.equal(findStoryRef("write 2 tests"), undefined);
   assert.equal(findStoryRef("hello"), undefined);
 });
+
+test("several credential files in aqa.envFile are all passed, missing ones left out", () => {
+  const { mkdtempSync, writeFileSync } = require("node:fs");
+  const { join } = require("node:path");
+  const { tmpdir } = require("node:os");
+  const { presentEnvFiles } = require("../out/env-files.js");
+  const dir = mkdtempSync(join(tmpdir(), "aqa-env-"));
+  writeFileSync(join(dir, ".env"), "");
+  writeFileSync(join(dir, ".env.toolshop"), "");
+  assert.deepEqual(presentEnvFiles(dir, ".env.toolshop,.env"), [".env.toolshop", ".env"]);
+  assert.deepEqual(presentEnvFiles(dir, " .env.missing , .env "), [".env"]);
+  assert.deepEqual(presentEnvFiles(dir, ".env.none"), []);
+});
