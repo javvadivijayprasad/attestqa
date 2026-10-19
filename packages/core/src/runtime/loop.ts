@@ -52,6 +52,8 @@ export const MAX_STALE_CYCLES = 3;
  * never sees it; observed: 50+ refusals for one item's type, the budget spent
  * on a design that was never shown to the reviewer.
  */
+/** The same refusal this many times running ends the run (design problems have their own count). */
+export const MAX_SAME_REFUSAL = 5;
 export const MAX_SAME_DESIGN_PROBLEM = 6;
 
 /** A design problem without its item id, so "D7: …" and "D6: …" match. */
@@ -106,6 +108,19 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
    */
   const executed = new Set<string>();
   let staleCycles = 0;
+  /**
+   * Calls the gate refused, with the number of successful calls made at that
+   * moment. A refused call is a repeat only while nothing has happened since:
+   * once the condition behind the refusal can have changed, proposing it again
+   * is the right next step. Run 20261017T163249Z: bdd2pw.scaffold was refused
+   * because the feature had not been analyzed; the agent analyzed it, proposed
+   * the same scaffold, and was told it had "already made this exact call" —
+   * so it analyzed again and again until the run stopped.
+   */
+  const refusedAt = new Map<string, number>();
+  /** Refusals by tool and reason; cleared for a tool when a call to it succeeds. */
+  const sameRefusal = new Map<string, number>();
+  let succeeded = 0;
   /** Design problems sent back, and in how many submissions running. */
   const designProblemRuns = new Map<string, number>();
   /**
@@ -570,6 +585,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         // The model re-proposing a read the runtime already made is repetition,
         // not progress, and the stale-cycle detector should see it that way.
         executed.add(`${toolName} ${stableArgs(args)}`);
+        if (ok) succeeded++;
         return { ok, result };
       };
 
@@ -626,7 +642,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     let currentRole = "";
     if (skill.route) {
       const decision = skill.route(ledger.read());
-      ledger.append(
+      const routeEvent = ledger.append(
         "route",
         {
           path: decision.path,
@@ -637,6 +653,13 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         clock.now(),
       );
       if (decision.stop) return finish("blocked", decision.stop);
+      if (decision.note)
+        history.push({
+          toolName: "aqa.route",
+          ok: true,
+          summary: decision.note,
+          ledgerRef: `ledger://${ledger.runId}/${routeEvent.eventId}`,
+        });
       if (decision.deny.length > 0) {
         const denied = new Set(decision.deny);
         visibleAfterRoute = visible.filter((t) => !denied.has(`${t.server}.${t.name}`));
@@ -824,7 +847,9 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       // nothing. Feed that back once, then end the run rather than spending the
       // remaining budget on repetition.
       const signatures = verdicts.map((v) => `${v.call.toolName} ${stableArgs(v.call.args)}`);
-      const allRepeats = signatures.length > 0 && signatures.every((sig) => executed.has(sig));
+      const allRepeats =
+        signatures.length > 0 &&
+        signatures.every((sig) => executed.has(sig) || refusedAt.get(sig) === succeeded);
       if (allRepeats) {
         staleCycles++;
         if (staleCycles >= MAX_STALE_CYCLES) {
@@ -850,7 +875,6 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         continue;
       }
       staleCycles = 0;
-      for (const sig of signatures) executed.add(sig);
 
       // A defect claim is never batched with anything else.
       //
@@ -950,6 +974,32 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
               "calls in this cycle are going ahead — propose the bug again by itself.",
           };
         }
+      }
+
+      // Every refusal is known by now (gate, skill, bug rules). A refused call
+      // may be proposed again once something has happened since.
+      verdicts.forEach((v, i) => {
+        const sig = signatures[i] as string;
+        if (v.verdict.decision === "refuse") refusedAt.set(sig, succeeded);
+        else executed.add(sig);
+      });
+      // The same refusal, again and again, with the arguments reworded each
+      // time so no two calls are identical: the repeat rule never fires and the
+      // budget goes. 20261018T154651Z proposed a bug eighteen times against one
+      // refusal and ended on the token budget. The design has its own count.
+      for (const { call, verdict } of verdicts) {
+        if (verdict.decision !== "refuse" || call.toolName === "aqa.test_design") continue;
+        // A held bug is not stuck: it is waiting for the end of the run.
+        if (verdict.reason.startsWith("deferred")) continue;
+        const key = `${call.toolName}\u0000${verdict.reason.slice(0, 160)}`;
+        const n = (sameRefusal.get(key) ?? 0) + 1;
+        sameRefusal.set(key, n);
+        if (n >= MAX_SAME_REFUSAL)
+          return finish(
+            "blocked",
+            `no progress: ${call.toolName} was proposed ${n} times and refused each time for the same ` +
+              `reason — ${verdict.reason.slice(0, 240)}`,
+          );
       }
 
       // Batch every "ask" in this cycle into ONE approval (design §7).
@@ -1109,6 +1159,10 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
         // past the rule.
         const changedTheWorld =
           artefacts.length > 0 || (byName.get(call.toolName)?.policyClass ?? "read") !== "read";
+        if (ok) succeeded++;
+        if (ok)
+          for (const k of [...sameRefusal.keys()])
+            if (k.startsWith(`${call.toolName}\u0000`)) sameRefusal.delete(k);
         if (ok && changedTheWorld) executed.clear();
       }
 

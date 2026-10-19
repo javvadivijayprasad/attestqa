@@ -366,7 +366,10 @@ function render(r: Rendered): string {
     const others = writtenOff ? [] : (r.otherStoryFailures ?? []);
     if (!writtenOff) {
       const failedHere = Math.max(0, n("failed") - others.length);
-      const verdict = failedHere === 0 && n("skipped") === 0 ? "green" : "NOT green";
+      const ui = r.suite?.["unimplemented"];
+      const notImplemented = Array.isArray(ui) ? ui.length : 0;
+      const verdict =
+        failedHere === 0 && n("skipped") === 0 && notImplemented === 0 ? "green" : "NOT green";
       const scope = r.workItem ? ` for story ${r.workItem}` : "";
       lines.push(
         `**Suite: ${verdict}**${scope} — ${n("passed")} passed, ${failedHere} failed, ` +

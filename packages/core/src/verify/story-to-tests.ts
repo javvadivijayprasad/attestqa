@@ -1,7 +1,15 @@
 import { normId, sameId as sameTrackerId, type Tracker } from "../design/ids.js";
+import { exhaustedTests, MAX_REPAIRS_PER_TEST } from "../triage/quarantine.js";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import type { Gap, TriagePayload, Verifier, VerifierInput, VerifyPayload } from "../types.js";
+import type {
+  AnyRunEvent,
+  Gap,
+  TriagePayload,
+  Verifier,
+  VerifierInput,
+  VerifyPayload,
+} from "../types.js";
 import { runTriage, triageGaps } from "../triage/step.js";
 import {
   approvedDesign,
@@ -75,6 +83,17 @@ export interface StoryToTestsOptions {
    * @story tags are the whole record.
    */
   tracker?: Tracker;
+  /**
+   * Earlier runs of this workspace, read from the ledger root. When the story
+   * is unchanged since the latest run that had a design approved, that design
+   * is reused and the run only executes (design/fingerprint.ts).
+   */
+  previousRuns?: () => Array<{ runId: string; events: AnyRunEvent[] }>;
+  /**
+   * Evaluation only: ignore earlier runs and existing coverage, and design and
+   * author from scratch — for the three-runs-per-story consistency measurement.
+   */
+  fresh?: boolean;
 }
 
 /**
@@ -104,11 +123,23 @@ export class StoryToTestsVerifier implements Verifier {
   readonly name = "story-to-tests";
   private readonly opts: Omit<
     Required<StoryToTestsOptions>,
-    "testPlan" | "defectAnalysisUrl" | "testTypes" | "workspaceDir" | "tracker"
+    | "testPlan"
+    | "defectAnalysisUrl"
+    | "testTypes"
+    | "workspaceDir"
+    | "tracker"
+    | "previousRuns"
+    | "fresh"
   > &
     Pick<
       StoryToTestsOptions,
-      "testPlan" | "defectAnalysisUrl" | "testTypes" | "workspaceDir" | "tracker"
+      | "testPlan"
+      | "defectAnalysisUrl"
+      | "testTypes"
+      | "workspaceDir"
+      | "tracker"
+      | "previousRuns"
+      | "fresh"
     >;
 
   constructor(options: StoryToTestsOptions) {
@@ -266,6 +297,7 @@ export class StoryToTestsVerifier implements Verifier {
 
     // Collected before `limitations` exists, and merged into it below.
     const sharedSpecLimitations: string[] = [];
+    const reviewItems: string[] = [];
 
     // 2c. the tests trace to the approved test design (stage 2) -----------
     // All three are questions about files on disk against the design a person
@@ -316,8 +348,9 @@ export class StoryToTestsVerifier implements Verifier {
             gaps.push(
               gap(
                 "design-item-not-tested",
-                `approved design items have no scenario tagged @design:<id>: ${t.untested.join(", ")}. ` +
-                  "Add a scenario for each, tagged with its design id, and scaffold again.",
+                `approved design items have no scenario tagged @design:<id>: ${t.untested.join(
+                  ", ",
+                )}. ` + "Add a scenario for each, tagged with its design id, and scaffold again.",
                 { items: t.untested },
               ),
             );
@@ -325,7 +358,9 @@ export class StoryToTestsVerifier implements Verifier {
             gaps.push(
               gap(
                 "scenario-not-in-design",
-                `scenarios with no @design:<id> tag from the approved design: ${t.untagged.join("; ")}. ` +
+                `scenarios with no @design:<id> tag from the approved design: ${t.untagged.join(
+                  "; ",
+                )}. ` +
                   "Tag each with the design item it implements; a test outside the approved design was not approved.",
                 { scenarios: t.untagged },
               ),
@@ -335,17 +370,38 @@ export class StoryToTestsVerifier implements Verifier {
           gaps.push(
             gap(
               "test-does-not-match-its-design",
-              `the approved design says these tests do something the file does not: ${t.wrongShape.join("; ")}. ` +
+              `the approved design says these tests do something the file does not: ${t.wrongShape.join(
+                "; ",
+              )}. ` +
                 "A test that exists is not the same as the test that was approved — change the test, or say " +
                 "in your final message why the design cannot be followed.",
               { items: t.wrongShape },
             ),
           );
+        // Weaker or broader than the design but working: one attempt for the
+        // agent, then the reviewer's (isReviewOnly in design/test-design.ts).
+        if (t.reviewShape.length > 0) {
+          const { fresh, forReview } = splitReviewItems(t.reviewShape, input.events);
+          for (const x of forReview) reviewItems.push(`for your review — ${x}`);
+          if (fresh.length > 0)
+            gaps.push(
+              gap(
+                "test-is-weaker-than-its-design",
+                `these tests work but check less, or more broadly, than the approved design says: ${fresh.join(
+                  "; ",
+                )}. ` +
+                  "Fix them if you can; if this run cannot, they go to the reviewer in the report rather than stopping the run.",
+                { items: fresh },
+              ),
+            );
+        }
         if (t.unmarked.length > 0)
           gaps.push(
             gap(
               "known-bug-test-not-marked",
-              `the test for an Active bug is not marked expected-to-fail: ${t.unmarked.join(", ")}. ` +
+              `the test for an Active bug is not marked expected-to-fail: ${t.unmarked.join(
+                ", ",
+              )}. ` +
                 'Add test.fail(true, "Bug #<id> Active: <title>") as the test\'s first line, so that a pass ' +
                 'reaches a person as "did not reproduce" instead of disappearing as an ordinary pass.',
               { items: t.unmarked },
@@ -381,17 +437,37 @@ export class StoryToTestsVerifier implements Verifier {
       const otherStory = mine ? allFailingTitles.filter((t) => !mine.has(t)) : [];
       if (otherStory.length > 0)
         sharedSpecLimitations.push(
-          `failing in this epic's spec but belonging to another story: ${otherStory.join("; ")} — ` +
-            "not this run's tests to fix, and not its defects to report",
+          `failing in this epic's spec but belonging to another story: ${otherStory.join(
+            "; ",
+          )} — ` + "not this run's tests to fix, and not its defects to report",
         );
       const failingTitles = mine ? allFailingTitles.filter((t) => mine.has(t)) : allFailingTitles;
+      // A test that used up its repairs (triage/quarantine.ts) is the
+      // reviewer's now, like a defect candidate: the run ends with it reported,
+      // not held open for a fourth guess.
+      const exhausted = exhaustedTests(input.events);
       const allDefects =
         failingTitles.length > 0 &&
         failingTitles.every(
-          (t) => t && triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)),
+          (t) =>
+            t &&
+            (triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)) ||
+              exhausted.has(t)),
         );
+      for (const t of failingTitles)
+        if (t && exhausted.has(t))
+          sharedSpecLimitations.push(
+            `"${t}" still fails after ${MAX_REPAIRS_PER_TEST} repairs — put to the ` +
+              "reviewer: either the test is wrong or the product is",
+          );
+      // Tests that passed with empty TODO steps are not passes (pw.ts).
+      const emptyTitles = (Array.isArray(r["unimplemented"]) ? r["unimplemented"] : []).map((u) =>
+        String((u as { title?: unknown }).title ?? ""),
+      );
+      const emptyHere = mine ? emptyTitles.filter((t) => mine.has(t)) : emptyTitles;
       const greenForThisStory =
-        r["green"] === true || (mine !== undefined && failingTitles.length === 0);
+        emptyHere.length === 0 &&
+        (r["green"] === true || (mine !== undefined && failingTitles.length === 0));
       if (!greenForThisStory && !allDefects) {
         // When triage has something to say, it says it better. "The suite is
         // not green" is a restatement of the exit code; "the system under test
@@ -402,9 +478,25 @@ export class StoryToTestsVerifier implements Verifier {
           gaps.push(
             gap(
               "suite-not-green",
-              skippedOnly(r)
-                ? `the suite ran but ${String(r["skipped"])} test(s) are still unimplemented (fixme), so nothing was actually verified`
-                : `the suite ran but is not green: ${String(r["passed"] ?? 0)} passed, ${String(r["failed"] ?? 0)} failed, ${String(r["skipped"] ?? 0)} skipped`,
+              Array.isArray(r["unimplemented"]) && r["unimplemented"].length > 0
+                ? `the suite ran but ${r["unimplemented"].length} test(s) still have steps bdd2pw left as TODO, which ran ` +
+                    "empty and checked nothing: " +
+                    (r["unimplemented"] as Array<{ title?: unknown; steps?: unknown }>)
+                      .map(
+                        (u) =>
+                          `"${String(u.title)}" (${
+                            Array.isArray(u.steps) ? u.steps.join("; ") : "TODO"
+                          })`,
+                      )
+                      .join(", ") +
+                    ". Implement each of those steps in the spec from its design item's expected result, then the suite runs again"
+                : skippedOnly(r)
+                ? `the suite ran but ${String(
+                    r["skipped"],
+                  )} test(s) are still unimplemented (fixme), so nothing was actually verified`
+                : `the suite ran but is not green: ${String(r["passed"] ?? 0)} passed, ${String(
+                    r["failed"] ?? 0,
+                  )} failed, ${String(r["skipped"] ?? 0)} skipped`,
               {
                 passed: r["passed"],
                 failed: r["failed"],
@@ -432,7 +524,9 @@ export class StoryToTestsVerifier implements Verifier {
             gaps.push(
               gap(
                 "failures-not-triaged",
-                `the suite reported ${String(r["failed"])} failing test(s), but triage classified ` +
+                `the suite reported ${String(
+                  r["failed"],
+                )} failing test(s), but triage classified ` +
                   "none of them. Either no Playwright JSON report was written to " +
                   ".aqa-report/playwright.json, or the one there is stale or unreadable — so the " +
                   "run cannot say whether those failures are product defects, flakes, or a system " +
@@ -504,7 +598,7 @@ export class StoryToTestsVerifier implements Verifier {
     }
 
     // 6. the cases are in a suite -------------------------------------------
-    const limitations: string[] = [...sharedSpecLimitations];
+    const limitations: string[] = [...sharedSpecLimitations, ...reviewItems];
     if (this.opts.requireSuiteMembership && created.length > 0) {
       const suiteWrites = successful(calls, "ado.testplan_test_suite_write");
       if (suiteWrites.length === 0) {
@@ -571,8 +665,9 @@ export class StoryToTestsVerifier implements Verifier {
         gaps.push(
           gap(
             "bug-not-linked-to-story",
-            `a bug was created with storyKey ${String(b.args["storyKey"] ?? "(none)")} rather than ` +
-              `${this.opts.workItem}, so it is linked to the wrong story`,
+            `a bug was created with storyKey ${String(
+              b.args["storyKey"] ?? "(none)",
+            )} rather than ` + `${this.opts.workItem}, so it is linked to the wrong story`,
             { args: b.args },
           ),
         );
@@ -701,8 +796,16 @@ function specWritesInOrder(calls: CallRecord[]): Array<{ path: string; index: nu
 function specPathsTouched(calls: CallRecord[]): string[] {
   const out: string[] = [];
   for (const c of calls) {
-    if (!c.ok || c.server !== "fs") continue;
-    const p = c.args["path"];
+    if (!c.ok) continue;
+    // The spec the suite ran counts as seen: 20261019T171551Z scaffolded,
+    // ran green and was told "no Playwright spec file exists", because the
+    // generator reports no artefacts and the agent never opened the file.
+    const p =
+      c.server === "fs"
+        ? c.args["path"]
+        : c.toolName === "pw.run_tests"
+        ? c.args["spec"]
+        : undefined;
     if (typeof p === "string" && isSpecPath(p)) out.push(p);
   }
   return out;
@@ -736,4 +839,30 @@ function refusedNames(refused: Array<{ toolName: string; reason: string }>): str
 
 function skippedOnly(r: Record<string, unknown>): boolean {
   return Number(r["failed"] ?? 0) === 0 && Number(r["skipped"] ?? 0) > 0;
+}
+
+/**
+ * A weaker-than-design item the agent has not yet been told about is a gap
+ * (one fix attempt); one it was already told about in an earlier verify of
+ * this run goes to the reviewer and no longer stops the run. Decided 19 Oct
+ * 2026 after 20261019T200105Z.
+ */
+export function splitReviewItems(
+  items: readonly string[],
+  events: readonly AnyRunEvent[],
+): { fresh: string[]; forReview: string[] } {
+  const askedBefore = new Set(
+    events
+      .filter((e) => e.kind === "verify")
+      .flatMap((e) => (e.payload as unknown as VerifyPayload).gaps ?? [])
+      .filter((g) => g.code === "test-is-weaker-than-its-design")
+      .flatMap((g) => {
+        const listed = (g.evidence as { items?: unknown } | undefined)?.items;
+        return Array.isArray(listed) ? listed.map(String) : [];
+      }),
+  );
+  return {
+    fresh: items.filter((x) => !askedBefore.has(x)),
+    forReview: items.filter((x) => askedBefore.has(x)),
+  };
 }

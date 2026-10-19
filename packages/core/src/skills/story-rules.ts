@@ -11,7 +11,9 @@ import {
   payloadOf,
   successful,
 } from "../verify/evidence.js";
-import { acLabels, allFailedTitles } from "../triage/settle.js";
+import { acLabels, allFailedTitles, lastFullRun } from "../triage/settle.js";
+import { droppedClaims, LOCATOR_CALL } from "../design/claims.js";
+import { exhaustedTests, MAX_REPAIRS_PER_TEST, quarantinedTitles } from "../triage/quarantine.js";
 import { missingImports } from "../framework/survey.js";
 import {
   assertionsOf,
@@ -78,6 +80,9 @@ export function storyRefusal(
     specBeforeScaffold(call, events) ??
     expectedFailRemoved(call, events, opts.workspaceDir) ??
     weakensAQuarantinedTest(call, events, opts.workspaceDir) ??
+    editsAPassingTest(call, events, opts.workspaceDir) ??
+    claimNotInDesign(call, events, opts.workspaceDir) ??
+    repairsExhausted(call, events, opts.workspaceDir) ??
     alreadyRead(call, events) ??
     writesMaskedValue(call, events, opts.workspaceDir) ??
     noChangeWrite(call, events, opts.workspaceDir) ??
@@ -1035,7 +1040,7 @@ function noFramework(
   return (
     "there is no Playwright framework in this workspace — no config and no specs. Its layout, " +
     "its fixtures and its scripts are a decision about this repository, not something to invent " +
-    "while writing tests for a story. Stop and report that `aqa init-framework` must be run first."
+    "while writing tests for a story. Stop and report that a Playwright project must be set up first (npm init playwright@latest)."
   );
 }
 
@@ -1446,7 +1451,11 @@ function unscopedAccessibilityBug(
     const body = bodyFor(f.title, specs);
     if (!body || !/\bAxeBuilder\b|\baxe\b/i.test(body)) continue;
     if (/\.include\s*\(/.test(body)) continue;
-    if (!/violation|wcag|accessib/i.test(`${bugTitleOf(call)} ${f.title}`)) continue;
+    // About THIS scan only: the bug's own title must be an accessibility one.
+    // Testing the failing test's title as well matched on every bug while the
+    // unscoped scan was failing, and refused eighteen proposals about the page
+    // buttons with a reason about the scan (20261018T154651Z).
+    if (!/violation|wcag|accessib|\baxe\b/i.test(bugTitleOf(call))) continue;
     return (
       `"${f.title}" scans the WHOLE page: its AxeBuilder call has no .include(...), so a violation ` +
       "it finds may belong to the site's header, footer or a storefront widget rather than to this " +
@@ -1584,10 +1593,12 @@ function unboundStepsBeforeScaffold(
   const calls = completedCalls(events);
   // Only when THIS run wrote the feature: a feature file it found on disk was
   // scaffolded before by whoever wrote it.
-  const wroteIt = successful(calls, "fs.write_file").some(
-    (c) => String(c.args["path"] ?? "") === feature,
-  );
-  if (!wroteIt) return;
+  const writes = [
+    ...successful(calls, "fs.write_file"),
+    ...successful(calls, "fs.replace_in_file"),
+  ].filter((c) => String(c.args["path"] ?? "") === feature);
+  if (writes.length === 0) return;
+  const lastWrite = Math.max(...writes.map((c) => c.eventId));
 
   const analyses = successful(calls, "bdd2pw.analyze").filter(
     (c) => String(c.args["feature"] ?? "") === feature,
@@ -1600,16 +1611,37 @@ function unboundStepsBeforeScaffold(
       "which it cannot, and costs nothing. A scaffold of a feature it cannot read produces a spec " +
       "full of empty steps, which is slower to repair than the feature is to reword."
     );
+  // An analysis of an earlier version says nothing about this one. Run
+  // 20261019T135539Z rewrote the feature after analyzing it, was refused the
+  // scaffold with the OLD file's unbound steps, took that as "the refusal is
+  // stale" and proposed the same scaffold until the run stopped — never
+  // analyzing the file it had written.
+  if (latest.eventId < lastWrite)
+    return (
+      `you rewrote ${feature} after the last bdd2pw.analyze, so that analysis describes the old ` +
+      "file. Call bdd2pw.analyze on it again (same feature, same url) — it is a new call now that " +
+      "the file has changed — and scaffold after that."
+    );
   const unbound = asArray(asRecord(latest.result)?.["unbound"]).filter(
     (x): x is string => typeof x === "string",
   );
   const count = numberField(latest.result, "unboundCount") ?? unbound.length;
   if (count === 0) return;
+  // One round of rewording, not a requirement to reach zero. Some steps no
+  // rule can express — clicking a page number, an accessibility scan — and
+  // insisting on zero left two outcomes: the agent weakened the scenario until
+  // it bound ("Then the URL contains /", which passes on any page —
+  // 20261018T115605Z), or the run deadlocked between this rule and "run
+  // before writing the feature again" (20261018T123415Z). After a second
+  // analysis the remaining steps are TODOs the agent implements by hand.
+  if (analyses.length >= 2) return;
   return (
-    `bdd2pw cannot bind ${count} step(s) in ${feature}, so scaffolding it would produce that many ` +
-    `empty TODO steps:\n- ${unbound.slice(0, 6).join("\n- ")}\n` +
-    "Reword those steps in the vocabulary bdd2pw knows, or add the missing field to the page " +
-    "object, then analyze again. Scaffold when it reports none."
+    `bdd2pw cannot bind ${count} step(s) in ${feature}, so scaffolding it now would leave that many ` +
+    `as TODO:\n- ${unbound.slice(0, 6).join("\n- ")}\n` +
+    "Reword the steps that have a plainer form bdd2pw knows (the page's own words in quotes, a " +
+    "field the page object has), then analyze again — after that second analysis you may " +
+    "scaffold, and implement what is still unbound by hand. Never replace a step with a weaker " +
+    'one just so it binds: "Then the URL contains /" passes on any page and tests nothing.'
   );
 }
 
@@ -1840,11 +1872,11 @@ function writeOnExecutePath(
   const claimsAfter = new Set(
     after
       .split("\n")
-      .filter((l) => /\bexpect\s*\(/.test(l))
+      .filter((l) => /\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l))
       .map(claimOf),
   );
   const unrepairable = gone.filter((l) => {
-    if (/\bexpect\s*\(/.test(l)) return !claimsAfter.has(claimOf(l));
+    if (/\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l)) return !claimsAfter.has(claimOf(l));
     return !LOCATOR_EXPR.test(l) && !CATCHES.test(l);
   });
   if (unrepairable.length === 0) return;
@@ -2016,18 +2048,227 @@ function fieldValue(call: { args: Record<string, unknown> }, name: string): stri
   return typeof v === "string" ? v : undefined;
 }
 
-/** Test names triage has quarantined as defect candidates, latest verdict first. */
-function quarantinedTitles(events: AnyRunEvent[]): Set<string> {
-  const out = new Set<string>();
-  for (const e of events) {
-    if (e.kind !== "triage") continue;
-    const p = e.payload as unknown as { verdicts?: Array<{ test?: string; category?: string }> };
-    for (const v of p.verdicts ?? []) {
-      if (v.category !== "real-defect" || !v.test) continue;
-      // "file › suite › title" — the title is what the spec calls it.
-      out.add(v.test.split("›").pop()?.trim() ?? v.test);
-    }
+/**
+ * A test that passed in the last full run is left alone while others are fixed.
+ *
+ * 20261018T223256Z: AC-1 and AC-2 passed on the first run. Repairing AC-3 and
+ * the accessibility scan, the agent rewrote both — broke AC-1's price check
+ * twice, and gave AC-2 a URL assertion the design never asked for, which
+ * failed and turned a passing test into a defect candidate. The suite went
+ * 2 → 3 → 2 → 3 → 4 failures. A green test is evidence; the only reason to
+ * touch it is a gap the verifier raised about it (item 3 in
+ * docs/ENGINE_MAP.md §11).
+ */
+function editsAPassingTest(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  if (!isSpecPath(path)) return;
+  const run = lastFullRun(events);
+  const result = asRecord(run?.result);
+  if (!run || !result || result["green"] === true) return;
+  const tests = asArray(result["tests"]).map((t) => asRecord(t) ?? {});
+  const passed = tests.filter((t) => t["status"] === "passed").map((t) => String(t["title"] ?? ""));
+  const failing = tests
+    .filter((t) => t["status"] === "failed" || t["status"] === "timedOut")
+    .map((t) => String(t["title"] ?? ""));
+  if (passed.length === 0 || failing.length === 0) return;
+  // A regeneration since that run is a new file, not an edit of a green test.
+  if (
+    completedCalls(events).some(
+      (c) => c.ok && c.toolName === "bdd2pw.scaffold" && c.eventId > run.eventId,
+    )
+  )
+    return;
+  const before = lastKnownContent(path, events, workspaceDir);
+  if (before === undefined) return;
+  const was = testsByTitle(before);
+  const now = testsByTitle(String(call.args["content"] ?? ""));
+  const squash = (x: string) => x.replace(/\s+/g, " ").trim();
+  // A gap the verifier raised about a test is a reason to change it.
+  const gapText = JSON.stringify(
+    [...events].reverse().find((e) => e.kind === "verify")?.payload ?? {},
+  );
+  const touched = passed.filter((title) => {
+    const a = was.get(title);
+    if (a === undefined) return false;
+    const b = now.get(title);
+    if (b !== undefined && squash(a) === squash(b)) return false;
+    const ids = designIdsAbove(before, title);
+    return !(gapText.includes(title) || ids.some((id) => gapText.includes(id)));
+  });
+  if (touched.length === 0) return;
+  return (
+    `${touched.map((t) => `"${t}"`).join(", ")} passed in the last full run, and this write changes ` +
+    `${touched.length === 1 ? "it" : "them"}. Leave passing tests exactly as they are and change only ` +
+    `the failing ${failing.length === 1 ? "test" : "tests"}: ${failing
+      .map((t) => `"${t}"`)
+      .join(", ")}. Use fs.replace_in_file on the failing test's lines alone.`
+  );
+}
+
+/**
+ * A test that still failed after MAX_REPAIRS_PER_TEST repairs to it is no longer
+ * repaired. It stays red and goes to the reviewer at the end of the run as a
+ * test problem or a possible defect (item 4 in docs/ENGINE_MAP.md §11).
+ */
+function repairsExhausted(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  if (!isSpecPath(path)) return;
+  const done = exhaustedTests(events);
+  if (done.size === 0) return;
+  const before = lastKnownContent(path, events, workspaceDir);
+  if (before === undefined) return;
+  const was = testsByTitle(before);
+  const now = testsByTitle(String(call.args["content"] ?? ""));
+  const squash = (x: string) => x.replace(/\s+/g, " ").trim();
+  const touched = [...done].filter((t) => {
+    const a = was.get(t);
+    const b = now.get(t);
+    return a !== undefined && (b === undefined || squash(a) !== squash(b));
+  });
+  if (touched.length === 0) return;
+  return (
+    `${touched.map((t) => `"${t}"`).join(", ")} still failed after each of ${MAX_REPAIRS_PER_TEST} ` +
+    "repairs. Stop changing it: leave it exactly as it is and it will be put to the reviewer " +
+    "at the end of the run, as a test problem or a possible defect, with the failure quoted. Work on " +
+    "any other failing test, or finish."
+  );
+}
+
+/**
+ * A check the approved design never asked for (item 5 in docs/ENGINE_MAP.md §11).
+ *
+ * The agent may look at the application but not operate it, so it cannot know
+ * what happens after a click — and it filled the gap with assumptions. Twice it
+ * asserted that Toolshop's address changes to "?page=2" when the design said
+ * only "a different set of products is shown" (20261018T154651Z,
+ * 20261018T223256Z); the check failed, was frozen as a defect candidate, and
+ * cost the run. An address check is the one kind of invented claim seen
+ * repeatedly, and the one that can be told mechanically: it is refused unless
+ * the design item it belongs to — its expected result, conditions or the
+ * acceptance criterion it covers — speaks of the address.
+ */
+function claimNotInDesign(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  const isFeature = /\.feature$/i.test(path);
+  if (!isFeature && !isSpecPath(path)) return;
+  const design = approvedDesign(events);
+  if (!design) return;
+  const facts = storyFacts(events);
+  const URL_CLAIM =
+    /toHaveURL\s*\(|\bthe (?:url|address)\b|\burl (?:contains|is|changes|includes)\b/i;
+  // "navigates to page 2" is about the page, not its address (run 223256Z's
+  // design said exactly that), so "navigate" alone does not count. What does:
+  // words about the address itself, a literal path ("stays on /#/login"), and
+  // being moved to or kept on a NAMED page ("returns to the storefront home
+  // page", "is sent to the login page") — the rule audit of 19 Oct replayed 36
+  // runs and found those refused as inventions when the design had said so.
+  const URL_WORDS = new RegExp(
+    [
+      String.raw`\b(url|address|path|redirect\w*|query string)\b|\?\w+=`,
+      String.raw`(?:^|[\s("'])\/#?\/?[a-z][\w-]*`,
+      String.raw`\b(?:navigat\w*|sent|taken|returns?|returned|brought|goes|go|lands?|landed|routed)\s+(?:back\s+)?to\s+` +
+        String.raw`(?:the\s+)?(?!(?:the|next|previous|prev|last|first|another|second|third|\d+)\b)[\w-]+(?:\s+[\w-]+){0,2}?\s*` +
+        String.raw`\b(?:page|screen|view|list|dashboard)\b(?!\s*\d)`,
+      String.raw`\b(?:stays?|remains?|kept|keeps?(?:\s+\w+){1,2})\s+on\s+(?:the\s+)?[\w-]+(?:\s+[\w-]+){0,2}?\s*\b(?:page|screen|view)\b(?!\s*\d)`,
+    ].join("|"),
+    "i",
+  );
+  const before = lastKnownContent(path, events, workspaceDir) ?? "";
+  const blocks = (text: string) =>
+    isFeature
+      ? scenarioBlocks(text).map((b) => ({
+          ...b,
+          ids: [...b.body.matchAll(/@design:(D\d+)/g)].map((m) => m[1] as string),
+        }))
+      : [...testsByTitle(text)].map(([title, body]) => ({
+          title,
+          body,
+          ids: designIdsAbove(text, title),
+        }));
+  const had = new Map(blocks(before).map((b) => [b.title, b.body]));
+  for (const b of blocks(String(call.args["content"] ?? ""))) {
+    if (!URL_CLAIM.test(b.body)) continue;
+    if (URL_CLAIM.test(had.get(b.title) ?? "")) continue; // not introduced by this write
+    const ids = b.ids;
+    const items = design.items.filter((it) => ids.includes(it.id));
+    if (items.length === 0) continue;
+    const said = items
+      .map((it) => {
+        const n = /AC-?(\d+)/i.exec(it.covers)?.[1];
+        const ac = n !== undefined ? (facts?.acceptanceCriteria[Number(n) - 1] ?? "") : "";
+        return `${it.expected} ${it.conditions.join(" ")} ${ac}`;
+      })
+      .join(" ");
+    if (URL_WORDS.test(said)) continue;
+    return (
+      `"${b.title}" checks the page address, but its design item (${items
+        .map((i) => i.id)
+        .join(", ")}) never mentions the address — it expects: "${items
+        .map((i) => i.expected)
+        .join('"; "')}". You cannot operate the application, so you cannot know whether the ` +
+      "address changes; assert what the design says (what the page shows), and take the check out."
+    );
   }
+  return;
+}
+
+/**
+ * The @design ids written in the comment block directly above a test. A test's
+ * body as `testsByTitle` slices it runs up to the next test, so it ends with
+ * the NEXT test's tags — reading ids from it named D3 for an AC-2 test.
+ */
+function designIdsAbove(spec: string, title: string): string[] {
+  const lines = spec.split("\n");
+  const at = lines.findIndex((l) => /\btest(?:\.\w+)?\s*\(/.test(l) && l.includes(title));
+  const ids: string[] = [];
+  for (let i = at - 1; i >= 0; i--) {
+    const l = (lines[i] ?? "").trim();
+    if (l !== "" && !l.startsWith("//") && !l.startsWith("*") && !l.startsWith("/*")) break;
+    for (const m of l.matchAll(/@design:(D\d+)/g)) ids.push(m[1] as string);
+  }
+  return ids;
+}
+
+/** Each scenario of a feature file with its tags and steps. */
+function scenarioBlocks(feature: string): Array<{ title: string; body: string }> {
+  const out: Array<{ title: string; body: string }> = [];
+  let tags: string[] = [];
+  let cur: { title: string; lines: string[] } | undefined;
+  for (const raw of feature.split("\n")) {
+    const line = raw.trim();
+    if (line.startsWith("@")) {
+      if (cur) {
+        out.push({ title: cur.title, body: cur.lines.join("\n") });
+        cur = undefined;
+      }
+      tags.push(line);
+      continue;
+    }
+    const sc = /^Scenario(?: Outline)?:\s*(.+)$/.exec(line);
+    if (sc) {
+      if (cur) out.push({ title: cur.title, body: cur.lines.join("\n") });
+      cur = { title: (sc[1] as string).trim(), lines: [...tags] };
+      tags = [];
+      continue;
+    }
+    if (cur) cur.lines.push(line);
+  }
+  if (cur) out.push({ title: cur.title, body: cur.lines.join("\n") });
   return out;
 }
 
@@ -2071,16 +2312,9 @@ function weakensAQuarantinedTest(
     // while the agent said, correctly, what it was trying to do
     // (20260925T172809Z). A test may be strengthened under quarantine; it may
     // not be weakened.
-    const kept = new Set(assertionsOf(b));
-    // A locator inside the assertion may be healed: `expect(<locator>).toBeEnabled()`
-    // keeps its claim when only <locator> changes to one the heal tool read off
-    // the page. 20261012T220131Z: the claim's own refusal said "repair the
-    // locator by all means", then refused exactly that repair three times,
-    // because the wrong name sat inside expect(…) rather than on its own line.
-    const healed = healCandidates(events);
-    const lost = assertionsOf(a).filter(
-      (x) => !kept.has(x) && !assertionsOf(b).some((y) => sameClaimHealed(x, y, healed)),
-    );
+    // A locator inside the assertion may be healed, or the same claim read
+    // from a parent or child of the old element (design/claims).
+    const lost = droppedClaims(a, b, events);
     if (lost.length > 0)
       return (
         `"${title}" is quarantined as a defect candidate, and this write drops ${
@@ -2088,50 +2322,14 @@ function weakensAQuarantinedTest(
         } it made: ${lost
           .map((x) => `expect(${x})`)
           .join("; ")}. Repair the locator by all means — that is ` +
-        "what the page snapshot is for — and add any check you need, but the claim the test already " +
+        "what the page snapshot is for; to read the state from a parent or child, build on the old " +
+        'locator (`<old>.locator("..")`, `page.locator("li").filter({ has: <old> })`) — and add any ' +
+        "check you need, but the claim the test already " +
         "makes is not yours to soften or reword. If the expectation itself is wrong, say so in your " +
         "final message; changing it is a person's call."
       );
   }
   return;
-}
-
-/** A Playwright locator expression, with any `page.` prefix. */
-const LOCATOR_CALL = /(?:\bpage\.)?\b(?:getBy[A-Za-z]+|locator)\((?:[^()]|\([^()]*\))*\)/g;
-
-function normLocator(expr: string): string {
-  return expr
-    .replace(/^page\./, "")
-    .replace(/["'`]/g, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/** Every locator `aqa.heal_locator` offered from a page this run. */
-function healCandidates(events: AnyRunEvent[]): Set<string> {
-  const out = new Set<string>();
-  for (const c of successful(completedCalls(events), "aqa.heal_locator"))
-    for (const raw of asArray(asRecord(c.result)?.["candidates"])) {
-      const e = asRecord(raw)?.["expression"];
-      if (typeof e === "string") out.add(normLocator(e));
-    }
-  return out;
-}
-
-/**
- * The same claim about a healed element: identical once locators are set
- * aside, and every locator that changed is one the heal tool offered.
- */
-function sameClaimHealed(before: string, after: string, healed: Set<string>): boolean {
-  if (healed.size === 0) return false;
-  const was = before.match(LOCATOR_CALL) ?? [];
-  const now = after.match(LOCATOR_CALL) ?? [];
-  if (was.length === 0 || was.length !== now.length) return false;
-  if (before.replace(LOCATOR_CALL, "<locator>") !== after.replace(LOCATOR_CALL, "<locator>"))
-    return false;
-  return now.every(
-    (n, i) => normLocator(n) === normLocator(was[i] ?? "") || healed.has(normLocator(n)),
-  );
 }
 
 /** The last route event's `because`, when it has one. */
@@ -2340,7 +2538,7 @@ export function appendOnlySpec(
       b
         .split("\n")
         .map((l) => l.trim())
-        .filter((l) => /\bexpect\s*\(/.test(l));
+        .filter((l) => /\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l));
     const kept = new Set(expects(next));
     if (expects(body).some((l) => !kept.has(l))) weakened.push(title);
   }

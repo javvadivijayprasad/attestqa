@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { testsByTitle } from "../../design/test-design.js";
 import { isUnexpectedPass } from "../../triage/report.js";
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
 import { FsTools } from "./fs.js";
@@ -37,6 +38,14 @@ export interface TestRunSummary {
      * guessing at one.
      */
     pageAtFailure?: string;
+    /**
+     * Playwright's own evidence for the failure, as it wrote it to disk
+     * (absolute paths): the screenshot taken at the failure and the trace.
+     * The runtime attaches them to a bug a person approves; the agent never
+     * chooses files to send.
+     */
+    screenshot?: string;
+    trace?: string;
   }>;
   /**
    * EVERY test, not just the failures — title, file, status and duration.
@@ -61,6 +70,8 @@ export interface TestRunSummary {
    * `fail` annotation, which is where the agent names the bug.
    */
   unexpectedPasses: Array<{ title: string; file: string; note: string }>;
+  /** Tests that passed only because some of their steps are still empty TODOs. */
+  unimplemented?: Array<{ title: string; file: string; steps: string[] }>;
   exitCode: number;
 }
 
@@ -77,7 +88,9 @@ export type TestStatus =
    * passed unexpectedly — the opposite of what happened. The count still says
    * passed; the row says what it means.
    */
-  | "expected-failure";
+  | "expected-failure"
+  /** Passed, but with steps the generator left empty: it checked nothing there. */
+  | "unimplemented";
 
 /**
  * Per-test rows kept in the ledger. High enough for a story's suite, low
@@ -200,7 +213,7 @@ export class PwTools implements ToolClient {
     const fromStdout = extractJson(r.stdout);
     const fileIsFresh = existsSync(reportAbs) && statSync(reportAbs).mtimeMs >= startedAt - 1000;
     const raw = fromStdout ?? (fileIsFresh ? readFileSync(reportAbs, "utf8") : "");
-    const summary = summarise(raw, r.code);
+    const summary = withUnimplemented(summarise(raw, r.code), this.workspace);
     if (!summary) {
       return fail(
         `Playwright produced no JSON report for this run (exit ${r.code})` +
@@ -310,6 +323,65 @@ export function extractJson(stdout: string): string | undefined {
 }
 
 /** Parse Playwright's JSON reporter output into a flat summary. */
+/**
+ * Tests that pass only because steps in them were never written.
+ *
+ * `green` assumed an unimplemented step comes out of the generator as
+ * `fixme`, which Playwright reports as skipped. bdd2pw also emits a step it
+ * could not bind as an EMPTY `test.step("[SKIPPED] …")` with a `// TODO`
+ * comment — and an empty step passes. 20261019T171551Z ran "green, 4 passed"
+ * with 6 of its 10 assertion steps empty: three of the four tests checked
+ * nothing at all, and the agent declared the work done.
+ *
+ * So a passed test whose body still holds such a step is not a pass: it is
+ * listed as unimplemented, and the suite is not green.
+ */
+export function withUnimplemented(
+  summary: TestRunSummary | undefined,
+  workspace: string,
+): TestRunSummary | undefined {
+  if (!summary) return summary;
+  const files = [...new Set((summary.tests ?? []).map((t) => t.file).filter(Boolean))];
+  const unimplemented: Array<{ title: string; file: string; steps: string[] }> = [];
+  for (const file of files) {
+    let text: string;
+    try {
+      text = readFileSync(resolve(workspace, file), "utf8");
+    } catch {
+      try {
+        text = readFileSync(resolve(workspace, "tests", file), "utf8");
+      } catch {
+        continue;
+      }
+    }
+    for (const [title, body] of testsByTitle(text)) {
+      const steps = [...body.matchAll(/test\.step\(\s*(["'`])(\[SKIPPED\][^"'`]*)\1/g)].map(
+        (m) => m[2] ?? "",
+      );
+      const todo = /@bdd2pw lane=todo|\/\/\s*TODO\b/.test(body);
+      if (steps.length > 0 || todo)
+        unimplemented.push({ title, file, steps: steps.length > 0 ? steps : ["(a TODO step)"] });
+    }
+  }
+  if (unimplemented.length === 0) return summary;
+  const names = new Set(unimplemented.map((u) => u.title));
+  const passedButEmpty = (summary.tests ?? []).filter(
+    (t) => names.has(t.title) && t.status === "passed",
+  ).length;
+  return {
+    ...summary,
+    // A test with empty steps is not counted as passed.
+    passed: Math.max(0, summary.passed - passedButEmpty),
+    green: false,
+    unimplemented,
+    tests: (summary.tests ?? []).map((t) =>
+      names.has(t.title) && t.status === "passed"
+        ? { ...t, status: "unimplemented" as TestStatus }
+        : t,
+    ),
+  };
+}
+
 export function summarise(raw: string, exitCode: number): TestRunSummary | undefined {
   let report: unknown;
   try {
@@ -399,11 +471,18 @@ function walkSuites(
       }
       if (spec.ok !== false) continue;
       const page = pageAtFailure(spec);
+      const screenshot = attachmentPath(
+        spec,
+        (a) => a.name === "screenshot" || /^image\//.test(a.contentType ?? ""),
+      );
+      const trace = attachmentPath(spec, (a) => a.name === "trace");
       out.push({
         title,
         file: f,
         message: firstError(spec),
         ...(page ? { pageAtFailure: page } : {}),
+        ...(screenshot ? { screenshot } : {}),
+        ...(trace ? { trace } : {}),
       });
     }
     if (suite.suites) walkSuites(suite.suites, f, out, rows, unexpected);
@@ -474,6 +553,27 @@ function pageAtFailure(spec: {
 
 /** Enough of the page to find the control; not so much that it drowns the step. */
 const PAGE_SNAPSHOT_CHARS = 4000;
+
+/** The first attachment of the LAST result (the final retry) that matches. */
+function attachmentPath(
+  spec: {
+    tests?: Array<{
+      results?: Array<{
+        attachments?: Array<{ name?: string; path?: string; contentType?: string }>;
+      }>;
+    }>;
+  },
+  want: (a: { name?: string; path?: string; contentType?: string }) => boolean,
+): string | undefined {
+  for (const t of spec.tests ?? []) {
+    const results = t.results ?? [];
+    for (let i = results.length - 1; i >= 0; i--) {
+      const a = (results[i]?.attachments ?? []).find((x) => x.path && want(x));
+      if (a?.path) return a.path;
+    }
+  }
+  return undefined;
+}
 
 function firstError(spec: { tests?: Array<{ results?: unknown[] }> }): string {
   for (const t of spec.tests ?? []) {

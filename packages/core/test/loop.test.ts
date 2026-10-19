@@ -187,6 +187,73 @@ describe("stop rules", () => {
     expect(d.ledger.read().filter((e) => e.kind === "call")).toHaveLength(2);
   });
 
+  it("a call refused until something else happens may be proposed again once it has", async () => {
+    // Run 20261017T163249Z: scaffold refused ("analyze first"), the agent
+    // analyzed, then proposed the same scaffold and was told it had "already
+    // made this exact call" — it analyzed again and again until the run stopped.
+    const write: ModelDecision = { calls: [{ toolName: "s.write", args: { f: 1 } }], usage: u };
+    const analyze: ModelDecision = { calls: [{ toolName: "s.read", args: { x: 1 } }], usage: u };
+    const base = skill();
+    const d = deps([write, analyze, write, goal], {
+      config: config({ steps: 50 }),
+      skill: {
+        ...base,
+        refuse: (call, events) =>
+          call.toolName === "s.write" &&
+          !events.some(
+            (e) =>
+              e.kind === "call" &&
+              (e.payload as { toolName?: string; args?: Record<string, unknown> }).args?.["x"] ===
+                1,
+          )
+            ? "analyze first"
+            : undefined,
+      },
+    });
+    const r = await runLoop(d);
+    expect(r.status).toBe("done");
+    const calls = d.ledger
+      .read()
+      .filter((e) => e.kind === "call")
+      .map((e) => (e.payload as { toolName: string }).toolName);
+    expect(calls).toContain("write");
+  });
+
+  it("a refused call proposed again with nothing done in between is still a repeat", async () => {
+    const write: ModelDecision = { calls: [{ toolName: "s.write", args: { f: 1 } }], usage: u };
+    const base = skill();
+    const d = deps(Array(10).fill(write), {
+      config: config({ steps: 50 }),
+      skill: { ...base, refuse: (call) => (call.toolName === "s.write" ? "never" : undefined) },
+    });
+    const r = await runLoop(d);
+    expect(r.status).toBe("blocked");
+    expect(r.summary).toMatch(/no progress/);
+  });
+
+  it("the same refusal five times, however the arguments are worded, ends the run", async () => {
+    // 20261018T154651Z: one bug proposed eighteen times against one refusal.
+    const reworded = (i: number): ModelDecision => ({
+      calls: [{ toolName: "s.write", args: { text: `attempt ${i}` } }],
+      usage: u,
+    });
+    const base = skill();
+    const d = deps(
+      Array.from({ length: 12 }, (_, i) => reworded(i)),
+      {
+        config: config({ steps: 50 }),
+        skill: {
+          ...base,
+          refuse: (call) => (call.toolName === "s.write" ? "scope the scan" : undefined),
+        },
+      },
+    );
+    const r = await runLoop(d);
+    expect(r.status).toBe("blocked");
+    expect(r.summary).toContain("refused each time for the same reason");
+    expect(r.summary).toContain("scope the scan");
+  });
+
   it("budget: token budget exhausted → exit 4", async () => {
     const d = deps(reads(10), { config: config({ tokens: 250 }) });
     const r = await runLoop(d);

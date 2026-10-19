@@ -244,7 +244,8 @@ describe("composeQaRecord", () => {
     const r = composeQaRecord(events, { runId: "r1", storyKey: "QA-12", files, status: "done" })!;
     expect(r.summary).toBe(`${QA_SUMMARY_PREFIX} QA-12 — Sign in`);
     const table = r.description.find((b) => b.kind === "table");
-    expect(table && table.kind === "table" && table.rows[0]?.[0]).toBe("D1");
+    // The stable case id: story plus design item (item 8).
+    expect(table && table.kind === "table" && table.rows[0]?.[0]).toBe("QA-12-D1");
     expect(JSON.stringify(r.comment)).toContain("Passed");
     // Each case in BDD form: its Gherkin scenario, as the feature file has it.
     const gherkin = r.description.find((b) => b.kind === "code");
@@ -252,6 +253,69 @@ describe("composeQaRecord", () => {
       "Scenario: AC-1: signs in\n  Given x",
     );
     expect(JSON.stringify(r.comment)).toContain("Run r1 — done");
+  });
+
+  it("records the story fingerprint and a reused design in the comment", () => {
+    const route = {
+      tool: "agentic-qa",
+      runId: "r1",
+      timestamp: 1,
+      eventId: 9999,
+      kind: "route",
+      payload: {
+        path: "B",
+        reason: "",
+        denied: [],
+        because: {
+          fingerprint: "abc123def456",
+          carriedDesign: { runId: "r0", fingerprint: "abc123def456", args: { items: [] } },
+        },
+      },
+    } as unknown as (typeof events)[number];
+    const r = composeQaRecord([...events, route], { runId: "r1", storyKey: "QA-12", files })!;
+    const text = JSON.stringify(r.comment);
+    expect(text).toContain("Story fingerprint abc123def456");
+    expect(text).toContain("unchanged since run r0");
+  });
+
+  it("shows what each test checks beside what its design expects, and the review items", () => {
+    const weak = {
+      ...files,
+      specs: [
+        {
+          path: "t.spec.ts",
+          text:
+            '// @story:QA-12\n// @design:D1\ntest("AC-1: signs in", async ({ page }) => {\n' +
+            '  await test.step("Given x", async () => {});\n' +
+            '  await test.step("Then the page displays \\"Welcome\\"", async () => {});\n});',
+        },
+      ],
+    };
+    const verify = {
+      tool: "agentic-qa",
+      runId: "r1",
+      timestamp: 1,
+      eventId: 9998,
+      kind: "verify",
+      payload: {
+        done: true,
+        gaps: [],
+        limitations: ["for your review — D1 (AC-1): checks one name"],
+      },
+    } as unknown as (typeof events)[number];
+    const r = composeQaRecord([...events, verify], {
+      runId: "r1",
+      storyKey: "QA-12",
+      files: weak,
+    })!;
+    const checks = r.comment.find((b) => b.kind === "table" && b.header[1] === "Design expects");
+    expect(checks && checks.kind === "table" && checks.rows[0]).toEqual([
+      "QA-12-D1",
+      "signed in",
+      'Then the page displays "Welcome"',
+    ]);
+    expect(JSON.stringify(r.comment)).toContain("Needs review");
+    expect(JSON.stringify(r.comment)).toContain("D1 (AC-1): checks one name");
   });
 
   it("keeps the same design hash for the same approved design", () => {

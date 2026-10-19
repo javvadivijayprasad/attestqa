@@ -4,6 +4,7 @@ import type { AnyRunEvent } from "../types.js";
 import type { ProposedCall } from "../runtime/model.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { hasAgentTag } from "../verify/story-to-tests.js";
+import { regressedByEdit } from "./quarantine.js";
 import { stripHtml } from "../runtime/render-approval.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -95,6 +96,8 @@ export function settleBugs(
   const stillFailing = mine ? allFailing.filter((t) => mine.has(t)) : allFailing;
   const otherStoryFailures = mine ? allFailing.filter((t) => !mine.has(t)) : [];
 
+  const regressed = regressedByEdit(events);
+  const titleOfTest = (t: string) => t.split(" › ").pop() ?? t;
   for (const call of bugs) {
     const title = bugTitle(call);
 
@@ -122,6 +125,22 @@ export function settleBugs(
       continue;
     }
 
+    // A test that passed earlier in this run and fails only since it was
+    // edited points at the edit, not the product (triage/quarantine.ts).
+    const ownLabels = acLabels(title);
+    const regressedHere = [...regressed].filter((t) =>
+      acLabels(t).some((f) => ownLabels.some((l) => l === f || l === f.replace(/[A-Z]$/, ""))),
+    );
+    if (regressedHere.length > 0) {
+      drop.push({
+        call,
+        reason:
+          `its test (${regressedHere.map((t) => `"${titleOfTest(t)}"`).join(", ")}) passed earlier in this run ` +
+          "and fails only since it was edited — the edit is the suspect, not the product",
+      });
+      continue;
+    }
+
     // Tie the bug to a test through the acceptance-criterion label both carry.
     // No label means no provable link — the bug is kept, because dropping it
     // would be claiming something the runtime cannot show.
@@ -134,8 +153,13 @@ export function settleBugs(
     // this bug is for, and a bug makes that claim in its title.
     const labels = acLabels(title);
     if (labels.length > 0) {
-      const failingLabels = new Set(stillFailing.flatMap((t) => acLabels(t)));
-      if (!labels.some((l) => failingLabels.has(l))) {
+      // "AC-2" and "AC-2b" are the same criterion: a scenario for a part of
+      // AC-2 carries the sub-label. 20261019T155404Z dropped three bugs about
+      // AC-2 as "not failing" while AC-2b failed in front of them.
+      const failingLabels = stillFailing.flatMap((t) => acLabels(t));
+      const base = (l: string) => l.replace(/[A-Z]$/, "");
+      const sameCriterion = (a: string, b: string) => a === b || base(a) === b || a === base(b);
+      if (!labels.some((l) => failingLabels.some((f) => sameCriterion(l, f)))) {
         drop.push({
           call,
           reason: `its test (${labels.join(", ")}) is not failing in the final run`,
@@ -147,11 +171,20 @@ export function settleBugs(
     // The two requirements the verifier used to check after the fact, checked
     // before a human is asked: an unlinked or unmarked bug is refused, not
     // offered.
-    if (opts.workItem !== undefined && String(call.args["parentId"] ?? "") !== opts.workItem) {
-      drop.push({ call, reason: `it is not linked to story ${opts.workItem} (parentId missing)` });
+    // Read through the Azure DevOps view: a Jira bug links its story as
+    // `storyKey` and is labelled by the adapter. Reading `parentId` off the
+    // raw call dropped every Jira bug as "not linked" (20261018T115605Z).
+    const view = asAdoBug(call);
+    const linkedTo = String(view.args["parentId"] ?? "");
+    if (opts.workItem !== undefined && normId(linkedTo) !== normId(opts.workItem)) {
+      const field = call.toolName === view.toolName ? "parentId" : "storyKey";
+      drop.push({
+        call,
+        reason: `it is not linked to story ${opts.workItem} (${field} ${linkedTo ? `is ${linkedTo}` : "missing"})`,
+      });
       continue;
     }
-    if (!hasAgentTag(call.args["tags"] ?? fieldValue(call, "System.Tags"))) {
+    if (!hasAgentTag(view.args["tags"] ?? fieldValue(view, "System.Tags"))) {
       drop.push({ call, reason: 'it does not carry the "agentic-qa" tag' });
       continue;
     }
@@ -212,7 +245,50 @@ export function settleBugs(
     } else byTest.set(key, call);
   }
 
-  return { keep, drop, stillFailing, otherStoryFailures };
+  // The failing test's own evidence goes with the bug: Playwright's
+  // screenshot and trace from the final run, chosen by the runtime from the
+  // report, never by the agent. Jira only — the Azure DevOps server is
+  // Microsoft's and has no attachment call here.
+  const evidence = failureEvidence(final);
+  const withEvidence = keep.map((call) => {
+    if (call.toolName !== "jira.create_bug") return call;
+    const files = evidenceFor(bugTitle(call), stillFailing, evidence);
+    return files.length > 0 ? { ...call, args: { ...call.args, attachments: files } } : call;
+  });
+
+  return { keep: withEvidence, drop, stillFailing, otherStoryFailures };
+}
+
+/** Screenshot and trace paths per failing test, from a run's result. */
+function failureEvidence(final: Record<string, unknown>): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const raw of asArray(final["failures"])) {
+    const f = asRecord(raw) ?? {};
+    const files = [f["screenshot"], f["trace"]].filter(
+      (x): x is string => typeof x === "string" && x !== "",
+    );
+    if (typeof f["title"] === "string" && files.length > 0) out.set(f["title"], files);
+  }
+  return out;
+}
+
+/**
+ * The evidence for a bug: the failing test its acceptance-criterion label
+ * names (AC-2 matches AC-2b), or the only failing test when there is one.
+ */
+function evidenceFor(
+  title: string,
+  stillFailing: string[],
+  evidence: Map<string, string[]>,
+): string[] {
+  const labels = acLabels(title);
+  const base = (l: string) => l.replace(/[A-Z]$/, "");
+  const matching = stillFailing.filter((t) =>
+    acLabels(t).some((f) => labels.some((l) => l === f || base(f) === l || base(l) === f)),
+  );
+  const tests = matching.length > 0 ? matching : stillFailing.length === 1 ? stillFailing : [];
+  const leaf = (t: string) => t.split(" \u203a ").pop() ?? t;
+  return tests.flatMap((t) => evidence.get(t) ?? evidence.get(leaf(t)) ?? []);
 }
 
 /**

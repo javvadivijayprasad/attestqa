@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
+import { testsByTitle } from "../../design/test-design.js";
 
 /**
  * In-process `fs` adapter: read / list / write strictly inside the job
@@ -168,11 +169,17 @@ export class FsTools implements ToolClient {
       case "write_file": {
         const content = args["content"];
         if (typeof content !== "string") return fail(`"content" must be a string`);
+        const previous = existsSync(abs) && statSync(abs).isFile() ? readFileSync(abs, "utf8") : "";
         mkdirSync(dirname(abs), { recursive: true });
         writeFileSync(abs, content, "utf8");
+        const tests = changedTests(rel, previous, content);
         return {
           ok: true,
-          result: { path: rel, bytes: Buffer.byteLength(content, "utf8") },
+          result: {
+            path: rel,
+            bytes: Buffer.byteLength(content, "utf8"),
+            ...(tests ? { changedTests: tests } : {}),
+          },
           artefacts: [rel],
         };
       }
@@ -207,7 +214,11 @@ export class FsTools implements ToolClient {
             `"old" appears ${hits} times in ${rel}, so this edit is ambiguous and nothing was ` +
               "written. Include the surrounding lines to make it unique.",
           );
-        const next = every ? text.split(before).join(after) : text.replace(before, after);
+        // A function replacer: with a string, `$&`, `$1` or `$$` in the new text
+        // would be read as replacement patterns and the file would get
+        // something other than what was asked for.
+        const next = every ? text.split(before).join(after) : text.replace(before, () => after);
+        const tests = changedTests(rel, text, next);
         writeFileSync(abs, next, "utf8");
         return {
           ok: true,
@@ -218,6 +229,7 @@ export class FsTools implements ToolClient {
             // So a later rule, and a reader, can see what changed without a diff.
             was: head(before, 200),
             now: head(after, 200),
+            ...(tests ? { changedTests: tests } : {}),
           },
           artefacts: [rel],
         };
@@ -357,4 +369,24 @@ export function nearest(text: string, old: string): string {
   if (best < 0 || score < 2) return "";
   const hint = unescaped !== first ? "Your `old` escapes quotes the file does not escape. " : "";
   return `${hint}The closest line is ${best + 1}: ${JSON.stringify(lines[best]?.trim() ?? "")}. `;
+}
+
+/**
+ * The tests a write to a spec changed — added, removed, or with a different
+ * body — by title. Recorded in the result so the repair cap counts repairs to
+ * each test, not suite runs (docs/ENGINE_MAP.md §11 item 4). Undefined for a
+ * file that is not a spec.
+ */
+export function changedTests(rel: string, before: string, after: string): string[] | undefined {
+  if (!/\.(spec|test)\.[cm]?[jt]sx?$/.test(rel)) return undefined;
+  const squash = (x: string) => x.replace(/\s+/g, " ").trim();
+  const was = testsByTitle(before);
+  const now = testsByTitle(after);
+  const out: string[] = [];
+  for (const [title, body] of now) {
+    const old = was.get(title);
+    if (old === undefined || squash(old) !== squash(body)) out.push(title);
+  }
+  for (const title of was.keys()) if (!now.has(title)) out.push(title);
+  return out;
 }

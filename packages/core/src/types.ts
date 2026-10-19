@@ -581,6 +581,8 @@ export interface Skill {
     because: Record<string, unknown>;
     deny: string[];
     stop?: string;
+    /** Shown to the model as the route's observation — what this path means for its work. */
+    note?: string;
   };
   /**
    * A second routing decision, taken after the run has learned something the

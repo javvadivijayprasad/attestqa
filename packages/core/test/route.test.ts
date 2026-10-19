@@ -65,7 +65,7 @@ describe("the route is decided by what is on disk", () => {
     const d = chooseRoute({ facts: facts(1), workspaceDir: workspace({}), frameworkFound: false });
     expect(d.path).toBe("P0");
     // 20260925T144905Z spent a whole run against the runtime's own sample project.
-    expect(d.stop).toContain("aqa init-framework");
+    expect(d.stop).toContain("npm init playwright@latest");
   });
 
   it("authors when the epic has no feature file", () => {

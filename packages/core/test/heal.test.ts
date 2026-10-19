@@ -124,6 +124,29 @@ describe("aqa.heal_locator", () => {
     expect(res.verdict).toContain("may genuinely be");
   });
 
+  it("says an assertion failure is not a locator failure, and names the two test mistakes", async () => {
+    // 20261018T115605Z: an assertion on placeholder cards was answered with
+    // "the control may genuinely be absent — say so in the bug".
+    const t = new HealTools(
+      ledgerOf([
+        {
+          tool: "pw.run_tests",
+          result: RED({
+            message:
+              'Error: Product card 1 name should not be empty\n\nexpect(received).toBeTruthy()\n\nReceived: ""',
+          }),
+        },
+      ]),
+    );
+    const res = (await call(t, { test: "session token is cleared" })).result as {
+      verdict: string;
+      candidates: unknown[];
+    };
+    expect(res.verdict).toContain("NOT A LOCATOR FAILURE");
+    expect(res.verdict).not.toContain("say so in the bug");
+    expect(res.candidates).toHaveLength(0);
+  });
+
   it("refuses to guess when the failure carries no snapshot", async () => {
     const t = new HealTools(
       ledgerOf([{ tool: "pw.run_tests", result: RED({ pageAtFailure: undefined }) }]),
@@ -508,6 +531,22 @@ describe("a heal edits one line rather than rewriting the file", () => {
     expect(JSON.stringify(ambiguous.result)).toContain("ambiguous");
     // A refused edit writes nothing.
     expect(readFileSync(join(ws, "tests", "e.spec.ts"), "utf8")).toBe(after);
+
+    // The result names the tests the edit changed, so the repair cap counts
+    // repairs to each test (20261019T144404Z). A helper above the test is not
+    // the test.
+    expect((ok.result as { changedTests?: string[] }).changedTests).toEqual([]);
+
+    // "$" in the new text is written as it is, not read as a replacement
+    // pattern ("$&" would have pasted the old text back in).
+    const dollar = await fs.call("fs", "replace_in_file", {
+      path: "tests/e.spec.ts",
+      old: "/login/",
+      new: "/login\\?next=$&/",
+    });
+    expect(dollar.ok).toBe(true);
+    expect((dollar.result as { changedTests?: string[] }).changedTests).toEqual(["Story-a"]);
+    expect(readFileSync(join(ws, "tests", "e.spec.ts"), "utf8")).toContain("/login\\?next=$&/");
   });
 
   it("is judged as the write it amounts to: a dropped claim is still refused", async () => {

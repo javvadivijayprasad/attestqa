@@ -309,6 +309,13 @@ describe("server specs", () => {
   it("playwright spec is headless by default", () => {
     expect(playwrightServer().args).toContain("--headless");
     expect(playwrightServer({ headless: false }).args).not.toContain("--headless");
+    // Screenshots go where they are told, not into the directory aqa ran from.
+    const out = playwrightServer({ outputDir: "/tmp/run/playwright" }).args;
+    expect(out.slice(out.indexOf("--output-dir"), out.indexOf("--output-dir") + 2)).toEqual([
+      "--output-dir",
+      "/tmp/run/playwright",
+    ]);
+    expect(playwrightServer().args).not.toContain("--output-dir");
     // The installed Chrome by default; another browser only when asked.
     const chrome = playwrightServer().args;
     expect(chrome[chrome.indexOf("--browser") + 1]).toBe("chrome");

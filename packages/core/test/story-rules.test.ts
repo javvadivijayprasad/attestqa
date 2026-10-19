@@ -479,6 +479,7 @@ describe("a heal changes the locator, not the claim", () => {
               rationale: "y",
             },
           ],
+          quarantined: [`l.spec.ts › suite › ${title}`],
         },
       },
     ] as AnyRunEvent[];

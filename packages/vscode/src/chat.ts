@@ -3,7 +3,12 @@ import { join } from "node:path";
 import * as vscode from "vscode";
 import { usesCopilot } from "./copilot";
 import type { RunsTreeProvider } from "./ledger";
-import { exitMeaning, launchRun, RunSetupError, type RunSettings } from "./runner";
+import {
+  exitMeaning,
+  launchRun,
+  RunSetupError,
+  type RunSettings,
+} from "./runner";
 import { resolveRuntime } from "./runtime";
 import { findStoryRef } from "./story";
 
@@ -20,7 +25,12 @@ export function registerChat(
   runs: RunsTreeProvider,
   settings: () => RunSettings,
 ): void {
-  const handler: vscode.ChatRequestHandler = async (request, _ctx, stream, token) => {
+  const handler: vscode.ChatRequestHandler = async (
+    request,
+    _ctx,
+    stream,
+    token,
+  ) => {
     const folder = vscode.workspace.workspaceFolders?.[0];
     if (!folder) {
       stream.markdown("Open your Playwright project folder in VS Code first.");
@@ -41,7 +51,9 @@ export function registerChat(
 
     const runtime = await resolveRuntime(folder);
     if (!runtime) {
-      stream.markdown("The attestqa command line (`aqa`) was not found. Install it with `npm install -g attestqa`.");
+      stream.markdown(
+        "The attestqa command line (`aqa`) was not found. Install it with `npm install -g attestqa`.",
+      );
       return;
     }
 
@@ -62,7 +74,8 @@ export function registerChat(
     const dryRun = request.command === "dryrun";
     const config = readFileSync(configPath, "utf8");
     const copilot = usesCopilot(config);
-    const chatModel = copilot && request.model.vendor === "copilot" ? request.model : undefined;
+    const chatModel =
+      copilot && request.model.vendor === "copilot" ? request.model : undefined;
     if (!copilot && !dryRun)
       stream.markdown(
         "_This project's config names its own model, so the run uses that rather than the model picked in this chat. To use Copilot, choose **GitHub Copilot** in Set up this folder._\n\n",
@@ -87,6 +100,16 @@ export function registerChat(
         ...(chatModel ? { chatModel } : {}),
         onText: (text) => {
           for (const line of text.split(/\r?\n/)) {
+            // Stage lines ("== Test design: started", the report) are the
+            // run's headline: shown in the chat itself, not as passing progress.
+            if (line.startsWith("== ")) {
+              stream.markdown(`**${line.slice(3)}**\n\n`);
+              continue;
+            }
+            if (/^ {5}\S/.test(line)) {
+              stream.markdown(`${line.trim()}  \n`);
+              continue;
+            }
             if (!line.startsWith("aqa: ") || line === lastLine) continue;
             lastLine = line;
             stream.progress(line.slice(5, 160));
@@ -94,19 +117,28 @@ export function registerChat(
         },
       });
       runs.refresh();
-      stream.markdown(`**${story.label}: ${exitMeaning(code)}.** The full output is in the attestqa output panel.\n\n`);
+      stream.markdown(
+        `**${story.label}: ${exitMeaning(code)}.** The full output is in the attestqa output panel.\n\n`,
+      );
       if (!dryRun) {
         stream.button({ command: "aqa.showCoverage", title: "Show coverage" });
         stream.button({ command: "aqa.replayRun", title: "Replay the run" });
       }
       return { metadata: { story: story.label, exitCode: code } };
     } catch (e) {
-      stream.markdown(e instanceof RunSetupError ? e.message : `Could not run attestqa: ${(e as Error).message}`);
+      stream.markdown(
+        e instanceof RunSetupError
+          ? e.message
+          : `Could not run attestqa: ${(e as Error).message}`,
+      );
       return;
     }
   };
 
-  const participant = vscode.chat.createChatParticipant("attestqa.chat", handler);
+  const participant = vscode.chat.createChatParticipant(
+    "attestqa.chat",
+    handler,
+  );
   participant.iconPath = new vscode.ThemeIcon("beaker");
   context.subscriptions.push(participant);
 }

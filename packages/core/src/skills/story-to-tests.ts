@@ -1,10 +1,11 @@
 import { asRecord } from "../verify/evidence.js";
+import { coverageOfStory, renderCoverage, storyScenarios } from "../design/coverage-map.js";
 import { routePathOf } from "../route/route.js";
 import type { AnyRunEvent, Skill } from "../types.js";
 import { StoryToTestsVerifier, type StoryToTestsOptions } from "../verify/story-to-tests.js";
 import { gatherStoryContext } from "./story-context.js";
 import { gatherJiraStoryContext } from "./jira-story-context.js";
-import type { Tracker } from "../design/ids.js";
+import { normId, type Tracker } from "../design/ids.js";
 import { lockedScenarios, makeStoryRefusal } from "./story-rules.js";
 import { composeRunReport } from "../mcp/adapters/summary.js";
 import { composeQaRecord } from "../report/qa-record.js";
@@ -21,8 +22,12 @@ import { nameChanged, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { storyFacts } from "../design/test-design.js";
+import { factsFrom, storyFacts, traceProblems } from "../design/test-design.js";
+import { latestPriorDesign, priorDesignState, storyFingerprint } from "../design/fingerprint.js";
+import { caseTally, designCases, existingCases, renderCases } from "../design/cases.js";
 import { surveyFramework } from "../framework/survey.js";
+
+type RouteResult = ReturnType<NonNullable<Skill["route"]>>;
 
 /**
  * Tools this skill may see. The gate still decides what may be CALLED — this
@@ -178,12 +183,12 @@ Jira keeps no test cases, so nothing about cases or suites is checked.`
      there from an earlier run — at one case per acceptance criterion;
   4b. if you created any, you read the existing ones first;
   5. every created case carries testsWorkItemId = ${workItem};${
-    canCreatePlans
-      ? `
+        canCreatePlans
+          ? `
   6. the cases were added to a test suite.`
-      : `
+          : `
 Suite membership is NOT checked in this environment (see step 6).`
-  }`
+      }`
 }
 Saying you are finished does not make you finished. When you believe the work is
 done, stop calling tools and the verifier will check. If it finds gaps you will
@@ -340,6 +345,18 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
      Then the response status is 200
      Then the response body field "token" is set
 
+   bdd2pw also has rules for these exact phrasings; use them word for word:
+
+     Then the page passes axe accessibility checks
+     Then the product list passes axe accessibility checks
+     Then page 2 is active
+     Then the current page is page 2
+
+   ("the page has no accessibility violations" or "the page 2 control is marked
+   as current" say the same thing and bind to nothing: on a real run both came
+   back empty.) Write "Then the URL contains …" only when the design item's
+   expected result speaks of the address; otherwise it is refused.
+
    These do NOT bind, and every one of them was written by an agent on a real
    run: "I submit valid registered email and correct password" (three actions in
    one sentence), "I am signed in and the account menu shows my email address
@@ -436,6 +453,15 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
 4. Implement the steps bdd2pw left as TODO — and leave the rest alone.
    The bound steps already carry real locators found on the live page; editing
    them replaces something measured with something guessed.
+   bdd2pw marks a TODO two ways: a test.fixme line, or a step titled
+   "[SKIPPED] …" whose body is only comments ("// @bdd2pw lane=todo", "// TODO: …").
+   An empty step runs and passes, but the runtime reports its test as NOT
+   IMPLEMENTED and the suite is not green until the body is written. Write the
+   body, keep the step's title without the "[SKIPPED] " prefix, and remove the
+   two comment lines. The TODO comment says why bdd2pw could not do it; that
+   reason is usually the hint you need (a repeated element such as each
+   product's name has no page-object field — locate it with getByTestId or the
+   card it sits in, read from the snapshot).
    For a TODO step, open the page with playwright.browser_navigate and read it
    with playwright.browser_snapshot, which gives you the accessibility tree the
    selectors come from; otherwise read the source with fs.read_file or
@@ -446,6 +472,24 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    behaviour from the acceptance criteria, not by trying it in the browser. Replace the TODO
    bodies with real Playwright calls, delete the test.fixme line, and write the
    file back with fs.write_file.
+   Every assertion states what its design item's expected result says, and
+   nothing more. You cannot operate the application, so you cannot know what
+   happens after a click beyond what the design says: do not add checks of the
+   address, CSS classes, counts or texts the design does not name — they are
+   guesses, and a guess that fails is reported as a product defect. Where a
+   state sits (which element carries "active" or aria-current) you read from
+   the page snapshot, not assume. When the framework profile names a
+   testIdAttribute, prefer page.getByTestId("…") for elements that carry one.
+   Assert with Playwright's retrying assertions — await expect(locator).toHaveText(...),
+   .toBeVisible(), .toHaveCount(n), .toHaveClass(/active/) — never by reading
+   textContent(), count() or getAttribute() once and checking the value. Pages
+   load their data after the first render: a shop shows placeholder cards with
+   empty headings until its products arrive, and a one-off read sees the
+   placeholders. A retrying assertion waits for the real content; a one-off read
+   reports an empty page as a product defect (20261018T115605Z: two "bugs" that
+   were the test reading too early, and a marker checked on the button when the
+   page sets it on the list item around it — read the snapshot for where a state
+   actually lives before asserting it).
    Never hard-code the application's address or its credentials. Navigate with
    relative paths (page.goto("/login")) and let the Playwright config's baseURL
    decide where that points; a spec containing "http://localhost:<port>" is
@@ -774,14 +818,14 @@ ${
    step — do not look for a plan, and say in your final summary that suite
    membership was skipped because the environment does not permit it.`
        : testPlan
-         ? `The plan you may use is named "${testPlan}" — that name and no other.
+       ? `The plan you may use is named "${testPlan}" — that name and no other.
    Call ado.testplan with action "list_plans" first. A project that has never
    had one comes back with an empty list: that is not an error and not a reason
    to list again. Create the plan with ado.testplan_test_plan_write action
    "create" and name "${testPlan}", then ado.testplan_test_suite_write action
    "create" for a suite under its planId, then action "add_test_cases" with the
    ids returned when you created the cases.`
-         : `Call ado.testplan with action "list_plans" to find the plan. If the
+       : `Call ado.testplan with action "list_plans" to find the plan. If the
    list is empty, stop and report that no test plan is in scope — creating one
    is not something you may choose unilaterally.`
    }
@@ -915,6 +959,151 @@ export function storyToTestsSkill(
     };
   };
 
+  /** The path, before the case list is added — see `route` below. */
+  const routeFor = (events: AnyRunEvent[]): RouteResult => {
+    const facts = storyFacts(events);
+    const d = chooseRoute({
+      facts,
+      ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
+      frameworkFound: options.workspaceDir ? surveyFramework(options.workspaceDir).exists : true,
+    });
+    const plain = {
+      path: d.path,
+      reason: d.reason,
+      because: d.because,
+      deny: d.deny,
+      ...(d.stop ? { stop: d.stop } : {}),
+    };
+    // Item 7 (docs/ENGINE_MAP.md §11): an unchanged story is not designed
+    // again. Its fingerprint goes into the route event either way.
+    if (!facts || d.stop) return plain;
+    // Item 9: --fresh measures authoring from nothing. Tests already on disk
+    // would make it a measurement of something else — and the generator would
+    // overwrite them — so the run stops and says what to move aside.
+    const own = Number(d.because["storyScenarios"] ?? 0);
+    if (options.fresh)
+      return own > 0
+        ? {
+            ...plain,
+            reason: "--fresh, but this story's scenarios are still on disk",
+            stop:
+              `--fresh designs and authors the story from scratch, but ${own} scenario(s) tagged ` +
+              `@story:${String(facts.story?.id ?? "?")} are still in ${String(
+                d.because["feature"] ?? "the feature file",
+              )}` +
+              `${
+                d.because["specExists"] ? ` (and their tests in ${String(d.because["spec"])})` : ""
+              }. ` +
+              "Move them aside (the evaluation's reset step) and run again.",
+          }
+        : plain;
+    const types = options.testTypes ?? [];
+    const fingerprint = storyFingerprint(facts, types);
+    const state = options.previousRuns
+      ? priorDesignState(options.previousRuns(), facts.story, types)
+      : undefined;
+    const prior = state?.usable;
+    // The tests on disk come from a run that stopped before running them
+    // (20261019T163019Z): they are executed, but treated as new — repaired,
+    // never frozen as proven — and the design is not reused.
+    const unverified = d.path === "B" && state?.unverified === true;
+    const because = {
+      ...d.because,
+      fingerprint,
+      ...(prior ? { previous: { runId: prior.runId, fingerprint: prior.fingerprint } } : {}),
+      ...(unverified ? { unverifiedTests: { runId: state.runId } } : {}),
+    };
+    const unchanged = prior !== undefined && prior.fingerprint === fingerprint;
+    if (unverified)
+      return {
+        ...plain,
+        because,
+        reason:
+          `${d.reason} — but they were written by run ${state.runId}, which stopped before running ` +
+          "them, so they are treated as new tests and the design is asked for again",
+      };
+    if (!unchanged || d.path !== "B" || types.length === 0 || !options.workspaceDir)
+      return {
+        ...plain,
+        because,
+        ...(prior && !unchanged
+          ? {
+              reason: `${d.reason} — the story changed since run ${prior.runId}, so it is designed again`,
+            }
+          : {}),
+      };
+    // Reuse only a design whose every item still has its scenario: a test
+    // removed from the repository since is work, and the normal path does it.
+    const design = parseDesign(prior.args);
+    const featurePath = featurePathFor(facts);
+    const specPath = specPathFor(facts);
+    const read = (p?: string) => {
+      if (!p) return undefined;
+      const full = join(options.workspaceDir as string, p);
+      return existsSync(full) ? readFileSync(full, "utf8") : undefined;
+    };
+    const featureText = read(featurePath);
+    const specText = read(specPath);
+    const covered = coverageOf(design, {
+      ...(featureText !== undefined ? { featureText } : {}),
+      ...(specText !== undefined ? { specText } : {}),
+      ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
+    });
+    const missing = design.items.filter((it) => !covered.has(it.id)).map((it) => it.id);
+    if (missing.length > 0)
+      return {
+        ...plain,
+        because: { ...because, previousDesignMissing: missing },
+        reason: `${d.reason} — the story is unchanged, but ${missing.join(
+          ", ",
+        )} of the design approved in run ${
+          prior.runId
+        } no longer have a scenario, so it is designed again`,
+      };
+    // The reused design is checked against the tests now, so the agent hears
+    // before the suite runs that a green test can still be the wrong test
+    // (20261019T202717Z: AC-3 never clicked page 2; the note said "your work
+    // is only what the results call for", the suite was green, and the agent
+    // stopped twice with "no further action is needed").
+    const shape = traceProblems(
+      design,
+      featurePath && featureText !== undefined ? [{ path: featurePath, text: featureText }] : [],
+      specPath && specText !== undefined ? [{ path: specPath, text: specText }] : [],
+      facts.story?.id !== undefined ? normId(String(facts.story.id)) : undefined,
+    );
+    const mustChange = shape.wrongShape;
+    const mayImprove = shape.reviewShape;
+    return {
+      path: d.path,
+      reason:
+        `story unchanged since run ${prior.runId} (fingerprint ${fingerprint}): reusing the design ` +
+        `approved there (${design.items.length} item(s)) and executing the existing tests`,
+      because: {
+        ...because,
+        carriedDesign: { runId: prior.runId, fingerprint, args: prior.args },
+        // Not yet shown to work: these are repaired as new tests, not frozen.
+        ...(prior.failing.length > 0 ? { previousFailing: prior.failing } : {}),
+      },
+      deny: [...d.deny, "aqa.test_design"],
+      note:
+        `The story is unchanged since run ${prior.runId}: the test design approved there ` +
+        `(${design.items
+          .map((it) => it.id)
+          .join(", ")}) stays in force and is not submitted again. ` +
+        "Every test already exists. The runtime runs the suite; your work is what its results " +
+        "call for — repairing a test that fails because of the test, or reporting a defect — and " +
+        "any test the runtime says does not match the approved design, even when it passes." +
+        (mustChange.length > 0
+          ? " These tests pass but do NOT do what the approved design says, and must be changed in " +
+            `this run (use fs.replace_in_file on their lines): ${mustChange.join("; ")}.`
+          : "") +
+        (mayImprove.length > 0
+          ? " These check less, or more broadly, than the design; fix them if you can, otherwise they " +
+            `go to the reviewer: ${mayImprove.join("; ")}.`
+          : ""),
+    };
+  };
+
   return {
     name: "story-to-tests",
     workItem: options.workItem,
@@ -965,8 +1154,8 @@ export function storyToTestsSkill(
     // Stage 1 is the runtime's job, not the model's: the story, its epic, its
     // tasks, its comments and the open bugs are read before the first turn,
     // filtered of anything this runtime wrote, and handed over as one digest.
-    preflight: (read) =>
-      tracker === "jira"
+    preflight: async (read) => {
+      const digest = await (tracker === "jira"
         ? gatherJiraStoryContext(read, {
             workItem: options.workItem,
             ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
@@ -975,7 +1164,14 @@ export function storyToTestsSkill(
             workItem: options.workItem,
             ...(project ? { project } : {}),
             ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
-          }),
+          }));
+      // Coverage first (item 6, docs/ENGINE_MAP.md §11): what already covers
+      // the story is part of the context the design starts from.
+      const facts = factsFrom(digest?.facts);
+      if (!digest || !facts || !options.workspaceDir || options.fresh) return digest;
+      const coverage = coverageOfStory(facts, options.workspaceDir, options.testTypes ?? []);
+      return { ...digest, text: [digest.text, ...renderCoverage(coverage)].join("\n") };
+    },
     /**
      * What the reviewer sees above a proposed test design: which of its items are
      * already covered by tests in the epic file.
@@ -1014,12 +1210,27 @@ export function storyToTestsSkill(
         ...(read(specPathFor(facts)) ? { specText: read(specPathFor(facts)) as string } : {}),
         ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
       });
-      if (covered.size === 0) return jiraLine ? { note: jiraLine } : undefined;
+      // Item 8: every case of the design, by its stable id and state.
+      const prior =
+        options.previousRuns && !options.fresh
+          ? latestPriorDesign(options.previousRuns(), facts.story, options.testTypes ?? [])
+          : undefined;
+      const cases = designCases(
+        facts.story?.id,
+        parsed,
+        covered,
+        storyScenarios(facts, options.workspaceDir).scenarios,
+        prior ? parseDesign(prior.args) : undefined,
+      );
+      const caseBlock = [`Test cases (${caseTally(cases)}):`, ...renderCases(cases), ""];
+      if (covered.size === 0)
+        return { note: [...caseBlock, ...(jiraLine ? [jiraLine] : [])].join("\n").trim() };
       const lines = [...covered].map(
         ([id, hit]) => `  ${id} → "${hit.scenario}" (matched on ${hit.how})`,
       );
       const fresh = parsed.items.length - covered.size;
       const note = [
+        ...caseBlock,
         `${covered.size} of these ${parsed.items.length} item(s) are ALREADY TESTED — the tests exist ` +
           "in this epic's spec and this run will execute them, not rewrite them:",
         ...lines,
@@ -1073,18 +1284,16 @@ export function storyToTestsSkill(
     // Not an instruction the model may weigh — on path B the authoring tools are
     // removed from its view entirely.
     route: (events) => {
-      const d = chooseRoute({
-        facts: storyFacts(events),
-        ...(options.workspaceDir ? { workspaceDir: options.workspaceDir } : {}),
-        frameworkFound: options.workspaceDir ? surveyFramework(options.workspaceDir).exists : true,
-      });
-      return {
-        path: d.path,
-        reason: d.reason,
-        because: d.because,
-        deny: d.deny,
-        ...(d.stop ? { stop: d.stop } : {}),
-      };
+      // Item 8: every run starts from the list of the story's cases as they
+      // exist, recorded in the route event and printed by the stage tracker.
+      const r = routeFor(events);
+      const facts = storyFacts(events);
+      if (r.stop || !facts || !options.workspaceDir || options.fresh) return r;
+      const cases = existingCases(
+        facts.story?.id,
+        storyScenarios(facts, options.workspaceDir).scenarios,
+      );
+      return { ...r, because: { ...r.because, cases } };
     },
     // Once a design is approved on path B, items no scenario covers yet mean
     // the run must add those scenarios — and only those. Switches once.
@@ -1136,7 +1345,7 @@ export function storyToTestsSkill(
           from: "B",
           appendOnly: true,
           missing,
-          locked: completing ? (last?.["locked"] ?? []) : lockedScenarios(featureText ?? ""),
+          locked: completing ? last?.["locked"] ?? [] : lockedScenarios(featureText ?? ""),
         },
         deny: [],
       };

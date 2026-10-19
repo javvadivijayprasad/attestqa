@@ -96,6 +96,8 @@ function kindOf(c: ProposedCall): string {
   if (c.toolName === "ado.wit_work_item_comment_write") return "comment";
   if (c.toolName.startsWith("ado.testplan_test_suite_write")) return "suite change";
   if (c.toolName.startsWith("ado.testplan_test_plan_write")) return "test plan";
+  if (c.toolName === "jira.record_qa") return "Jira test record";
+  if (c.toolName === "pw.run_tests") return "test run";
   return c.toolName;
 }
 
@@ -109,6 +111,13 @@ function renderCall(n: number, c: ProposedCall, opts: RenderOptions = {}): strin
       // Stage 2: the design as a tester reads it — one line per test, its type
       // and technique, and what it expects, with where that expectation came from.
       return renderDesignCall(n, c, opts.covered);
+    case "Jira test record":
+      return renderQaRecord(n, c);
+    case "test run":
+      return [
+        `${n}. Run the test suite: ${String(c.args["spec"] ?? "all tests")}`,
+        "   Runs the tests in the browser against the application. Nothing is posted anywhere.",
+      ];
     default:
       return [`${n}. ${c.toolName}`, ...indent(compactArgs(c.args), 3)];
   }
@@ -203,7 +212,9 @@ function renderBug(n: number, c: ProposedCall): string[] {
   out.push(
     parent === undefined
       ? "   ⚠ NOT linked to any story"
-      : `   linked to story ${isJiraKey(parent) ? String(parent) : `AB#${String(parent)}`}${inProject(c.args)}`,
+      : `   linked to story ${
+          isJiraKey(parent) ? String(parent) : `AB#${String(parent)}`
+        }${inProject(c.args)}`,
   );
 
   const tags = f["System.Tags"] ?? str(c.args["tags"]) ?? "";
@@ -323,4 +334,59 @@ function asRecord(v: unknown): Record<string, unknown> | undefined {
 function inProject(args: Record<string, unknown>): string {
   const p = args["project"];
   return typeof p === "string" && p.length > 0 ? `, in project "${p}"` : "";
+}
+
+/**
+ * The story's QA sub-task update, as a person reads it.
+ *
+ * The raw arguments are a document model (paragraphs, tables, Gherkin blocks)
+ * meant for Jira's renderer; printed as JSON they were a screen of brackets and
+ * the reviewer could not tell what was being asked (20261019T200105Z). This
+ * says where it goes, what it changes, and lists the cases and this run's
+ * results as lines. `v` still shows the raw arguments.
+ */
+function renderQaRecord(n: number, c: ProposedCall): string[] {
+  const story = String(c.args["storyKey"] ?? "?");
+  const results = c.args["mode"] === "results";
+  type Block = { kind?: string; text?: string; header?: string[]; rows?: string[][] };
+  const blocks = (v: unknown): Block[] => (Array.isArray(v) ? (v as Block[]) : []);
+  const firstTable = (bs: Block[]) => bs.find((b) => b.kind === "table");
+  const out = [
+    `${n}. Update the QA sub-task of ${story} in Jira`,
+    results
+      ? "   Adds this run's results as a comment, and refreshes the list of test cases in its description."
+      : "   Writes the approved test cases into its description. No results yet.",
+    "   Nothing else in Jira is changed: no story, no bug, no status.",
+    "",
+  ];
+  const cases = firstTable(blocks(c.args["description"]));
+  if (cases?.rows?.length) {
+    out.push("   Test cases:");
+    for (const r of cases.rows) out.push(`     ${r[0] ?? ""}  ${r[3] ?? ""}`.trimEnd());
+    out.push("");
+  }
+  if (results) {
+    const comment = blocks(c.args["comment"]);
+    const head = comment.find((b) => b.kind === "heading")?.text;
+    const sum = comment.find((b) => b.kind === "paragraph")?.text;
+    const table = firstTable(comment);
+    if (head) out.push(`   Comment: ${head}`);
+    if (sum) out.push(`     ${sum}`);
+    for (const r of table?.rows ?? []) out.push(`     ${r[0] ?? ""}  ${r[2] ?? ""}`);
+    const checks = comment.find((b) => b.kind === "table" && b.header?.[1] === "Design expects");
+    if (checks?.rows?.length) {
+      out.push("", "   What each test checks, beside what the design expects:");
+      for (const r of checks.rows)
+        out.push(
+          `     ${r[0] ?? ""}`,
+          `       design: ${r[1] ?? ""}`,
+          `       test:   ${r[2] ?? ""}`,
+        );
+    }
+    const review = comment.find(
+      (b) => b.kind === "paragraph" && /^Needs review/.test(b.text ?? ""),
+    );
+    if (review?.text) out.push("", `   ${review.text}`);
+  }
+  return out;
 }

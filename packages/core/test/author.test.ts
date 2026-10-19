@@ -101,6 +101,44 @@ describe("bdd2pw's own report decides whether a feature is ready", () => {
     expect(why).toContain("When I find the Email field");
   });
 
+  it("allows the scaffold after a second analysis, leaving what cannot bind as TODO", () => {
+    // 20261018T123415Z: insisting on zero unbound steps deadlocked the run.
+    const analyze = (n: number) => ({
+      tool: "bdd2pw.analyze",
+      args: { feature: FEATURE, url: "http://localhost:3100" },
+      result: { unboundCount: n, unbound: ['no rule matched: "When I click the page 2 button"'] },
+    });
+    const events = ledgerOf([
+      { tool: "fs.write_file", args: { path: FEATURE, content: "Feature: x" } },
+      analyze(5),
+      { tool: "fs.write_file", args: { path: FEATURE, content: "Feature: y" } },
+      analyze(3),
+    ]);
+    expect(storyRefusal(scaffold, events)).toBeUndefined();
+  });
+
+  it("asks for a new analysis when the feature was rewritten after the last one", () => {
+    // 20261019T135539Z: refused with the OLD file's unbound steps, the agent
+    // decided the refusal was stale and proposed the same scaffold until the
+    // run stopped, never analyzing the file it had rewritten.
+    const events = ledgerOf([
+      { tool: "fs.write_file", args: { path: FEATURE, content: "Feature: x" } },
+      {
+        tool: "bdd2pw.analyze",
+        args: { feature: FEATURE, url: "http://localhost:3100" },
+        result: {
+          unboundCount: 10,
+          unbound: ['no rule matched: "And each product card shows a name"'],
+        },
+      },
+      { tool: "fs.write_file", args: { path: FEATURE, content: "Feature: y" } },
+    ]);
+    const why = storyRefusal(scaffold, events) ?? "";
+    expect(why).toContain("rewrote");
+    expect(why).toContain("bdd2pw.analyze on it again");
+    expect(why).not.toContain("each product card shows a name");
+  });
+
   it("allows the scaffold once nothing is unbound", () => {
     const events = ledgerOf([
       { tool: "fs.write_file", args: { path: FEATURE, content: "Feature: x" } },

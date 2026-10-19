@@ -92,6 +92,17 @@ describe("classification is scored, not first-match", () => {
     expect(v.evidence).not.toContain("\\b");
   });
 
+  it("names the locator, so two different broken locators are not one repeated failure", () => {
+    // 20261018T125846Z: getByText('$14._15') was repaired, the test moved on to
+    // getByText('$12._01'), and the identical evidence counted it as a repeat.
+    const msg = (loc: string) =>
+      `Error: expect(locator).toBeVisible() failed\n\nLocator: ${loc}\nExpected: visible`;
+    const a = classifyFailure({ testId: "t", message: msg("getByText('$14._15').first()") });
+    const b = classifyFailure({ testId: "t", message: msg("getByText('$12._01').first()") });
+    expect(a.evidence).toContain("Locator: getByText('$14._15')");
+    expect(a.evidence).not.toBe(b.evidence);
+  });
+
   it("carries the expected/received pair, which is the part a person needs", () => {
     // The first version joined matched pattern fragments and produced
     // "expect(received). · Object.is equality · expect(received).toBe" on a real
@@ -801,14 +812,40 @@ describe("triage falls back when the service does not answer", () => {
     const boom: FetchLike = async () => {
       throw new Error("ECONNREFUSED");
     };
+    // The execute path: the test existed before the run, so it is proven.
+    const executePath = [
+      {
+        tool: "attestqa",
+        runId: "r",
+        eventId: 1,
+        timestamp: 1,
+        kind: "route",
+        payload: { path: "B" },
+      },
+    ] as unknown as AnyRunEvent[];
     const t = await runTriage(
-      { events: [], workspaceDir: ws },
+      { events: executePath, workspaceDir: ws },
       { service: { url: "http://svc.test", fetch: boom } },
     );
     // A triage service being down must never end a test run.
     expect(t?.verdicts[0]?.category).toBe("real-defect");
     expect(t?.verdicts[0]?.triagedBy).toBe("builtin");
     expect(t?.quarantined).toHaveLength(1);
+  });
+
+  it("does not quarantine a new test that has never passed (F3)", async () => {
+    // 20261018T223256Z: a test written minutes earlier was frozen on its first failure.
+    const ws = workspace();
+    reportIn(ws, "AssertionError: expected 90 to equal 100");
+    const boom: FetchLike = async () => {
+      throw new Error("ECONNREFUSED");
+    };
+    const t = await runTriage(
+      { events: [], workspaceDir: ws },
+      { service: { url: "http://svc.test", fetch: boom } },
+    );
+    expect(t?.verdicts[0]?.category).toBe("real-defect");
+    expect(t?.quarantined).toHaveLength(0);
   });
 });
 
@@ -1002,8 +1039,8 @@ describe("triage: retry before judging", () => {
       attempt(2, [{ testId: "a", message: "AssertionError: expected 90 to equal 100" }]),
     );
     const text = a.notes.join(" ");
-    expect(text).toMatch(/Propose a Bug/);
-    expect(text).toMatch(/a human is asked to approve it and may say no/i);
+    expect(text).toMatch(/propose a bug with the tracker's bug tool/);
+    expect(text).toMatch(/a person is asked to approve it and may say no/i);
   });
 
   it("tells the reviewer WHAT KIND of failure it was", () => {
@@ -1243,5 +1280,65 @@ describe("quarantine drift is judged on the failure's identity", () => {
     const url = "expect(page).toHaveURL(expected) failed";
     expect(signature(label)).not.toBe(signature(contrast));
     expect(signature(label)).not.toBe(signature(url));
+  });
+});
+
+describe("a test broken by an edit in this run is the test's fault (20261019T155404Z)", () => {
+  it("turns a real-defect verdict into a test fault when the test passed before the edit", async () => {
+    const { applyEditRegression } = await import("../src/triage/step.js");
+    const T = "AC-2b Choosing page 2 shows a different set of products";
+    let id = 5000;
+    const pair = (
+      server: string,
+      toolName: string,
+      args: Record<string, unknown>,
+      result: unknown,
+    ) => {
+      const c = ++id;
+      return [
+        {
+          tool: "agentic-qa",
+          runId: "r",
+          timestamp: 1,
+          eventId: c,
+          kind: "call",
+          payload: { server, toolName, args, startedAt: 0 },
+        },
+        {
+          tool: "agentic-qa",
+          runId: "r",
+          timestamp: 1,
+          eventId: ++id,
+          kind: "observation",
+          payload: { eventIdOfCall: c, ok: true, result, artefacts: [], durationMs: 1 },
+        },
+      ];
+    };
+    const events = [
+      ...pair("pw", "run_tests", { spec: "s" }, { tests: [{ title: T, status: "passed" }] }),
+      ...pair(
+        "fs",
+        "replace_in_file",
+        { path: "tests/e.spec.ts", old: "a", new: "b" },
+        { changedTests: [T] },
+      ),
+      ...pair("pw", "run_tests", { spec: "s" }, { tests: [{ title: T, status: "failed" }] }),
+    ] as unknown as AnyRunEvent[];
+    const [v] = applyEditRegression(
+      [
+        {
+          test: `e.spec.ts › Product catalogue › ${T}`,
+          category: "real-defect",
+          confidence: 0.6,
+          rationale: "x",
+          evidence: "e",
+        },
+      ],
+      events,
+    );
+    expect(v?.category).toBe("flake");
+    expect(v?.rationale).toMatch(
+      /^The test passed earlier in this run and fails only since it was edited/,
+    );
   });
 });

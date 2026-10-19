@@ -342,7 +342,11 @@ function evidenceFrom(hits: string[], message: string): string {
     .filter((l) => l.length > 0);
 
   const head = lines[0] ?? "";
-  const values = lines.filter((l) => /^(expected|received|actual)\b/i.test(l)).slice(0, 3);
+  // The locator too: without it, two different broken locators in one test
+  // read as "the same failure twice", and a repaired step that moved the
+  // failure on to the next one counted as a repeat and quarantined the test
+  // (20261018T125846Z: getByText('$14._15') fixed, then getByText('$12._01')).
+  const values = lines.filter((l) => /^(locator|expected|received|actual)\b/i.test(l)).slice(0, 4);
 
   const parts = values.length > 0 ? [head, ...values] : [head];
   const text = parts.join(" · ").trim();

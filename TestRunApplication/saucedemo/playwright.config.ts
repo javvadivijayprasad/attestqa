@@ -18,6 +18,9 @@ export default defineConfig({
   reporter: process.env["CI"] ? "line" : "list",
   use: {
     baseURL: process.env["AQA_APP_URL"] ?? "https://www.saucedemo.com",
+    // SauceDemo marks its elements with data-test, not data-testid, so getByTestId
+    // ("login-button") finds them.
+    testIdAttribute: "data-test",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

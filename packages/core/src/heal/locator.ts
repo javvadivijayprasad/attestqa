@@ -203,6 +203,31 @@ export const LOCATOR_ERROR =
 export const TEST_TIMEOUT = /test timeout of \d+ *ms exceeded/i;
 
 /**
+ * The element was found and a value about it did not match: an assertion
+ * failure, which no change of locator can fix.
+ *
+ * Recognised by what Playwright prints for a mismatch — a `Received…:` line,
+ * an `Expected pattern|string|…:` line, "unexpected value" in the call log, or
+ * `expect(received).toX(expected)` — and never when it also says the element
+ * was not there ("element(s) not found", "resolved to 0 elements"): that is
+ * the locator failing, whatever the matcher.
+ */
+export function valueMismatch(message: string): boolean {
+  if (
+    /element\(s\) not found|resolved to 0 elements|no element matches|strict mode violation/i.test(
+      message,
+    )
+  )
+    return false;
+  return (
+    /^\s*Received(?: string| value| array| object)?:/im.test(message) ||
+    /\bExpected (?:pattern|string|substring|value|array|object):/i.test(message) ||
+    /\bunexpected value\b/i.test(message) ||
+    /\bexpect\(received\)\.\w+\(expected\)/i.test(message)
+  );
+}
+
+/**
  * Does this failure look like an action that never completed — as opposed to a
  * claim the product failed to satisfy?
  *
@@ -211,6 +236,12 @@ export const TEST_TIMEOUT = /test timeout of \d+ *ms exceeded/i;
  * waiting for something that never arrived, which is the healer's business.
  */
 export function stuckAction(message: string): boolean {
+  // Checked first: Playwright writes "waiting for getBy…" in the call log of
+  // EVERY expect(locator) failure, including a plain wrong value. Matching
+  // LOCATOR_ERROR before this sent "Received string: \"page-link\"" to the
+  // heal agent as "a locator that matched nothing" (20261018T223256Z, F1 in
+  // docs/ENGINE_MAP.md).
+  if (valueMismatch(message)) return false;
   if (LOCATOR_ERROR.test(message)) return true;
   if (!TEST_TIMEOUT.test(message)) return false;
   return !/\bexpect\s*\(|Expected pattern|Expected substring|Received string/i.test(message);

@@ -1,5 +1,7 @@
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
 import type { FetchLike } from "./tcg.js";
+import { readFileSync, realpathSync, statSync } from "node:fs";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { AGENT_TAG } from "../../verify/story-to-tests.js";
 import { QA_LABEL, QA_SUMMARY_PREFIX, type QaBlock } from "../../report/qa-record.js";
 
@@ -38,7 +40,18 @@ export interface JiraConnection {
 export interface JiraOptions {
   fetch?: FetchLike;
   timeoutMs?: number;
+  /**
+   * The test project. A bug may carry evidence files (`attachments`), added by
+   * the runtime from the failing test's own report; each must resolve inside
+   * this folder and be a screenshot, video or trace, or it is not sent.
+   */
+  evidenceRoot?: string;
 }
+
+/** What may be attached to a bug: Playwright's evidence, nothing else. */
+const EVIDENCE_EXT = /\.(png|jpe?g|webm|zip)$/i;
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
+const MAX_EVIDENCE_FILES = 5;
 
 const KEY = /^[A-Z][A-Z0-9_]+-\d+$/;
 
@@ -48,13 +61,103 @@ export class JiraTools implements ToolClient {
   private readonly timeoutMs: number;
   private readonly api: string;
 
-  constructor(
-    private readonly conn: JiraConnection,
-    opts: JiraOptions = {},
-  ) {
+  constructor(private readonly conn: JiraConnection, opts: JiraOptions = {}) {
     this.fetchImpl = opts.fetch ?? (globalThis.fetch as unknown as FetchLike);
     this.timeoutMs = opts.timeoutMs ?? 60_000;
     this.api = `${conn.baseUrl.replace(/\/+$/, "")}/rest/api/${conn.apiVersion ?? 3}`;
+    this.evidenceRoot = opts.evidenceRoot;
+  }
+
+  private readonly evidenceRoot: string | undefined;
+
+  /** The issue's page in Jira, for people (the REST URL is for programs). */
+  browseUrl(key: string): string {
+    return `${this.conn.baseUrl.replace(/\/+$/, "")}/browse/${key}`;
+  }
+
+  /**
+   * Attach evidence files to an issue. Only files inside the test project with
+   * an evidence extension and a sane size; anything else is reported as
+   * skipped, never sent.
+   */
+  private async attach(
+    key: string,
+    paths: string[],
+  ): Promise<{ attached: string[]; skipped: Array<{ path: string; why: string }> }> {
+    const attached: string[] = [];
+    const skipped: Array<{ path: string; why: string }> = [];
+    const root = this.evidenceRoot ? realpathSafe(this.evidenceRoot) : undefined;
+    for (const raw of paths.slice(0, MAX_EVIDENCE_FILES)) {
+      // Outside the project is refused before existence is checked, so the
+      // answer is the same on every OS and says nothing about other files.
+      // Compared with the root as given and as resolved, so a symlinked or
+      // short-named workspace path does not make its own files look outside.
+      if (root && this.evidenceRoot) {
+        const outside = (base: string) => {
+          const r = relative(base, resolve(base, raw));
+          return r.startsWith("..") || isAbsolute(r);
+        };
+        if (outside(root) && outside(resolve(this.evidenceRoot))) {
+          skipped.push({ path: raw, why: "outside the test project" });
+          continue;
+        }
+      }
+      const full = root ? realpathSafe(isAbsolute(raw) ? raw : join(root, raw)) : undefined;
+      if (!root || !full) {
+        skipped.push({ path: raw, why: root ? "not found" : "no test project to attach from" });
+        continue;
+      }
+      const rel = relative(root, full);
+      if (rel.startsWith("..") || isAbsolute(rel)) {
+        skipped.push({ path: raw, why: "outside the test project" });
+        continue;
+      }
+      if (!EVIDENCE_EXT.test(full)) {
+        skipped.push({ path: raw, why: "not a screenshot, video or trace" });
+        continue;
+      }
+      const size = statSync(full).size;
+      if (size > MAX_EVIDENCE_BYTES) {
+        skipped.push({ path: raw, why: `larger than ${MAX_EVIDENCE_BYTES / 1024 / 1024} MB` });
+        continue;
+      }
+      const form = new FormData();
+      form.append("file", new Blob([readFileSync(full)]), basename(full));
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+      try {
+        // The shared fetch type carries text bodies; an upload is multipart.
+        const upload = this.fetchImpl as unknown as (
+          url: string,
+          init: {
+            method: string;
+            headers: Record<string, string>;
+            body: FormData;
+            signal: AbortSignal;
+          },
+        ) => Promise<{ ok: boolean; status: number }>;
+        const res = await upload(`${this.api}/issue/${encodeURIComponent(key)}/attachments`, {
+          method: "POST",
+          // Jira refuses an attachment upload without this header (XSRF check).
+          headers: {
+            accept: "application/json",
+            "X-Atlassian-Token": "no-check",
+            ...authHeader(this.conn.auth),
+          },
+          body: form,
+          signal: controller.signal,
+        });
+        if (res.ok) attached.push(basename(full));
+        else skipped.push({ path: raw, why: `Jira returned ${res.status}` });
+      } catch (e) {
+        skipped.push({ path: raw, why: (e as Error).message });
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    for (const raw of paths.slice(MAX_EVIDENCE_FILES))
+      skipped.push({ path: raw, why: `only ${MAX_EVIDENCE_FILES} files are attached` });
+    return { attached, skipped };
   }
 
   async listTools(): Promise<ToolDescriptor[]> {
@@ -203,8 +306,8 @@ export class JiraTools implements ToolClient {
       acceptanceCriteriaSource: fromField
         ? acField
         : acceptanceSection(description)
-          ? "description"
-          : "none",
+        ? "description"
+        : "none",
       labels: Array.isArray(f["labels"]) ? (f["labels"] as unknown[]).map(String) : [],
       parent: str((f["parent"] as { key?: string } | undefined)?.key),
       links: links(f["issuelinks"]),
@@ -300,11 +403,17 @@ export class JiraTools implements ToolClient {
       inwardIssue: { key: bugKey },
       outwardIssue: { key: storyKey },
     });
+    const evidence = Array.isArray(args["attachments"])
+      ? await this.attach(bugKey, (args["attachments"] as unknown[]).map(String))
+      : undefined;
     return ok({
       key: bugKey,
+      url: this.browseUrl(bugKey),
       storyKey,
       labels,
       linked: linked.ok,
+      ...(evidence ? { attached: evidence.attached } : {}),
+      ...(evidence && evidence.skipped.length > 0 ? { notAttached: evidence.skipped } : {}),
       ...(linked.ok
         ? {}
         : { linkError: (linked.result as { message?: string }).message ?? "link failed" }),
@@ -413,7 +522,15 @@ export class JiraTools implements ToolClient {
       }
     }
 
-    if (casesOnly) return ok({ storyKey, qaKey, created, descriptionUpdated, mode: "cases" });
+    if (casesOnly)
+      return ok({
+        storyKey,
+        qaKey,
+        url: this.browseUrl(qaKey),
+        created,
+        descriptionUpdated,
+        mode: "cases",
+      });
 
     // 4. This run's results.
     const posted = await this.request("POST", `/issue/${encodeURIComponent(qaKey)}/comment`, {
@@ -423,6 +540,7 @@ export class JiraTools implements ToolClient {
     return ok({
       storyKey,
       qaKey,
+      url: this.browseUrl(qaKey),
       created,
       descriptionUpdated,
       commentId: str((posted.body as { id?: string }).id),
@@ -711,4 +829,12 @@ export function toWiki(doc: QaBlock[]): string {
       }
     })
     .join("\n\n");
+}
+
+function realpathSafe(p: string): string | undefined {
+  try {
+    return realpathSync(p);
+  } catch {
+    return undefined;
+  }
 }

@@ -300,3 +300,53 @@ describe("text helpers", () => {
     expect(acceptanceSection("no section here")).toBe("");
   });
 });
+
+describe("a filed bug has a link people can open, and carries only the test's evidence", () => {
+  it("returns the browse URL and attaches a screenshot from inside the test project only", async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const ws = mkdtempSync(join(tmpdir(), "aqa-ev-"));
+    mkdirSync(join(ws, "test-results"));
+    writeFileSync(join(ws, "test-results", "shot.png"), "png");
+    writeFileSync(join(ws, "secret.env"), "KEY=1");
+    const seen: string[] = [];
+    const fetch = (async (
+      url: string,
+      init: { method: string; headers: Record<string, string> },
+    ) => {
+      seen.push(`${init.method} ${url} ${init.headers["X-Atlassian-Token"] ?? ""}`);
+      const body = url.endsWith("/issue")
+        ? { key: "TOOL-30" }
+        : url.endsWith("/attachments")
+          ? [{}]
+          : {};
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    }) as unknown as FetchLike;
+    const jira = new JiraTools(
+      { baseUrl: "https://example.atlassian.net", auth: { kind: "bearer", token: "t" } },
+      { fetch, evidenceRoot: ws },
+    );
+    const r = await jira.call("jira", "create_bug", {
+      projectKey: "TOOL",
+      storyKey: "TOOL-6",
+      summary: "s",
+      description: "d",
+      attachments: [join(ws, "test-results", "shot.png"), join(ws, "secret.env"), "/etc/passwd"],
+    });
+    const res = r.result as {
+      url: string;
+      attached: string[];
+      notAttached: Array<{ why: string }>;
+    };
+    expect(res.url).toBe("https://example.atlassian.net/browse/TOOL-30");
+    expect(res.attached).toEqual(["shot.png"]);
+    expect(res.notAttached.map((x) => x.why).sort()).toEqual([
+      "not a screenshot, video or trace",
+      "outside the test project",
+    ]);
+    expect(seen.filter((x) => x.includes("/attachments"))).toEqual([
+      "POST https://example.atlassian.net/rest/api/3/issue/TOOL-30/attachments no-check",
+    ]);
+  });
+});

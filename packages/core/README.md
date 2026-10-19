@@ -94,7 +94,7 @@ event shapes in [TECHNICAL.md](docs/TECHNICAL.md).
 
 ## Install
 
-Requires Node 20+.
+Requires Node 20+. Everything else attestqa uses (packages, services, the evaluation apps) is listed in [DEPENDENCIES.md](https://github.com/javvadivijayprasad/attestqa/blob/main/DEPENDENCIES.md).
 
 ```bash
 npm install -g attestqa

@@ -83,7 +83,8 @@ agent:
     # not browse at all. Checked on every navigation; a link the agent follows
     # or a redirect is NOT re-checked, so this scopes mistakes rather than
     # containing a hostile page.
-    urls: ["http://localhost:4200"] # Toolshop Angular UI, local Docker (API on :8091)
+    # The UI on :4200 loads its data from the API on :8091, so the browser needs both.
+    urls: ["http://localhost:4200", "http://localhost:8091"] # Toolshop UI and its API, local Docker
   # What the ENVIRONMENT can do — not what the agent is allowed to do (policy)
   # or where it may act (scope).
   capabilities:

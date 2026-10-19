@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { classifyFailure, triageRun } from "../src/triage/classify.js";
 import { applyRepetition } from "../src/triage/step.js";
 import { coverageOf, type TestDesign } from "../src/design/test-design.js";
-import { liveLine } from "../src/cli.js";
+import { blockedOriginLine, liveLine } from "../src/cli.js";
 import { askedFor, rankCandidates } from "../src/heal/locator.js";
 import { shapeProblems, testsByTitle, validateDesign } from "../src/design/test-design.js";
 import { isKnownBroken } from "../src/design/ids.js";
@@ -80,8 +80,16 @@ describe("triage: failures that never reached the product", () => {
 });
 
 describe("the live line says what triage actually knows", () => {
-  const ev = (verdicts: unknown[]) =>
-    ({ kind: "triage", payload: { verdicts } }) as unknown as AnyRunEvent;
+  const ev = (verdicts: unknown[], quarantined: string[] = []) =>
+    ({ kind: "triage", payload: { verdicts, quarantined } }) as unknown as AnyRunEvent;
+
+  it("calls a confident verdict on a test that never passed unproven, not a product defect", () => {
+    const line = liveLine(
+      ev([{ test: "s › new test", category: "real-defect", confidence: 0.4, rationale: "x" }]),
+    );
+    expect(line).toMatch(/1 new test failing that has never passed/);
+    expect(line).not.toMatch(/product defect/);
+  });
 
   it("does not present a no-pattern default as a product defect", () => {
     const line = liveLine(ev([{ category: "real-defect", confidence: 0.1, rationale: "x" }]));
@@ -91,10 +99,18 @@ describe("the live line says what triage actually knows", () => {
 
   it("keeps the product-defect wording for a real match, and names test-code faults", () => {
     const line = liveLine(
-      ev([
-        { category: "real-defect", confidence: 0.6, rationale: "assertion" },
-        { category: "flake", confidence: 0.9, rationale: "The test's own code is invalid (…)" },
-      ]),
+      ev(
+        [
+          {
+            test: "s › a proven test",
+            category: "real-defect",
+            confidence: 0.6,
+            rationale: "assertion",
+          },
+          { category: "flake", confidence: 0.9, rationale: "The test's own code is invalid (…)" },
+        ],
+        ["s › a proven test"],
+      ),
     );
     expect(line).toMatch(/1 looks like a product defect/);
     expect(line).toMatch(/1 looks like the test's fault/);
@@ -753,7 +769,10 @@ describe("a quarantined test's locator may be healed inside its assertion (20261
     {
       eventId: 3,
       kind: "triage",
-      payload: { verdicts: [{ test: `epic.spec.ts › ${TITLE}`, category: "real-defect" }] },
+      payload: {
+        verdicts: [{ test: `epic.spec.ts › ${TITLE}`, category: "real-defect" }],
+        quarantined: [`epic.spec.ts › ${TITLE}`],
+      },
     },
     ...call(
       4,
@@ -963,5 +982,34 @@ describe("on the execute path an assertion is a claim, even when it names a loca
   it("still allows moving the locator inside an assertion", () => {
     const after = BEFORE.replace('getByText("Email must be unique")', 'locator(".error")');
     expect(storyRefusal(write(after), events) ?? "").not.toMatch(/execute path/);
+  });
+});
+
+describe("an API origin outside scope.urls is reported once, to the person", () => {
+  // Run 20261017T163249Z: Toolshop's UI on :4200 could not reach its API on :8091.
+  const obs = (result: unknown) =>
+    ({
+      tool: "attestqa",
+      runId: "r",
+      eventId: 1,
+      timestamp: 1,
+      kind: "observation",
+      payload: { eventIdOfCall: 0, ok: true, result, artefacts: [], durationMs: 1 },
+    }) as unknown as Parameters<typeof blockedOriginLine>[0];
+  const text =
+    "### Result\n[ERROR] Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector @ http://localhost:8091/users/me:0\n" +
+    "[ERROR] Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector @ http://localhost:8091/products:0";
+
+  it("names the blocked origin and the fix, then stays quiet about it", () => {
+    const seen = new Set<string>();
+    const first = blockedOriginLine(obs(text), seen);
+    expect(first).toContain("refused requests to http://localhost:8091");
+    expect(first).toContain("add it to scope.urls");
+    expect(first.split("\n").filter(Boolean)).toHaveLength(1);
+    expect(blockedOriginLine(obs(text), seen)).toBe("");
+  });
+
+  it("says nothing when nothing was blocked", () => {
+    expect(blockedOriginLine(obs("### Page\n- Console: 0 errors"), new Set())).toBe("");
   });
 });

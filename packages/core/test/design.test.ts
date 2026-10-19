@@ -34,7 +34,13 @@ const item = (over: Record<string, unknown>): Record<string, unknown> => ({
 
 const GOOD = {
   items: [
-    item({ id: "D1", covers: "AC-1", technique: "state-transition" }),
+    item({
+      id: "D1",
+      covers: "AC-1",
+      technique: "state-transition",
+      conditions: ["the user clicks Logout"],
+      expected: "the account menu offers Login; the session token is gone",
+    }),
     item({ id: "D2", covers: "AC-2", source: "AC-2" }),
     item({ id: "D3", covers: "AC-3a", technique: "boundary-value-analysis", source: "AC-3" }),
     item({ id: "D4", covers: "AC-4", source: "AC-4" }),
@@ -57,6 +63,8 @@ const GOOD = {
       covers: "bug #48",
       type: "confirmation",
       technique: "state-transition",
+      conditions: ["log out, then call the API with the old token"],
+      expected: "the logout completes; the old token is rejected",
       source: "bug #48",
       expectFail: true,
     }),
@@ -65,6 +73,8 @@ const GOOD = {
       covers: "bug #50",
       type: "confirmation",
       technique: "state-transition",
+      conditions: ["log out, then reload"],
+      expected: "the page shows Login; the token is not restored",
       source: "bug #50",
     }),
   ],
@@ -413,10 +423,97 @@ describe("a state-transition test proves the action happened", () => {
       source: "story description",
     };
     const onlyTheState = 'await page.click("#logout"); expect(token).toBeNull();';
-    expect(shapeProblems(item, onlyTheState).join(" ")).toContain("at least two assertions");
+    expect(shapeProblems(item, onlyTheState).join(" ")).toContain(
+      "needs an assertion that the action took effect",
+    );
     const both =
       'await page.click("#logout"); await expect(page).toHaveURL(/#\\//); expect(token).toBeNull();';
     expect(shapeProblems(item, both)).toEqual([]);
+  });
+});
+
+describe("state transition means an action (20261019T155404Z)", () => {
+  it("sends back a state-transition test that performs no action (20261019T200105Z)", async () => {
+    const { shapeProblems } = await import("../src/design/test-design.js");
+    const item = {
+      id: "D3",
+      covers: "AC-3",
+      type: "functional" as const,
+      technique: "state-transition" as const,
+      conditions: ["Home page is loaded on page 1", "Page 2 button is clicked"],
+      expected: "the page 2 control carries the active marker; the page 1 control no longer does",
+      source: "AC-3",
+    };
+    const body = "await page.goto('/'); await expect.poll(async () => isActive(1)).toBe(true);";
+    expect(shapeProblems(item, body).join(" ")).toContain("performs no action");
+  });
+
+  it("quotes the design's expectation and never suggests an address check", async () => {
+    const { shapeProblems } = await import("../src/design/test-design.js");
+    const item = {
+      id: "D4",
+      covers: "AC-3",
+      type: "functional" as const,
+      technique: "state-transition" as const,
+      conditions: ["page 2 is selected"],
+      expected: "The page 2 control is marked as the current page; page 1 control is not",
+      source: "AC-3",
+    };
+    const msg = shapeProblems(
+      item,
+      "await page2.click(); await expect(activeLi).toBeVisible();",
+    ).join(" ");
+    expect(msg).toContain(
+      '"The page 2 control is marked as the current page; page 1 control is not"',
+    );
+    expect(msg).not.toMatch(/URL changed/);
+  });
+
+  it("asks a state-transition item for the action's effect as well as the end state", async () => {
+    const { validateDesign } = await import("../src/design/test-design.js");
+    const one = validateDesign(
+      {
+        items: [
+          {
+            id: "D2",
+            covers: "AC-1",
+            type: "functional",
+            technique: "state-transition",
+            conditions: ["page 2 is clicked"],
+            expected:
+              "The product list changes to a different set of products after clicking page 2",
+            source: "AC-1",
+          },
+        ],
+        excluded: [],
+      },
+      { acceptanceCriteria: ["AC-1: pages"], bugs: [], tasks: [] },
+      ["functional"],
+    );
+    expect(one.join(" ")).toContain("names two things");
+  });
+
+  it("sends back a state-transition item that names no action", async () => {
+    const { validateDesign } = await import("../src/design/test-design.js");
+    const problems = validateDesign(
+      {
+        items: [
+          {
+            id: "D1",
+            covers: "AC-1",
+            type: "functional",
+            technique: "state-transition",
+            conditions: ["Home page is loaded", "Product list is visible"],
+            expected: "Each product card shows a name, a price, and an image",
+            source: "AC-1",
+          },
+        ],
+        excluded: [],
+      },
+      { acceptanceCriteria: ["AC-1: list"], bugs: [], tasks: [] },
+      ["functional"],
+    );
+    expect(problems.join(" ")).toContain('use "equivalence-partitioning"');
   });
 });
 
@@ -435,5 +532,29 @@ describe("a test may not catch its own failure", () => {
     const withFallback =
       'try { await link.click(); } catch { await page.goto("/#/logout"); } await expect(page).toHaveURL(/#\\//); expect(token).toBeNull();';
     expect(shapeProblems(item, withFallback).join(" ")).toContain("catches its own failure");
+  });
+});
+
+describe("expect.poll counts as an assertion (20261019T181040Z)", () => {
+  it("does not send back a state-transition test whose checks are expect.poll", async () => {
+    const { shapeProblems, assertionsOf } = await import("../src/design/test-design.js");
+    const item = {
+      id: "D2",
+      covers: "AC-2",
+      type: "functional" as const,
+      technique: "state-transition" as const,
+      conditions: ["page 2 is clicked"],
+      expected: "the page 2 control becomes active; a different set of products is shown",
+      source: "AC-2",
+    };
+    const body = [
+      "await page2Button.click();",
+      "await expect",
+      "  .poll(async () => isActive())",
+      "  .toBe(true);",
+      'await expect(page.getByRole("heading", { name: "Combination Pliers" })).toBeHidden();',
+    ].join("\n");
+    expect(shapeProblems(item, body)).toEqual([]);
+    expect(assertionsOf(body)).toHaveLength(2);
   });
 });

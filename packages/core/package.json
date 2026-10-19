@@ -1,6 +1,6 @@
 {
   "name": "attestqa",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "attestqa: a governed QA runtime. A model chooses tools over MCP inside a governance gate that refuses to weaken a test; every step is written to a replayable ledger, and the report is counted from the ledger, not from the model's account of itself.",
   "license": "MIT",
   "author": "Vijay P. Javvadi <jvijayprasad@gmail.com>",
@@ -84,8 +84,8 @@
     "vitest": "^2.0.0"
   },
   "dependencies": {
-    "@vijaypjavvadi/bdd2pw": "^4.5.4",
-    "@vijaypjavvadi/pw-self-heal": "^1.2.2",
+    "@vijaypjavvadi/bdd2pw": "^4.6.5",
+    "@vijaypjavvadi/pw-self-heal": "^1.3.0",
     "@anthropic-ai/sdk": "^0.125.0",
     "@modelcontextprotocol/sdk": "^1.12.0",
     "yaml": "^2.5.0"

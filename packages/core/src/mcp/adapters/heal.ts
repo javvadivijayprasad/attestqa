@@ -146,6 +146,33 @@ export class HealTools implements ToolClient {
       selectorFromMessage(hit.message) ||
       "";
 
+    // No selector in the error and no action left waiting: the test failed on
+    // an ASSERTION about an element it did find. There is no locator to heal,
+    // and ranking the page's links against an empty selector produced "the
+    // control may genuinely be absent — say so in the bug" for a test that
+    // read placeholder cards before the products loaded, and for an "active"
+    // marker checked on a button when the page puts it on the list item
+    // around it (20261018T115605Z: two false bugs, proposed fifteen times).
+    if (!failedSelector && !stuckAction(hit.message))
+      return {
+        ok: true,
+        result: {
+          test: hit.title,
+          failedSelector: "(none: the test failed on an assertion, not on a locator)",
+          candidates: [],
+          verdict:
+            "NOT A LOCATOR FAILURE. The test found its elements and an assertion about them failed, " +
+            "so there is nothing to heal. Before calling it a product defect, rule out the two test " +
+            "mistakes that look exactly like one: reading the page too early (a one-off " +
+            "textContent()/count()/getAttribute() sees placeholders while data loads — use " +
+            "await expect(locator).toHaveText(...) / .toHaveCount(n) / .toHaveClass(...), which wait), " +
+            "and asserting a state on the wrong element (read the snapshot for where the class or " +
+            "aria attribute actually sits — often a parent or child of what the test holds).",
+          error: hit.message,
+        },
+        artefacts: [],
+      };
+
     const candidates = rankCandidates(hit.pageAtFailure, failedSelector);
     if (candidates.length === 0)
       return {

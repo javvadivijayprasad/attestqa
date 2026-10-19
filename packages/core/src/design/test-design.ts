@@ -266,6 +266,51 @@ function alternativeInExpectation(expected: string): string | undefined {
  * Every rule is about the design's CONTENT against what stage 1 read — none is
  * about how the agent went about producing it.
  */
+/** Words that name an action moving the page from one state to another. */
+const STATE_CHANGE =
+  /\b(click\w*|choos\w*|chose|select\w*|navigat\w*|submit\w*|enter\w*|typ(e|es|ed|ing)|press\w*|open\w*|clos\w*|log(s|ged|ging)? ?(in|out)|sign(s|ed|ing)? ?(in|out|up)|add\w*|remov\w*|sort\w*|filter\w*|search\w*|switch\w*|toggl\w*|go(es)? to|went to|scroll\w*|apply|applie\w*|register\w*|after|then|changes?|moves?|becomes?)\b/i;
+
+/**
+ * An assertion call: \`expect(…)\`, and the retrying forms \`expect.poll(…)\` and
+ * \`expect.soft(…)\`, however the chain is broken across lines. bdd2pw 4.6.3's
+ * active-page rule emits \`await expect\n  .poll(…)\`; counting only
+ * \`expect(\` read that test as having no assertion (20261019T181040Z).
+ */
+export const ASSERTION_CALL = /\bexpect(?:\s*\.\s*(?:poll|soft))?\s*\(/g;
+
+/**
+ * A shape problem that makes a test weaker or broader than its design but
+ * does not make it broken or fake (decided 19 Oct 2026). Those still stop the
+ * run: a failing or empty test, one that catches its own failure, a known-bug
+ * test without its marker, a state transition with no action. These get one
+ * fix attempt and then go to the reviewer, in the report and the Jira record.
+ */
+/**
+ * The part of a review-only problem a person reads: its first sentence. The
+ * rest is advice to the agent (which selector to build, which run tried what)
+ * and made the Jira comment in 20261019T202717Z hard to read.
+ */
+export function forReviewer(problem: string): string {
+  const cut = problem.indexOf(". ");
+  return (cut >= 0 ? problem.slice(0, cut) : problem).replace(/\.$/, "");
+}
+
+export function isReviewOnly(problem: string): boolean {
+  return (
+    problem.startsWith("the scan is not scoped") ||
+    problem.startsWith("the assertion is on the whole violations array") ||
+    problem.startsWith("a state-transition test needs an assertion that the action took effect")
+  );
+}
+
+/** The separate claims in an expected result: split on ";", "and", "then". */
+export function expectationParts(expected: string): string[] {
+  return expected
+    .split(/;|\.\s+(?=[A-Z])|,?\s+and\s+(?=(?:the|a|an|it|its|each|every|page|no)\b)|,?\s+then\s+/i)
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+}
+
 export function validateDesign(
   d: TestDesign,
   facts: StoryFacts,
@@ -319,6 +364,33 @@ export function validateDesign(
       );
     if (it.type === "accessibility" && it.technique !== "checklist-based")
       problems.push(`${at}: an accessibility item is checklist-based (the axe-core rules)`);
+    // State transition means an action that moves the page from one state to
+    // another. 20261019T155404Z labelled every item state-transition, including
+    // "each product card shows a name, a price and an image" and "page controls
+    // are present"; the end-of-run check then demanded a before-and-after
+    // assertion of tests that have no action, and the agent invented some.
+    if (
+      it.technique === "state-transition" &&
+      !STATE_CHANGE.test(`${it.conditions.join(" ")} ${it.expected}`)
+    )
+      problems.push(
+        `${at}: technique "state-transition" needs an action that changes the page's state, and ` +
+          "this item names none in its conditions or expected result. If it checks what one page " +
+          'shows, use "equivalence-partitioning"; if there is an action, name it in the conditions ' +
+          '(for example "page 2 control is clicked")',
+      );
+    // …and its expected result says two things: what shows the action took
+    // effect, and the state it leaves. The end-of-run check asks the test for
+    // both; if the design states only one, the agent has to invent the other
+    // (20261019T155404Z, 163019Z). Asked here, the reviewer approves both.
+    else if (it.technique === "state-transition" && expectationParts(it.expected).length < 2)
+      problems.push(
+        `${at}: a state-transition item's expected result names two things, separated by ";": what ` +
+          "shows the action took effect (for example, the control you used is now shown as the " +
+          'selected one) and the state it leaves behind. It names one: "' +
+          it.expected +
+          '"',
+      );
 
     if (it.conditions.length === 0)
       problems.push(`${at}: list the test conditions — the values or situations exercised`);
@@ -392,10 +464,9 @@ export function validateDesign(
     } else if (task !== undefined) {
       if (!facts.tasks.includes(task))
         problems.push(`${at}: covers task #${task}, which is not one of the story's tasks`);
-    } else if (!(
-      it.covers.toLowerCase() === "story" &&
-      (it.type === "accessibility" || noCriteria)
-    )) {
+    } else if (
+      !(it.covers.toLowerCase() === "story" && (it.type === "accessibility" || noCriteria))
+    ) {
       problems.push(
         `${at}: covers "${it.covers}" — name a criterion (AC-2), a bug (bug #48) or a task (task #46)`,
       );
@@ -461,7 +532,12 @@ export function validateDesign(
 /** The stage-1 facts, from the preflight digest recorded in the ledger. */
 export function storyFacts(events: AnyRunEvent[]): StoryFacts | undefined {
   const digest = successful(completedCalls(events), "aqa.story_context").pop();
-  const f = asRecord(asRecord(digest?.result)?.["facts"]);
+  return factsFrom(asRecord(digest?.result)?.["facts"]);
+}
+
+/** Stage-1 facts from their recorded (untyped) form — the preflight digest's `facts`. */
+export function factsFrom(raw: unknown): StoryFacts | undefined {
+  const f = asRecord(raw);
   if (!f) return undefined;
   return {
     acceptanceCriteria: asArray(f["acceptanceCriteria"]).map(String),
@@ -506,7 +582,27 @@ function asStub(v: unknown): { id: TrackerId; title: string } {
 /** The design in force: the last one a person approved and the runtime recorded. */
 export function approvedDesign(events: AnyRunEvent[]): TestDesign | undefined {
   const last = successful(completedCalls(events), "aqa.test_design").pop();
-  return last ? parseDesign(last.args) : undefined;
+  if (last) return parseDesign(last.args);
+  // A story unchanged since an earlier run keeps the design a person approved
+  // there (design/fingerprint.ts). The route event carries it, with the run it
+  // came from, so the approval it rests on is one click away in the ledger.
+  const carried = carriedDesign(events);
+  return carried ? parseDesign(carried.args) : undefined;
+}
+
+/** The design a route carried over from an earlier run of an unchanged story. */
+export function carriedDesign(
+  events: AnyRunEvent[],
+): { runId: string; fingerprint: string; args: Record<string, unknown> } | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const c = asRecord(asRecord(asRecord(e.payload as unknown)?.["because"])?.["carriedDesign"]);
+    const args = asRecord(c?.["args"]);
+    if (c && args)
+      return { runId: String(c["runId"] ?? ""), fingerprint: String(c["fingerprint"] ?? ""), args };
+  }
+  return undefined;
 }
 
 /** The design as a person reads it at the approval prompt. */
@@ -859,7 +955,14 @@ export function traceProblems(
    * satisfied honestly is a check that teaches dishonesty.
    */
   story?: TrackerId,
-): { untested: string[]; untagged: string[]; unmarked: string[]; wrongShape: string[] } {
+): {
+  untested: string[];
+  untagged: string[];
+  unmarked: string[];
+  wrongShape: string[];
+  /** Weaker or broader than the design, but working: one fix attempt, then the reviewer's. */
+  reviewShape: string[];
+} {
   const all = features.flatMap((f) =>
     scenarioDesignTags(f.text).map((s) => ({ ...s, path: f.path })),
   );
@@ -902,14 +1005,17 @@ export function traceProblems(
   for (const sp of specs)
     for (const [id, body] of specBodies(sp.text)) bodies.set(id, (bodies.get(id) ?? "") + body);
   const wrongShape: string[] = [];
+  const reviewShape: string[] = [];
   for (const item of design.items) {
     const body = bodies.get(item.id);
     if (!body) continue;
     for (const missing of shapeProblems(item, body))
-      wrongShape.push(`${item.id} (${item.covers}): ${missing}`);
+      (isReviewOnly(missing) ? reviewShape : wrongShape).push(
+        `${item.id} (${item.covers}): ${missing}`,
+      );
   }
 
-  return { untested, untagged, unmarked, wrongShape };
+  return { untested, untagged, unmarked, wrongShape, reviewShape };
 }
 
 /**
@@ -955,7 +1061,12 @@ export function shapeProblems(item: DesignItem, body: string): string[] {
     if (!/\.include\s*\(/.test(body))
       out.push(
         "the scan is not scoped — add .include(<the form or region under test>) so a violation " +
-          "elsewhere on the page is not reported against this story",
+          "elsewhere on the page is not reported against this story. .include takes a CSS " +
+          "selector, and the page snapshot shows roles rather than classes, so build it from " +
+          'what the snapshot shows: a role (navigation → "nav", main → "main", form → ' +
+          '"form", list → "ul"), an attribute the elements carry ("[data-test]" values), or ' +
+          "several joined with commas. A class you have not seen on the page will match nothing " +
+          '(20261019T181040Z tried ".products")',
       );
     if (!/\.map\s*\(/.test(body) || !/\bid\b/.test(body))
       out.push(
@@ -970,13 +1081,47 @@ export function shapeProblems(item: DesignItem, body: string): string[] {
     // not cleared" — three bugs from one unnoticed failed click. With the
     // action asserted, the same run says "logout did not happen", which is
     // true and is a test problem, not a defect.
-    const assertions = (body.match(/\bexpect\s*\(/g) ?? []).length;
-    if (assertions < 2)
+    //
+    // The check needs an action to apply to, and it must not send the agent
+    // looking for a claim the design never made. 20261019T155404Z: a green
+    // suite was sent back with "one that the action took effect (the menu
+    // closed, the URL changed …)"; the agent rewrote a passing test to add
+    // one, broke it, and proposed the same false bug three times. The example
+    // of a URL also contradicted `claimNotInDesign`. So: no action, no check;
+    // and the message names the design item's own expectation and points at
+    // what the page shows, never at an address the design does not mention.
+    const actions = [
+      ...body.matchAll(
+        /\.(click|dblclick|fill|press|check|uncheck|selectOption|setInputFiles|tap|hover)\s*\(/g,
+      ),
+    ];
+    const last = actions[actions.length - 1];
+    // No action at all, though a state-transition item names one (the design
+    // check makes sure it does). 20261019T200105Z passed a "page 2 control is
+    // marked after clicking page 2" item with a test that never clicked and
+    // only checked that page 1 was current on load — the relaxation above had
+    // turned "no action" into "nothing to check".
+    if (last === undefined)
       out.push(
-        "a state-transition test needs at least two assertions: one that the action took effect " +
-          "(the menu closed, the URL changed, the request returned), and one for the state it " +
-          "leaves behind. With only the second, a failed action is reported as a wrong state",
+        `the design item is a state transition — "${(item.conditions ?? []).join("; ")}" → ` +
+          `"${item.expected}" — but the test performs no action. Perform the action its ` +
+          "conditions name (a click, a fill, a selection), then assert each part of the " +
+          "expected result",
       );
+    if (last !== undefined) {
+      const assertions = (body.match(ASSERTION_CALL) ?? []).length;
+      const after = (body.slice((last.index ?? 0) + last[0].length).match(ASSERTION_CALL) ?? [])
+        .length;
+      if (assertions < 2 || after === 0)
+        out.push(
+          `a state-transition test needs an assertion that the action took effect as well as one for ` +
+            `the state it leaves behind (the design expects: "${item.expected}"). Assert each part of ` +
+            "that expectation, using what the page shows after the action — the element you acted on " +
+            "or the content that changes, read from the page snapshot — and wait for it with a " +
+            "web-first assertion before comparing. Do not add a check the design does not state, " +
+            "such as an address change",
+        );
+    }
   }
   if (item.expectFail === true && !/\btest\.fail\s*\(/.test(body))
     out.push("no test.fail marker, though the design says this test is expected to fail");
@@ -1135,8 +1280,7 @@ function matcherArgument(after: string): string {
  */
 export function assertionsOf(body: string): string[] {
   const out: string[] = [];
-  const re = /\bexpect\s*\(/g;
-  for (const m of body.matchAll(re)) {
+  for (const m of body.matchAll(ASSERTION_CALL)) {
     const start = (m.index ?? 0) + m[0].length;
     let depth = 1;
     let i = start;

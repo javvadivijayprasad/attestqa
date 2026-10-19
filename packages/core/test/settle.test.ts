@@ -142,6 +142,27 @@ describe("settleBugs — bugs are judged against the FINAL result", () => {
     expect(s.drop[0]?.reason).toContain("environmental");
   });
 
+  it("reads a Jira bug's link from storyKey, not parentId", () => {
+    // 20261018T115605Z: every Jira bug was dropped as "not linked (parentId missing)".
+    const failing = finalRun([{ title: "AC-1 lists products", status: "failed" }]);
+    const jiraBug = (storyKey: string | undefined): ProposedCall => ({
+      toolName: "jira.create_bug",
+      args: {
+        projectKey: "TOOL",
+        summary: "AC-1: product names are empty",
+        description: "x",
+        ...(storyKey ? { storyKey } : {}),
+      },
+    });
+    const linked = settleBugs([jiraBug("TOOL-6")], failing, { workItem: "TOOL-6", runLevel: null });
+    expect(linked.drop.map((d) => d.reason).join(" ")).not.toContain("not linked");
+    const unlinked = settleBugs([jiraBug(undefined)], failing, {
+      workItem: "TOOL-6",
+      runLevel: null,
+    });
+    expect(unlinked.drop[0]?.reason).toContain("storyKey missing");
+  });
+
   it("refuses an unlinked or untagged bug before a human is asked", () => {
     const failing = finalRun([{ title: "AC-2 wrong password", status: "failed" }]);
     const unlinked = settleBugs([bug("AC-2: x", { parentId: undefined })], failing, {
@@ -340,5 +361,103 @@ describe("one failing test, one bug — and no bug that doubts its own test", ()
     expect(s.keep).toHaveLength(1);
     expect(s.drop).toHaveLength(2);
     expect(s.drop[0]?.reason).toContain("one bug per failing test");
+  });
+});
+
+describe("bugs resting on a test this run broke (20261019T155404Z)", () => {
+  const run = (tests: Array<{ title: string; status: string }>) =>
+    pairEvents(
+      "pw",
+      "run_tests",
+      { spec: "tests/e.spec.ts" },
+      {
+        passed: tests.filter((t) => t.status === "passed").length,
+        failed: tests.filter((t) => t.status === "failed").length,
+        skipped: 0,
+        green: tests.every((t) => t.status === "passed"),
+        tests,
+        failures: tests
+          .filter((t) => t.status === "failed")
+          .map((t) => ({ title: t.title, message: "x" })),
+      },
+    );
+  const T = "AC-2b Choosing page 2 shows a different set of products";
+  const edit = pairEvents(
+    "fs",
+    "replace_in_file",
+    { path: "tests/e.spec.ts", old: "a", new: "b" },
+    { path: "tests/e.spec.ts", replaced: 1, changedTests: [T] },
+  );
+
+  it("drops a bug whose test passed earlier and fails only since it was edited", () => {
+    const events = [
+      ...run([{ title: T, status: "passed" }]),
+      ...edit,
+      ...run([{ title: T, status: "failed" }]),
+    ];
+    const s = settleBugs([bug("AC-2: page 2 shows the same products as page 1")], events, {
+      workItem: "1",
+      runLevel: null,
+    });
+    expect(s.keep).toHaveLength(0);
+    expect(s.drop[0]?.reason).toContain(
+      "passed earlier in this run and fails only since it was edited",
+    );
+  });
+
+  it("matches a bug about AC-2 to a failing AC-2b test, and keeps one bug per failing test", () => {
+    const events = [...run([{ title: T, status: "failed" }])];
+    const s = settleBugs(
+      [
+        bug("AC-2: page 2 does not change the list"),
+        bug("AC-2: pagination shows the same products"),
+      ],
+      events,
+      { workItem: "1", runLevel: null },
+    );
+    expect(s.keep).toHaveLength(1);
+    expect(s.drop).toHaveLength(1);
+    expect(s.drop[0]?.reason).toContain("one bug per failing test");
+  });
+});
+
+describe("a bug carries its test's screenshot and trace", () => {
+  it("adds the final run's evidence for the failing test to a Jira bug", () => {
+    const T = "AC-3 Current page control is marked as active";
+    const events = pairEvents(
+      "pw",
+      "run_tests",
+      { spec: "s" },
+      {
+        passed: 0,
+        failed: 1,
+        skipped: 0,
+        green: false,
+        tests: [{ title: T, status: "failed" }],
+        failures: [
+          {
+            title: T,
+            message: "x",
+            screenshot: "/ws/test-results/a/test-failed-1.png",
+            trace: "/ws/test-results/a/trace.zip",
+          },
+        ],
+      },
+    );
+    const call: ProposedCall = {
+      toolName: "jira.create_bug",
+      args: {
+        projectKey: "TOOL",
+        storyKey: "TOOL-6",
+        summary: "AC-3: page 2 control is not marked",
+        description: "d",
+        labels: ["agentic-qa"],
+      },
+    };
+    const s = settleBugs([call], events, { workItem: "TOOL-6", runLevel: null });
+    expect(s.keep[0]?.args["attachments"]).toEqual([
+      "/ws/test-results/a/test-failed-1.png",
+      "/ws/test-results/a/trace.zip",
+    ]);
   });
 });

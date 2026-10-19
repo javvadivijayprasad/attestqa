@@ -34,6 +34,8 @@ export interface FrameworkProfile {
   testDir?: string;
   /** baseURL as the config states it (or the env var it reads). */
   baseURL?: string;
+  /** The attribute getByTestId reads, when the config changes it from data-testid. */
+  testIdAttribute?: string;
   /** Where specs actually live — from testDir, else the commonest directory of the specs found. */
   specDir: string;
   /** ".spec.ts" or ".test.ts", whichever the existing specs use. */
@@ -108,6 +110,12 @@ export function surveyFramework(workspaceDir: string): FrameworkProfile {
   const testDir = configText
     ? firstMatch(configText, /testDir\s*:\s*["'`]([^"'`]+)["'`]/)
     : undefined;
+  // Toolshop marks its elements with data-test; told nothing, the agent guessed
+  // CSS for the price five times (20261018T154651Z).
+  const testIdAttribute =
+    configText === undefined
+      ? undefined
+      : firstMatch(configText, /testIdAttribute\s*:\s*["'`]([^"'`]+)["'`]/);
   const baseURL =
     configText &&
     (firstMatch(configText, /baseURL\s*:\s*["'`]([^"'`]+)["'`]/) ??
@@ -177,6 +185,7 @@ export function surveyFramework(workspaceDir: string): FrameworkProfile {
     configs: chosen ? [chosen] : [],
     ...(testDir ? { testDir } : {}),
     ...(baseURL ? { baseURL } : {}),
+    ...(testIdAttribute ? { testIdAttribute } : {}),
     specDir,
     specSuffix,
     ...(featureDir ? { featureDir } : {}),
@@ -212,8 +221,8 @@ export function renderProfile(p: FrameworkProfile): string[] {
       "TEST FRAMEWORK: none found in this workspace.",
       "  No playwright config and no spec files. Creating a framework — its layout, its",
       "  fixtures, its scripts — is a decision about someone's repository and is not part",
-      "  of writing tests for a story. Stop and report that `aqa init-framework` has to be",
-      "  run first. Do not invent a layout.",
+      "  of writing tests for a story. Stop and report that a Playwright project has to be",
+      "  set up first (npm init playwright@latest). Do not invent a layout.",
     ];
   }
   const out = [
@@ -232,6 +241,11 @@ export function renderProfile(p: FrameworkProfile): string[] {
     );
   if (p.baseURL)
     out.push(`  baseURL: ${p.baseURL} — navigate with relative paths and let the config decide`);
+  if (p.testIdAttribute)
+    out.push(
+      `  testIdAttribute: ${p.testIdAttribute} — this app marks elements with ${p.testIdAttribute}="…"; ` +
+        `page.getByTestId("x") finds [${p.testIdAttribute}="x"]`,
+    );
   if (p.envNames.length > 0) out.push(`  the config reads: ${p.envNames.join(", ")}`);
   if (Object.keys(p.testScripts).length > 0)
     out.push(

@@ -1,6 +1,13 @@
+import { forReviewer } from "../design/test-design.js";
 import { createHash } from "node:crypto";
 import type { AnyRunEvent } from "../types.js";
-import { approvedDesign } from "../design/test-design.js";
+import {
+  approvedDesign,
+  assertionsOf,
+  carriedDesign,
+  testsByTitle,
+} from "../design/test-design.js";
+import { caseId } from "../design/cases.js";
 import { storyCoverage, type ItemState, type SourceFile } from "./coverage.js";
 import type { TrackerId } from "../design/ids.js";
 
@@ -82,7 +89,8 @@ export function composeQaRecord(
         }, from the approved test design. Written by attestqa from its run record; each case is ` +
         "automated by the Playwright test named beside it" +
         (specFiles.length > 0 ? ` (${specFiles.join(", ")})` : "") +
-        ". Results of each run are in the comments.",
+        ". Results of each run are in the comments. A case's ID is the story and its design " +
+        `item (${key}-D1); in the feature file and the spec it is the tag pair @story:${key} @design:D1.`,
     },
     {
       kind: "table",
@@ -90,7 +98,7 @@ export function composeQaRecord(
       rows: design.items.map((it) => {
         const c = scenarioOf.get(it.id);
         return [
-          it.id + (it.expectFail ? " (known bug)" : ""),
+          caseId(key, it.id) + (it.expectFail ? " (known bug)" : ""),
           it.covers,
           `${it.type} / ${it.technique}`,
           c?.scenario?.title ?? "not written yet",
@@ -109,7 +117,7 @@ export function composeQaRecord(
     description.push({
       kind: "paragraph",
       text:
-        `${it.id} · covers ${it.covers} · ${it.type} / ${it.technique}` +
+        `${caseId(key, it.id)} · covers ${it.covers} · ${it.type} / ${it.technique}` +
         (it.expectFail ? " · known bug: expected to fail until fixed" : "") +
         (c?.test ? ` · automated by "${c.test.title}"` : ""),
     });
@@ -124,7 +132,9 @@ export function composeQaRecord(
         ? { kind: "code", language: "gherkin", text: gherkin }
         : {
             kind: "paragraph",
-            text: `Scenario not written yet. Given ${it.conditions.join("; ")} — expected: ${it.expected}`,
+            text: `Scenario not written yet. Given ${it.conditions.join("; ")} — expected: ${
+              it.expected
+            }`,
           },
     );
   }
@@ -167,13 +177,62 @@ export function composeQaRecord(
       kind: "table",
       header: ["ID", "Test", "Result", "Run"],
       rows: story.items.map((i) => [
-        i.id,
+        caseId(key, i.id),
         i.test?.title ?? "—",
         RESULT[i.state],
         i.result?.runId ?? "—",
       ]),
     },
   ];
+  // What each test checks, beside what its design item expects — so a test
+  // that is weaker than the design is visible to a reader even where no rule
+  // can judge it (TOOL-6-D1 in 20261019T200105Z: "every card shows a name,
+  // price and image" checked by one product's name and price).
+  const checks = story.items.map((i) => {
+    const it = design.items.find((d) => d.id === i.id);
+    const spec = i.test
+      ? ctx.files.specs.find(
+          (sp) =>
+            sp.path === i.test?.file ||
+            sp.path.endsWith(`/${i.test?.file}`) ||
+            i.test?.file.endsWith(sp.path),
+        )
+      : undefined;
+    const body = spec && i.test ? testsByTitle(spec.text).get(i.test.title) : undefined;
+    // The test's own Then/And steps read as sentences; the assertion code is
+    // the fallback when a test has no such steps.
+    const steps = body
+      ? [...body.matchAll(/test\.step\(\s*"((?:[^"\\]|\\.)*)"/g)]
+          .map((m) => (m[1] ?? "").replace(/\\(.)/g, "$1"))
+          .filter((t) => /^(?:\[SKIPPED\]\s*)?(?:Then|And|But)\b/.test(t))
+      : [];
+    const asserted = steps.length > 0 ? steps : body ? assertionsOf(body).map(shortClaim) : [];
+    return [
+      caseId(key, i.id),
+      it?.expected ?? "—",
+      asserted.length > 0
+        ? asserted.slice(0, 4).join("; ") +
+          (asserted.length > 4 ? ` (+${asserted.length - 4} more)` : "")
+        : "no assertion found",
+    ];
+  });
+  if (checks.length > 0)
+    comment.push({
+      kind: "table",
+      header: ["ID", "Design expects", "Test checks"],
+      rows: checks,
+    });
+  const review = lastVerifyLimitations(events)
+    .filter((l) => l.startsWith("for your review — "))
+    .map((l) => forReviewer(l.slice("for your review — ".length)));
+  if (review.length > 0)
+    comment.push({
+      kind: "paragraph",
+      text:
+        "Needs review — these tests work but check less, or more broadly, than the approved design: " +
+        review.join("; ") +
+        ".",
+    });
   if (story.uncoveredCriteria.length > 0)
     comment.push({
       kind: "paragraph",
@@ -187,6 +246,20 @@ export function composeQaRecord(
         .map((b) => `${String(b.id)} (${b.state})`)
         .join(", ")}.`,
     });
+  // The story as this run read it (design/fingerprint.ts): a later run with the
+  // same fingerprint reuses this design instead of asking for a new one.
+  const fingerprint = routeFingerprint(events);
+  if (fingerprint) {
+    const carried = carriedDesign(events);
+    comment.push({
+      kind: "paragraph",
+      text:
+        `Story fingerprint ${fingerprint}.` +
+        (carried
+          ? ` The story is unchanged since run ${carried.runId}; the design approved there was reused.`
+          : ""),
+    });
+  }
   comment.push({
     kind: "paragraph",
     text: "Counted from the run ledger and the test files, not from the agent's account of its work.",
@@ -230,4 +303,32 @@ export function scenarioGherkin(feature: string, title: string): string | undefi
   const bg = lines.findIndex((l) => /^\s*Background:/i.test(l));
   const background = bg >= 0 && bg < at ? block(bg) : [];
   return [...background, ...(background.length > 0 ? [""] : []), ...block(at)].join("\n");
+}
+
+/** The story fingerprint the run's route recorded, if any. */
+function routeFingerprint(events: AnyRunEvent[]): string | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const f = (e.payload as { because?: { fingerprint?: unknown } }).because?.fingerprint;
+    if (typeof f === "string") return f;
+  }
+  return undefined;
+}
+
+/** One assertion, short enough for a table cell: the subject and the matcher. */
+function shortClaim(a: string): string {
+  // Page-object prefixes ("productCataloguePage.", "this.") add length, not meaning.
+  const flat = a.replace(/\b\w*Page\.(?=\w)|\bthis\./g, "").replace(/\s+/g, " ");
+  return flat.length > 90 ? `${flat.slice(0, 87)}…` : flat;
+}
+
+function lastVerifyLimitations(events: AnyRunEvent[]): string[] {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "verify") continue;
+    const l = (e.payload as unknown as { limitations?: unknown }).limitations;
+    return Array.isArray(l) ? l.map(String) : [];
+  }
+  return [];
 }

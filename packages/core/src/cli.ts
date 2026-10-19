@@ -1,16 +1,22 @@
 import { replayRules } from "./replay/rules.js";
+import { StageTracker } from "./runtime/stages.js";
 import {
   readSourceFiles,
   renderCoverage,
   storyCoverage,
   type Ledger as RunLedger,
 } from "./report/coverage.js";
-import { NO_SIGNATURE_CONFIDENCE, TEST_CODE_RATIONALE } from "./triage/patterns.js";
+import {
+  EDIT_REGRESSION_RATIONALE,
+  NO_SIGNATURE_CONFIDENCE,
+  TEST_CODE_RATIONALE,
+} from "./triage/patterns.js";
 import { CONFIG_FILE, modelRoute, runInit, scopeEntry } from "./setup/init.js";
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { readLedgerFile, LEDGER_FILE } from "./ledger/ledger.js";
+import { readRuns } from "./design/fingerprint.js";
 import { renderMarkdown } from "./ledger/replay.js";
 import {
   ConfigError,
@@ -137,7 +143,7 @@ Usage:
   aqa run "<request>" --config <ai-quality.config.yaml> [--ledger .aqa]
           [--approval terminal|file] [--approval-timeout <seconds>]
           [--skill story-to-tests|defect-profile] [--work-item <id>] [--dry-run]
-          [--tracker ado|jira] [--servers ...] [--workspace .] [--env .env]
+          [--tracker ado|jira] [--servers ...] [--workspace .] [--env .env] [--fresh]
       Run the agent loop. For story-to-tests (the default) the work item comes from
       the request ("AB#1") unless --work-item says otherwise, and must be in
       agent.scope.work_items. defect-profile takes no work item: it reads the
@@ -148,6 +154,9 @@ Usage:
       (Cloud) or JIRA_PAT (Data Center) in .env; a number means Azure DevOps.
       --dry-run: load config, connect servers, list tools with their gate class,
       make no model or tool calls, exit 0.
+      --fresh (evaluation only): design and author the story from scratch — earlier
+      runs and existing coverage are ignored. The run stops at once if the story's
+      scenarios are still in the feature file; move them aside first.
       --approval file: each batch is written to <ledger>/runs/<id>/approvals/<approvalId>.json
       with decision:null; set "decision" to "approved" or "denied" (and optionally "by")
       to answer. Silence past --approval-timeout (default 1800s) counts as denied.
@@ -391,6 +400,9 @@ async function buildTooling(
       specs.push(
         playwrightServer({
           allowedOrigins: scopeUrls,
+          // Screenshots and snapshots go beside the ledger, not into the
+          // directory the command happened to be started from.
+          outputDir: resolve(flag(args, "--ledger") ?? ".aqa", "playwright"),
           // AQA_BROWSER picks another installed browser (msedge, firefox, …);
           // the default is the Chrome most teams already run.
           ...(process.env["AQA_BROWSER"] ? { browser: process.env["AQA_BROWSER"] } : {}),
@@ -461,7 +473,8 @@ async function buildTooling(
             io.err(`aqa: bdd2pw LLM fallback ${llmFallback}, governed by the sidecar\n`);
         }
         if (wanted.includes("pw")) clients.push(new PwTools(workspace));
-        if (wanted.includes("jira") && env.jira) clients.push(new JiraTools(env.jira));
+        if (wanted.includes("jira") && env.jira)
+          clients.push(new JiraTools(env.jira, { evidenceRoot: workspace }));
         if (wanted.includes("tcg") && env.tcgUrl) clients.push(new TcgTools(env.tcgUrl));
         if (wanted.includes("synthdata") && env.synthdataCmd)
           clients.push(new SynthdataTools(env.synthdataCmd, workspace));
@@ -744,6 +757,11 @@ async function live(
             // Stage 0: the framework already in this workspace decides where
             // the scenarios, the spec and the page objects go.
             workspaceDir: workspace,
+            // Earlier runs, so an unchanged story keeps its approved design
+            // and the run only executes (design/fingerprint.ts).
+            previousRuns: () => readRuns(resolve(flag(args, "--ledger") ?? ".aqa")),
+            // Evaluation only: ignore earlier runs and existing coverage.
+            ...(args.includes("--fresh") ? { fresh: true } : {}),
             // Failure triage runs in-process by default and sends nothing
             // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
             // value comes from the environment and nowhere else, so that no
@@ -818,7 +836,10 @@ async function live(
     // that never started — for minutes at a time. Everything here is already
     // in the ledger; this only stops the operator having to read it afterwards
     // to find out what happened while they were watching.
-    ledger.onAppend = (e) => io.err(liveLine(e));
+    const blockedSeen = new Set<string>();
+    const stages = new StageTracker();
+    ledger.onAppend = (e) =>
+      io.err(liveLine(e) + blockedOriginLine(e, blockedSeen) + stages.line(e));
 
     const result = await runLoop({
       requestText: request,
@@ -864,7 +885,7 @@ function positional(args: string[]): string[] {
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     if (a.startsWith("--")) {
-      if (a !== "--dry-run") i++; // skip the value of a --flag value pair
+      if (a !== "--dry-run" && a !== "--fresh") i++; // skip the value of a --flag value pair
       continue;
     }
     out.push(a);
@@ -894,6 +915,32 @@ if (isEntry) {
  * operator is actually waiting for — did the suite run, and what did triage
  * make of it — under thirty reads of the same file.
  */
+/**
+ * The agent's browser only reaches the origins in scope.urls (the Playwright
+ * server runs with --allowed-origins). An application whose page calls an API
+ * on another origin then renders without its data, and the agent goes on to
+ * design tests against an empty page — Toolshop's UI on :4200 calls its API on
+ * :8091 (run 20261017T163249Z). Said once per origin, to the person, because
+ * the fix is in the config, not in anything the agent can do.
+ */
+export function blockedOriginLine(e: AnyRunEvent, seen: Set<string>): string {
+  if (e.kind !== "observation") return "";
+  const text = JSON.stringify((e.payload as { result?: unknown }).result ?? "");
+  if (!text.includes("ERR_BLOCKED_BY_CLIENT")) return "";
+  let out = "";
+  for (const m of text.matchAll(
+    /ERR_BLOCKED_BY_CLIENT[^@]{0,80}@ (https?:\/\/[^/\s:'"\\]+(?::\d+)?)/g,
+  )) {
+    const origin = m[1] as string;
+    if (seen.has(origin)) continue;
+    seen.add(origin);
+    out +=
+      `aqa: the agent's browser refused requests to ${origin} — it is not in scope.urls, so the page ` +
+      `may be missing its data; if it belongs to the application, add it to scope.urls\n`;
+  }
+  return out;
+}
+
 export function liveLine(e: AnyRunEvent): string {
   const p = e.payload as unknown as Record<string, unknown>;
   switch (e.kind) {
@@ -931,7 +978,7 @@ export function liveLine(e: AnyRunEvent): string {
             ? ""
             : s["frameworkFound"]
               ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
-              : "aqa: framework — NONE FOUND; run aqa init-framework first\n";
+              : "aqa: framework — NONE FOUND; point --workspace at a Playwright project (npm init playwright@latest creates one)\n";
         return (
           fw +
           `aqa: context — story ${n("storyRead") ? "read" : "NOT READ"}, ` +
@@ -965,6 +1012,9 @@ export function liveLine(e: AnyRunEvent): string {
         `aqa: suite ${green ? "green" : "red"} — ${num(rec["passed"])} passed, ` +
         `${num(rec["failed"])} failed, ${num(rec["skipped"])} skipped` +
         (known > 0 ? ` (${known} of the passed: known bug reproduced, failing as expected)` : "") +
+        (Array.isArray(rec["unimplemented"]) && rec["unimplemented"].length > 0
+          ? `, ${rec["unimplemented"].length} not implemented (steps still TODO — they ran but checked nothing)`
+          : "") +
         "\n"
       );
     }
@@ -1003,14 +1053,37 @@ export function liveLine(e: AnyRunEvent): string {
       if (verdicts.length === 0)
         return "aqa: suite is green — the earlier failures are gone, nothing is held for you\n";
       const by = new Map<string, number>();
+      const frozen = new Set(
+        (Array.isArray(p["quarantined"]) ? (p["quarantined"] as string[]) : []).map(
+          (t) => t.split("\u203a").pop()?.trim() ?? t,
+        ),
+      );
       for (const v of verdicts) {
         const r = v as Record<string, unknown>;
         let c = String(r["category"] ?? "?");
         const rationale = String(r["rationale"] ?? "");
+        // Held for a person only when quarantined (a proven test, a confident
+        // verdict — triage/quarantine.ts). A new test that has never passed
+        // stays the agent's to check, whatever the classifier guessed.
+        if (
+          c === "real-defect" &&
+          !frozen.has(
+            String(r["test"] ?? "")
+              .split("\u203a")
+              .pop()
+              ?.trim() ?? "",
+          ) &&
+          Number(r["confidence"] ?? 1) > NO_SIGNATURE_CONFIDENCE
+        )
+          c = "unproven";
         // Say what the classifier actually knows. A real-defect at the
         // no-pattern confidence is a default, not a judgement, and a "flake"
         // that is invalid test code is the test's fault.
-        if (rationale.startsWith(TEST_CODE_RATIONALE)) c = "test-defect";
+        if (
+          rationale.startsWith(TEST_CODE_RATIONALE) ||
+          rationale.startsWith(EDIT_REGRESSION_RATIONALE)
+        )
+          c = "test-defect";
         else if (c === "real-defect" && Number(r["confidence"] ?? 1) <= NO_SIGNATURE_CONFIDENCE)
           c = "unrecognised";
         by.set(c, (by.get(c) ?? 0) + 1);
@@ -1026,6 +1099,9 @@ export function liveLine(e: AnyRunEvent): string {
             n === 1 ? "it" : "them"
           }`,
         environmental: (n) => `${n} never reached the product (setup or environment failed)`,
+        unproven: (n) =>
+          `${n} new test${n === 1 ? "" : "s"} failing that ${n === 1 ? "has" : "have"} never passed — ` +
+          "the agent checks the test first; not yet a defect",
         unrecognised: (n) =>
           `${n} matched no known failure pattern — held for you as possible defect${
             n === 1 ? "" : "s"

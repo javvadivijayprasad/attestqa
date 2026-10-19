@@ -129,6 +129,18 @@ describe("an accessibility bug needs a scoped scan", () => {
     expect(why).toContain("scans the WHOLE page");
   });
 
+  it("does not refuse a bug about another test because the scan is unscoped", () => {
+    // 20261018T154651Z: eighteen page-button bugs refused with a reason about the scan.
+    const why = storyRefusal(
+      bug(
+        "AC-3: Current page button is not marked as active",
+        "the Page-2 button has no active class.",
+      ),
+      runWith([A11Y_FAILURE]),
+    );
+    expect(why ?? "").not.toContain("scans the WHOLE page");
+  });
+
   it("allows it once the scan is scoped", () => {
     const scoped = SPEC.replace(
       "new AxeBuilder({ page })",
@@ -593,5 +605,131 @@ describe("two bugs about two tests stay two bugs", () => {
     const out = settleBugs(proposals, events, { workItem: "44", runLevel: null });
     expect(out.keep).toHaveLength(2);
     expect(out.drop).toHaveLength(0);
+  });
+});
+
+describe("a claim read from the element's parent is the same claim", () => {
+  // 20261018T125846Z: Toolshop puts `active` on the list item around the page
+  // button; moving the assertion there was refused eight times.
+  const TITLE = "AC-2 Choosing page 2 shows a different set of products";
+  const spec = (target: string) =>
+    [
+      `test("${TITLE}", async ({ page }) => {`,
+      '  await page.getByRole("button", { name: "Page-2" }).click();',
+      `  await expect(${target}).toHaveClass(/active/);`,
+      "});",
+    ].join("\n");
+  const BUTTON = 'page.getByRole("button", { name: "Page-2" })';
+
+  async function refusal(after: string): Promise<string | undefined> {
+    const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { tmpdir } = await import("node:os");
+    const { makeStoryRefusal } = await import("../src/skills/story-rules.js");
+    const ws = mkdtempSync(join(tmpdir(), "aqa-relative-"));
+    mkdirSync(join(ws, "tests"), { recursive: true });
+    writeFileSync(join(ws, "tests", "e.spec.ts"), spec(BUTTON));
+    const events = [
+      {
+        tool: "agentic-qa",
+        runId: "r",
+        eventId: 0,
+        timestamp: 1,
+        kind: "route",
+        payload: { path: "A", reason: "", because: {}, denied: [] },
+      } as unknown as AnyRunEvent,
+      {
+        tool: "agentic-qa",
+        runId: "r",
+        eventId: 2,
+        timestamp: 1,
+        kind: "call",
+        payload: {
+          server: "bdd2pw",
+          toolName: "scaffold",
+          args: { feature: "features/e.feature", url: "http://x" },
+          startedAt: 0,
+        },
+      } as unknown as AnyRunEvent,
+      {
+        tool: "agentic-qa",
+        runId: "r",
+        eventId: 3,
+        timestamp: 1,
+        kind: "observation",
+        payload: {
+          eventIdOfCall: 2,
+          ok: true,
+          result: { exitCode: 0, wrote: ["tests/e.spec.ts"] },
+          artefacts: ["tests/e.spec.ts"],
+          durationMs: 1,
+        },
+      } as unknown as AnyRunEvent,
+      {
+        tool: "agentic-qa",
+        runId: "r",
+        eventId: 4,
+        timestamp: 1,
+        kind: "call",
+        payload: {
+          server: "fs",
+          toolName: "read_file",
+          args: { path: "tests/e.spec.ts" },
+          startedAt: 0,
+        },
+      } as unknown as AnyRunEvent,
+      {
+        tool: "agentic-qa",
+        runId: "r",
+        eventId: 5,
+        timestamp: 1,
+        kind: "observation",
+        payload: {
+          eventIdOfCall: 4,
+          ok: true,
+          result: { path: "tests/e.spec.ts", content: spec(BUTTON) },
+          artefacts: [],
+          durationMs: 1,
+        },
+      } as unknown as AnyRunEvent,
+      {
+        tool: "agentic-qa",
+        runId: "r",
+        eventId: 1,
+        timestamp: 1,
+        kind: "triage",
+        payload: {
+          attempt: 2,
+          reportFingerprint: "f",
+          runLevel: null,
+          verdicts: [
+            {
+              test: `tests/e.spec.ts › ${TITLE}`,
+              category: "real-defect",
+              confidence: 0.1,
+              evidence: "Error: expect(locator).toHaveClass(expected) failed",
+              rationale: "",
+              matchedPatterns: [],
+            },
+          ],
+          quarantined: [TITLE],
+        },
+      } as unknown as AnyRunEvent,
+    ];
+    return makeStoryRefusal({ workspaceDir: ws })(
+      { toolName: "fs.write_file", args: { path: "tests/e.spec.ts", content: spec(after) } },
+      events,
+    );
+  }
+
+  it("allows the same assertion on the old element's parent", async () => {
+    expect(await refusal(`${BUTTON}.locator("..")`)).toBeUndefined();
+    expect(
+      await refusal(`page.locator("li.page-item").filter({ has: ${BUTTON} })`),
+    ).toBeUndefined();
+  });
+
+  it("still refuses the assertion moved to an unrelated element", async () => {
+    expect(await refusal('page.locator("li.page-item").first()')).toContain("drops the claim");
   });
 });

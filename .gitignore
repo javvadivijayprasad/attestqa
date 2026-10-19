@@ -34,3 +34,9 @@ packages/vscode/out/
 
 # local Copilot try-out copy of the Juice Shop workspace
 TestRunApplication/juice-shop-copilot/
+
+# earlier run attempts, kept outside the workspaces
+TestRunApplication/_attempts/
+
+# Backups made before an edit (.before_<what>_<date>.bak)
+*.before_*.bak

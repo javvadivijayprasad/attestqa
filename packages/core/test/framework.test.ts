@@ -70,7 +70,7 @@ describe("stage 0 — survey the framework that is already there", () => {
   it("says plainly when there is no framework at all", () => {
     const p = surveyFramework(repo({ "README.md": "# app" }));
     expect(p.exists).toBe(false);
-    expect(renderProfile(p).join("\n")).toContain("aqa init-framework");
+    expect(renderProfile(p).join("\n")).toContain("npm init playwright@latest");
   });
 
   it("names the packages a file imports that the project does not have", () => {
@@ -195,6 +195,6 @@ describe("the run conforms to that framework", () => {
       { toolName: "fs.write_file", args: { path: "features/x.feature", content: "" } },
       events,
     );
-    expect(r).toContain("aqa init-framework");
+    expect(r).toContain("npm init playwright@latest");
   });
 });

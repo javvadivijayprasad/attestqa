@@ -13,6 +13,7 @@ extension on the VS Code Marketplace). The design set was approved on 10 October
 - **[Roadmap](ROADMAP.md)** — what ships each month, and the later stages (API, web version,
   security, ETL).
 - **Try it:** `npm install -g attestqa`, then `aqa init` in your Playwright project (section 3 of the user guide).
+- **[Dependencies](DEPENDENCIES.md)** — what attestqa needs: Node, packages, the services it talks to, and the evaluation apps.
 
 | Folder | Holds |
 |---|---|

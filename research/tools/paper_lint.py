@@ -53,7 +53,7 @@ def main(manuscript=MANUSCRIPT):
                 problems.append(f"line {n}: {fid} is not in findings.jsonl")
                 continue
             for ev in findings[fid].get("evidence", []):
-                run = ev.get("run")
+                run = ev.get("run") if isinstance(ev, dict) else None
                 if run and runs and run not in runs:
                     problems.append(f"line {n}: {fid} cites run {run}, which is not in runs-manifest.csv")
 

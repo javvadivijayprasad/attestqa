@@ -121,7 +121,21 @@ export function specTests(
 function latestResults(ledgers: Ledger[]): Map<string, { status: string; runId: string }> {
   const out = new Map<string, { status: string; runId: string }>();
   for (const { runId, events } of ledgers)
-    for (const run of successful(completedCalls(events), "pw.run_tests"))
+    for (const run of successful(completedCalls(events), "pw.run_tests").filter(
+      // A filtered run is a working step, not a result: the QA record and the
+      // terminal report read the same full runs (20261019T163019Z reported AC-1
+      // "passed" from a one-test re-run while the report said failed).
+      (c) =>
+        ![
+          "grep",
+          "grepInvert",
+          "grep-invert",
+          "shard",
+          "project",
+          "lastFailed",
+          "last-failed",
+        ].some((k) => c.args[k] !== undefined && c.args[k] !== ""),
+    ))
       for (const raw of asArray(asRecord(run.result)?.["tests"])) {
         const t = asRecord(raw);
         const title = t?.["title"];

@@ -144,3 +144,55 @@ describe("stripHtml", () => {
     expect(text).toContain("<tag> & more");
   });
 });
+
+describe("the Jira test record reads as sentences, not JSON (20261019T200105Z)", () => {
+  it("says where it goes, what it changes, and lists the cases and results", async () => {
+    const { renderApproval } = await import("../src/runtime/render-approval.js");
+    const text = renderApproval([
+      {
+        toolName: "jira.record_qa",
+        args: {
+          storyKey: "TOOL-6",
+          mode: "results",
+          description: [
+            { kind: "paragraph", text: "Test cases for TOOL-6" },
+            {
+              kind: "table",
+              header: ["ID", "Covers", "Type / technique", "Scenario"],
+              rows: [["TOOL-6-D1", "AC-1", "functional", "AC-1 Home page lists products"]],
+            },
+          ],
+          comment: [
+            { kind: "heading", text: "Run r1 — blocked" },
+            { kind: "paragraph", text: "1 test case(s): 1 passed." },
+            {
+              kind: "table",
+              header: ["ID", "Test", "Result", "Run"],
+              rows: [["TOOL-6-D1", "AC-1 Home page lists products", "Passed", "r1"]],
+            },
+            {
+              kind: "table",
+              header: ["ID", "Design expects", "Test checks"],
+              rows: [
+                ["TOOL-6-D1", "every card has a name and price", 'Then the page displays "Pliers"'],
+              ],
+            },
+            {
+              kind: "paragraph",
+              text: "Needs review — these tests work but check less: D4 (story): the scan is not scoped.",
+            },
+          ],
+        },
+      } as never,
+    ]);
+    expect(text).toContain("Update the QA sub-task of TOOL-6 in Jira");
+    expect(text).toContain("Nothing else in Jira is changed");
+    expect(text).toContain("TOOL-6-D1  AC-1 Home page lists products");
+    expect(text).toContain("TOOL-6-D1  Passed");
+    expect(text).toContain("What each test checks, beside what the design expects");
+    expect(text).toContain("design: every card has a name and price");
+    expect(text).toContain('test:   Then the page displays "Pliers"');
+    expect(text).toContain("Needs review — these tests work but check less");
+    expect(text).not.toContain('{"kind"');
+  });
+});

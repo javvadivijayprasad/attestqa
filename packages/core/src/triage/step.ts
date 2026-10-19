@@ -24,14 +24,17 @@ import { triageRun } from "./classify.js";
 import {
   NO_SIGNATURE_CONFIDENCE,
   TEST_CODE_RATIONALE,
+  EDIT_REGRESSION_RATIONALE,
   isContagious,
   type TriageCategory,
 } from "./patterns.js";
 import { readFailures, reportFingerprint, reportMtimeMs, reportPath } from "./report.js";
 import { analyzeReport, merge, type ServiceOptions } from "./service.js";
-import { assertionsOf, testsByTitle } from "../design/test-design.js";
+import { testsByTitle } from "../design/test-design.js";
+import { droppedClaims } from "../design/claims.js";
 import { asRecord, completedCalls } from "../verify/evidence.js";
 import { isFullRun } from "../runtime/rerun.js";
+import { isProven, provenTests, regressedByEdit, titleOf, type Proven } from "./quarantine.js";
 
 export interface TriageStepOptions {
   /**
@@ -140,13 +143,17 @@ export async function runTriage(
   const attempt = history.length + 1;
 
   if (!opts.service) {
-    const verdicts = applyRepetition(local.verdicts, history);
+    const verdicts = applyEditRegression(applyRepetition(local.verdicts, history), input.events);
     return {
       attempt,
       reportFingerprint: fingerprint,
       runLevel: local.runLevel,
       verdicts,
-      quarantined: quarantineFrom(verdicts, local.runLevel),
+      quarantined: quarantineFrom(
+        verdicts,
+        local.runLevel,
+        provenTests(input.events, input.workspaceDir),
+      ),
     };
   }
 
@@ -162,13 +169,17 @@ export async function runTriage(
   if (!analysis) {
     // Unreachable, misaddressed, or it could not parse the report. The local
     // verdicts stand; the run records that they did.
-    const verdicts = applyRepetition(local.verdicts, history);
+    const verdicts = applyEditRegression(applyRepetition(local.verdicts, history), input.events);
     return {
       attempt,
       reportFingerprint: fingerprint,
       runLevel: local.runLevel,
       verdicts,
-      quarantined: quarantineFrom(verdicts, local.runLevel),
+      quarantined: quarantineFrom(
+        verdicts,
+        local.runLevel,
+        provenTests(input.events, input.workspaceDir),
+      ),
     };
   }
   const merged = merge(local.verdicts, analysis.verdicts);
@@ -176,7 +187,7 @@ export async function runTriage(
   // Repetition is applied AFTER the service has spoken. It is evidence from
   // this run's own history that neither classifier has — the service sees one
   // failure at a time and has no memory of the last attempt.
-  const verdicts = applyRepetition(merged.verdicts, history);
+  const verdicts = applyEditRegression(applyRepetition(merged.verdicts, history), input.events);
 
   // Recompute the run-level judgement and the quarantine from the MERGED
   // verdicts, not from the local ones. If the service says environmental where
@@ -184,7 +195,11 @@ export async function runTriage(
   // candidate — carrying over a quarantine computed before the service spoke
   // would file a bug against an outage.
   const runLevel = runLevelOf(verdicts);
-  const quarantined = quarantineFrom(verdicts, runLevel);
+  const quarantined = quarantineFrom(
+    verdicts,
+    runLevel,
+    provenTests(input.events, input.workspaceDir),
+  );
 
   return {
     attempt,
@@ -261,16 +276,25 @@ export function triageAction(
         : "the test runner itself failed on both runs"
       : "the same tests failed on both runs";
 
-  const notes: string[] = [
-    `The suite was re-run and still fails: ${kind}. This is no longer something to fix by ` +
-      "guessing, and it is not yours to decide. Propose a Bug for each failure that is " +
-      'still red, with ado.wit_work_item_write action "create", workItemType "Bug" — ' +
-      "a human is asked to approve it and may say no, which ends it. Say plainly in each " +
-      "bug what kind of failure it was, so the reviewer is not asked to rubber-stamp: an " +
-      "application that was never reachable and a failing assertion deserve different " +
-      "answers from them.",
-  ];
-
+  const frozen = new Set(payload.quarantined.map(titleOf));
+  // Only a quarantined failure — a confident verdict on a PROVEN test — is the
+  // product's to answer for. Telling the agent to propose a bug for "each
+  // failure that is still red" also covered tests written minutes earlier that
+  // had never passed, and the run proposed bugs about its own mistakes fifteen
+  // times (20261018T115605Z). It also named the Azure DevOps tool on Jira runs.
+  const unproven = persistent.filter(
+    (v) => !frozen.has(titleOf(v.test)) && (v.category === "real-defect" || v.category === "flake"),
+  );
+  const notes: string[] = [];
+  if (payload.runLevel !== null || frozen.size > 0)
+    notes.push(
+      `The suite was re-run and still fails: ${kind}. ` +
+        (frozen.size > 0
+          ? "For each QUARANTINED failure below, propose a bug with the tracker's bug tool " +
+            "(jira.create_bug or ado.wit_work_item_write) — a person is asked to approve it and " +
+            "may say no. Say plainly what kind of failure it was."
+          : "Nothing in the product was measured; say so and stop."),
+    );
   notes.push(
     ...payload.quarantined.map(
       (t) =>
@@ -278,11 +302,23 @@ export function triageAction(
         "to make it pass. The test is correct; the application is not.",
     ),
   );
+  if (unproven.length > 0)
+    notes.push(
+      `${unproven.length} failing test(s) have never been shown to pass: ${unproven
+        .slice(0, 4)
+        .map((v) => `"${titleOf(v.test)}"`)
+        .join(", ")}. A new test that fails is more often wrong than the product. For each: ` +
+        "compare it with the approved design item and with what the page snapshot shows. Fix " +
+        "it if it reads the wrong element, reads before the page has loaded (use a retrying " +
+        "expect), or asserts something the design does not say. Do NOT change an expected value " +
+        "the design itself specifies, and do not touch tests that pass. If it still fails, leave " +
+        "it red — it is put to the reviewer at the end of the run, not filed as a bug by you.",
+    );
 
   const repairable = payload.verdicts.filter(
-    (v) => v.category !== "real-defect" && v.category !== "expected-failure",
+    (v) => !frozen.has(titleOf(v.test)) && v.category !== "expected-failure",
   );
-  if (repairable.length === 0 && payload.quarantined.length > 0) {
+  if (repairable.length === 0 && frozen.size > 0) {
     notes.push(
       "There is nothing left to fix in the specs. Finish the rest of the job — record the " +
         "test cases and link them to the story — propose the bug, and stop.",
@@ -296,9 +332,10 @@ export function triageAction(
 function quarantineFrom(
   verdicts: Array<{ test: string; category: string; confidence: number }>,
   runLevel: string | null,
+  proven: Proven,
 ): string[] {
   if (runLevel !== null) return [];
-  return verdicts.filter(quarantines).map((v) => v.test);
+  return verdicts.filter((v) => quarantines(v) && isProven(v.test, proven)).map((v) => v.test);
 }
 
 /**
@@ -369,7 +406,11 @@ export function applyRepetition<
     if (v.category !== "flake") return v;
     // Invalid test code repeats by nature; repeating does not make it the
     // product's fault. It stays the test's to fix.
-    if (v.rationale.startsWith(TEST_CODE_RATIONALE)) return v;
+    if (
+      v.rationale.startsWith(TEST_CODE_RATIONALE) ||
+      v.rationale.startsWith(EDIT_REGRESSION_RATIONALE)
+    )
+      return v;
     const repeats = seen.get(`${v.test}\u0000${v.evidence}`) ?? 0;
     if (repeats === 0) return v;
     return {
@@ -490,15 +531,20 @@ export function triageGaps(events: AnyRunEvent[]): {
   // hidden` matched no pattern, was defaulted to real-defect at 0.10, and
   // quarantined a test that the agent then FIXED — proving the failure was in
   // the test, exactly as a zero-evidence verdict cannot tell you.
-  const claims = latest.verdicts.filter((x) => quarantines(x) && x.matchedPatterns.length > 0);
+  // The quarantine recorded at triage time is the one definition
+  // (triage/quarantine.ts); recomputing it here let the two disagree.
+  const frozenNow = new Set((latest.quarantined ?? []).map(titleOf));
+  const claims = latest.verdicts.filter(
+    (x) => frozenNow.has(titleOf(x.test)) && x.matchedPatterns.length > 0,
+  );
   const unexplained = latest.verdicts.filter(
     (x) => x.category === "real-defect" && !claims.includes(x),
   );
   if (unexplained.length > 0) {
     limitations.push(
       `${unexplained.length} failure(s) were NOT quarantined — nothing in them is evidence ` +
-        "that the product is at fault (no pattern matched, or they only failed the same way " +
-        "twice): " +
+        "that the product is at fault (no pattern matched, they only failed the same way " +
+        "twice, or the test has never been shown to pass): " +
         unexplained
           .slice(0, 3)
           .map((v) => v.test)
@@ -652,18 +698,30 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
     if (!c.ok) continue;
     const path = String(c.args["path"] ?? "");
     if (!/\.(spec|test)\.[cm]?[jt]sx?$/i.test(path)) continue;
+    // An in-place edit counts as an edit too: the heal agent repairs with
+    // fs.replace_in_file, and reading only whole-file writes saw no edit at
+    // all and reported a kept claim as lost (20261018T125846Z).
+    const edited =
+      c.toolName === "fs.replace_in_file" && previous !== undefined
+        ? c.args["all"] === true
+          ? previous.split(String(c.args["old"] ?? "")).join(String(c.args["new"] ?? ""))
+          : previous.replace(String(c.args["old"] ?? ""), String(c.args["new"] ?? ""))
+        : undefined;
     const text =
       c.toolName === "fs.write_file"
         ? String(c.args["content"] ?? "")
-        : typeof asRecord(c.result)?.["content"] === "string"
-          ? String(asRecord(c.result)?.["content"])
-          : undefined;
+        : edited !== undefined
+          ? edited
+          : typeof asRecord(c.result)?.["content"] === "string"
+            ? String(asRecord(c.result)?.["content"])
+            : undefined;
     if (text === undefined) continue;
-    if (c.toolName === "fs.write_file" && previous !== undefined && previous !== text) {
+    const isWrite = c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file";
+    if (isWrite && previous !== undefined && previous !== text) {
       sawEdit = true;
-      const was = assertionsOf(testsByTitle(previous).get(title) ?? "");
-      const now = new Set(assertionsOf(testsByTitle(text).get(title) ?? ""));
-      if (was.some((a) => !now.has(a))) return false;
+      const was = testsByTitle(previous).get(title) ?? "";
+      const now = testsByTitle(text).get(title) ?? "";
+      if (droppedClaims(was, now, events).length > 0) return false;
     }
     previous = text;
   }
@@ -685,8 +743,9 @@ function quarantineDrift(history: TriagePayload[]): Array<{
   // attempt would let a test drift across three attempts unnoticed.
   const baseline = new Map<string, string>();
   for (const attempt of history.slice(0, -1)) {
+    const frozen = new Set((attempt.quarantined ?? []).map(titleOf));
     for (const v of attempt.verdicts) {
-      if (quarantines(v) && !baseline.has(v.test)) baseline.set(v.test, v.evidence);
+      if (frozen.has(titleOf(v.test)) && !baseline.has(v.test)) baseline.set(v.test, v.evidence);
     }
   }
 
@@ -719,4 +778,30 @@ function lastRunWasFiltered(events: AnyRunEvent[]): boolean {
   const runs = completedCalls(events).filter((c) => c.toolName === "pw.run_tests");
   const last = runs[runs.length - 1];
   return last !== undefined && !isFullRun(last.args);
+}
+
+/**
+ * A test that passed in an earlier full run of this run and fails only since
+ * it was edited is the test's fault: the product did not change between those
+ * runs. 20261019T155404Z classified such a failure "looks like a product
+ * defect" three times, and the agent proposed three bugs for it.
+ */
+export function applyEditRegression<
+  T extends { test: string; category: string; confidence: number; rationale: string },
+>(verdicts: T[], events: AnyRunEvent[]): T[] {
+  const regressed = regressedByEdit(events);
+  if (regressed.size === 0) return verdicts;
+  return verdicts.map((v) =>
+    v.category === "real-defect" && regressed.has(titleOf(v.test))
+      ? {
+          ...v,
+          category: "flake",
+          confidence: 0.9,
+          rationale:
+            `${EDIT_REGRESSION_RATIONALE}: the product did not change between the run where it ` +
+            "passed and this one, the test did. Compare the test with the version that passed and " +
+            "repair the edit; this is not evidence about the product.",
+        }
+      : v,
+  );
 }

@@ -88,7 +88,7 @@ export function chooseRoute(input: RouteInput): RouteDecision {
       stop:
         "no Playwright framework in this workspace: no playwright.config.ts with tests beside " +
         "it. A run tests automation that exists; creating a framework is a separate, approved " +
-        "action (aqa init-framework). If the suite lives elsewhere, point --workspace at it.",
+        "action (npm init playwright@latest). If the suite lives elsewhere, point --workspace at it.",
     };
 
   const featurePath = facts ? featurePathFor(facts) : undefined;

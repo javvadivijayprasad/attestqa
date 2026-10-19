@@ -75,6 +75,12 @@ export interface PlaywrightServerOptions {
    * "webkit" or "chromium" (Playwright's bundled build).
    */
   browser?: string;
+  /**
+   * Where the server saves screenshots and page snapshots. Left unset, it
+   * writes them into whatever directory attestqa was started from — a run
+   * started in packages/core left home-page-*.png files in the source tree.
+   */
+  outputDir?: string;
 }
 
 export function playwrightServer(opts: PlaywrightServerOptions = {}): ServerSpec {
@@ -84,6 +90,7 @@ export function playwrightServer(opts: PlaywrightServerOptions = {}): ServerSpec
   args.push("--browser", opts.browser ?? "chrome");
   const origins = originsOf(opts.allowedOrigins ?? []);
   if (origins.length > 0) args.push("--allowed-origins", origins.join(";"));
+  if (opts.outputDir) args.push("--output-dir", opts.outputDir);
   return { name: "playwright", command: npxCommand(), args };
 }
 
