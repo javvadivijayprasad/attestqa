@@ -129,3 +129,22 @@ describe("the reviewer reads one sentence, not the agent's instructions", () => 
     );
   });
 });
+
+describe("which failing test a held bug is about", () => {
+  it("matches by criterion label, by the name before the colon, and not at all otherwise", async () => {
+    const { bugIsAbout } = await import("../src/triage/settle.js");
+    const failing = [
+      "AC-story Home page passes accessibility checks",
+      "AC-2 Home page lists rooms with type, picture and booking link",
+    ];
+    expect(bugIsAbout("AC-2: rooms have no picture", failing[1] as string, failing)).toBe(true);
+    expect(
+      bugIsAbout(
+        "AC-story Home page: insufficient colour contrast on footer links and date inputs",
+        failing[0] as string,
+        failing,
+      ),
+    ).toBe(true);
+    expect(bugIsAbout("Something unrelated entirely", failing[0] as string, failing)).toBe(false);
+  });
+});

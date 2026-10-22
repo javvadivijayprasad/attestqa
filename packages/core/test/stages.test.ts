@@ -11,7 +11,7 @@ const ev = (kind: string, payload: Record<string, unknown>): AnyRunEvent =>
     timestamp: 1,
     kind,
     payload,
-  }) as unknown as AnyRunEvent;
+  } as unknown as AnyRunEvent);
 const call = (server: string, toolName: string, args: Record<string, unknown> = {}) =>
   ev("call", { server, toolName, args, startedAt: 0 });
 
@@ -130,7 +130,7 @@ describe("the report links what was filed and shows the evidence", () => {
         eventId: ++id,
         kind,
         payload,
-      }) as unknown as import("../src/types.js").AnyRunEvent;
+      } as unknown as import("../src/types.js").AnyRunEvent);
     const out: string[] = [];
     const call = (
       server: string,
@@ -182,5 +182,44 @@ describe("the report links what was filed and shows the evidence", () => {
       "TOOL-30  https://x.atlassian.net/browse/TOOL-30  (2 files attached: screenshot/trace)",
     );
     expect(text).toContain("Test cases    : TOOL-22  https://x.atlassian.net/browse/TOOL-22");
+  });
+});
+
+describe("a failing test whose bug was filed is not an open decision (20261021T232323Z)", () => {
+  const held = {
+    done: true,
+    gaps: [],
+    limitations: [
+      '"AC-story Home page passes accessibility checks" fails, and a bug about it is put to the reviewer at the end of the run',
+    ],
+  };
+  it("lists nothing under 'Needs your decision' once the bug is filed", () => {
+    const bug = {
+      toolName: "ado.wit_work_item_write",
+      args: { action: "create", workItemType: "Bug" },
+    };
+    const filed = call("ado", "wit_work_item_write", bug.args);
+    const out = play([
+      ev("route", { path: "B" }),
+      ev("verify", held),
+      ev("approval_requested", { approvalId: "b", calls: [bug] }),
+      filed,
+      ev("observation", { eventIdOfCall: filed.eventId, ok: true, result: { id: 127 } }),
+      ev("end", { status: "done", summary: "" }),
+    ]);
+    expect(out).toContain("Defects found : 1 filed");
+    expect(out).not.toContain("Needs your decision");
+  });
+
+  it("keeps it open, plainly worded, when the bug was not filed", () => {
+    const out = play([
+      ev("route", { path: "B" }),
+      ev("verify", held),
+      ev("end", { status: "blocked", summary: "" }),
+    ]);
+    expect(out).toContain("Needs your decision (1)");
+    expect(out).toContain(
+      "AC-story Home page passes accessibility checks — still failing; its bug was not filed",
+    );
   });
 });

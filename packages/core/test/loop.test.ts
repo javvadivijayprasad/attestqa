@@ -766,6 +766,64 @@ describe("bug proposals wait for the end of the run", () => {
     expect(approver.asked[0]?.note).toContain("AC-1 signs in");
     expect(t.calls.map((c) => c.toolName)).toContain("ado.wit_work_item_write");
   });
+
+  // 20261020T232150Z: a red test may end a run "done" only because a bug about
+  // it is held for the reviewer. Denied, nothing is reported and red stays red.
+  it("ends blocked, not done, when the reviewer files none of the held bugs", async () => {
+    const t = tools()
+      .add(
+        {
+          server: "ado",
+          name: "wit_work_item_write",
+          description: "",
+          inputSchema: {},
+          policyClass: "write_record",
+        },
+        { ok: true, result: { id: 99 }, artefacts: [] },
+      )
+      .add(
+        {
+          server: "pw",
+          name: "run_tests",
+          description: "",
+          inputSchema: {},
+          policyClass: "write_workspace",
+        },
+        {
+          ok: true,
+          result: {
+            passed: 0,
+            failed: 1,
+            skipped: 0,
+            green: false,
+            tests: [{ title: "AC-1 signs in", status: "failed" }],
+          },
+          artefacts: [],
+        },
+      );
+    const approver = new ScriptedApprover([], { decision: "denied", by: "t", at: "" });
+    const d = deps(
+      [
+        { calls: [{ toolName: "pw.run_tests", args: {} }], usage: u },
+        { calls: [{ toolName: bugCall.toolName, args: bugCall.args }], usage: u },
+        goal,
+      ],
+      {
+        tools: t,
+        approver,
+        skill: {
+          ...skill(),
+          allowedTools: ["s.read", "ado.wit_work_item_write", "pw.run_tests"],
+          workItem: "1",
+        },
+      },
+    );
+    const r = await runLoop(d);
+    expect(approver.asked).toHaveLength(1);
+    expect(t.calls.map((c) => c.toolName)).not.toContain("ado.wit_work_item_write");
+    expect(r.status).toBe("blocked");
+    expect(r.summary).toContain("none of the bugs");
+  });
 });
 
 describe("pinned arguments: the runtime, not the model, chooses the project", () => {

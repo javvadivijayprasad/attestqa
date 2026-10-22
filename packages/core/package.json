@@ -1,6 +1,6 @@
 {
   "name": "attestqa",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "attestqa: a governed QA runtime. A model chooses tools over MCP inside a governance gate that refuses to weaken a test; every step is written to a replayable ledger, and the report is counted from the ledger, not from the model's account of itself.",
   "license": "MIT",
   "author": "Vijay P. Javvadi <jvijayprasad@gmail.com>",

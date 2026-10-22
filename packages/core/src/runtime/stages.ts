@@ -62,6 +62,7 @@ export class StageTracker {
   private analysis = "";
   private forReviewer: string[] = [];
   private forReview: string[] = [];
+  private heldForBug: string[] = [];
   /** Filed bugs and the QA record, with the links a person opens. */
   private filed: Array<{ key: string; url: string; attached: number }> = [];
   private qaRecord: { key: string; url: string } | undefined;
@@ -249,7 +250,14 @@ export class StageTracker {
         // What the run hands to a person: failures that used up their repairs,
         // and quarantined defect candidates (triage/quarantine.ts).
         const lim = Array.isArray(p["limitations"]) ? (p["limitations"] as string[]) : [];
+        // A failing test with a bug held for the reviewer is listed with the
+        // bugs, not as an open decision: once the bug is filed there is
+        // nothing left to decide (20261021T232323Z said "needs your decision"
+        // under bug #127, filed a line above).
+        const heldForBug = /^"(.*)" fails, and a bug about it is put to the reviewer/;
+        this.heldForBug = lim.map((l) => heldForBug.exec(l)?.[1]).filter((t): t is string => !!t);
         this.forReviewer = lim
+          .filter((l) => !heldForBug.test(l))
           .filter((l) => /put to the reviewer|Triaged as a product defect/.test(l))
           .map((l) => l.split(" — ")[0]?.replace(/^"|"$/g, "") ?? l);
         // Tests weaker or broader than the design, after one fix attempt.
@@ -315,6 +323,11 @@ export class StageTracker {
           );
           for (const t of this.forReview) out.push(`       - ${t}`);
         }
+        // Held bugs that were not filed leave their tests red with nothing
+        // reported: that IS a decision still open.
+        const unfiled = this.bugsFiled === 0 ? this.heldForBug : [];
+        for (const t of unfiled)
+          this.forReviewer.push(`${t} — still failing; its bug was not filed`);
         if (this.forReviewer.length > 0) {
           out.push(`     Needs your decision (${this.forReviewer.length}):`);
           for (const t of this.forReviewer) out.push(`       - ${t}`);

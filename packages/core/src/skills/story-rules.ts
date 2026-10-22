@@ -333,7 +333,7 @@ export function coveredCriteria(
   // Test cases READ this run — the preflight reads the story's existing ones.
   for (const c of successful(calls, "ado.wit_work_item", "get_batch")) {
     const rec = asRecord(c.result);
-    const items = asArray(rec ? (rec["value"] ?? rec["workItems"]) : payloadOf(c.result));
+    const items = asArray(rec ? rec["value"] ?? rec["workItems"] : payloadOf(c.result));
     for (const w of items) {
       const f = asRecord(asRecord(w)?.["fields"]) ?? {};
       if (f["System.WorkItemType"] !== "Test Case") continue;
@@ -886,7 +886,9 @@ function missingKindTags(
   }
   if (missing.length === 0) return;
   return (
-    `these scenarios' type/technique tags do not match the approved design: ${missing.join("; ")}. ` +
+    `these scenarios' type/technique tags do not match the approved design: ${missing.join(
+      "; ",
+    )}. ` +
     "Each scenario carries the type and technique of the design item named in its @design tag, " +
     "exactly as approved — if the scenario is really a different kind of test, it belongs to a " +
     "different design item. Change only these tags and write the file again."
@@ -906,11 +908,16 @@ function untaggedTestCase(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
 ): string | undefined {
+  // Only where a tool can carry tags. ado.testplan_test_case_write has no tags
+  // field and rejects any field it does not list, so demanding tags there was a
+  // rule no run could satisfy: AB#91 in 20261020T200144Z proposed its four
+  // cases twice and stopped on no progress (attestqa 2.0.0). Such a case is
+  // traced by its TestedBy link to the story, and the run's results comment
+  // names it.
   const isCase =
-    (call.toolName === "ado.testplan_test_case_write" && call.args["action"] === "create") ||
-    (call.toolName === "ado.wit_work_item_write" &&
-      call.args["action"] === "create" &&
-      String(call.args["workItemType"] ?? "") === "Test Case");
+    call.toolName === "ado.wit_work_item_write" &&
+    call.args["action"] === "create" &&
+    String(call.args["workItemType"] ?? "") === "Test Case";
   if (!isCase) return;
   const facts = storyFacts(events);
   const story = facts?.story?.id;
@@ -1863,7 +1870,14 @@ function writeOnExecutePath(
     );
   if (before === undefined || before === after) return;
 
-  const gone = removedLines(before, after).filter((l) => !isComment(l));
+  // Lines this run itself put in can be taken out again. 20261020T230547Z
+  // (AB#91): sent to scope an accessibility scan, the agent added
+  // `.include("main")` to a page with no <main>, broke a working test, and
+  // every attempt to undo it was refused here as softening. What the run
+  // found in the file is protected; what it added a minute ago is its own
+  // draft. The weakening guards still judge every assertion it touches.
+  const ownLines = linesAddedThisRun(path, events);
+  const gone = removedLines(before, after).filter((l) => !isComment(l) && !ownLines.has(l));
   // An assertion is a claim even when it names a locator. "Contains a locator"
   // used to make any line repairable, so `expect(page.getByText("x"))…` could be
   // deleted on the execute path (20261013T160220Z: the D19 check was rewritten
@@ -1877,7 +1891,7 @@ function writeOnExecutePath(
   );
   const unrepairable = gone.filter((l) => {
     if (/\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l)) return !claimsAfter.has(claimOf(l));
-    return !LOCATOR_EXPR.test(l) && !CATCHES.test(l);
+    return !LOCATOR_EXPR.test(l) && !CATCHES.test(l) && !SCAN_SCOPE.test(l);
   });
   if (unrepairable.length === 0) return;
   return (
@@ -1933,6 +1947,13 @@ function claimOf(line: string): string {
 }
 
 const LOCATOR_EXPR = /getBy[A-Z]\w*\s*\(|\.locator\s*\(|frameLocator\s*\(|\$\$?\s*\(/;
+/**
+ * The region an accessibility scan covers: a locator by another name. A
+ * selector that matches nothing fails the scan before it checks anything, and
+ * moving it is repair (20261020T230547Z: `.include("main")` on a page with no
+ * <main> was left on disk, and the next run could not change it).
+ */
+const SCAN_SCOPE = /^\s*\.(include|exclude)\s*\(/;
 
 /**
  * A write whose only change is prose, while a test is failing.
@@ -2002,6 +2023,24 @@ function changedLines(before: string, after: string): string[] {
 }
 
 /** Lines `before` had that `after` does not — what the write takes away. */
+/**
+ * The trimmed lines this run added to a file through its own successful
+ * in-place edits. Only `fs.replace_in_file` is counted: its `old` and `new`
+ * say exactly what changed, so nothing has to be inferred.
+ */
+function linesAddedThisRun(path: string, events: AnyRunEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of completedCalls(events)) {
+    if (!c.ok || c.toolName !== "fs.replace_in_file") continue;
+    if (String(c.args["path"] ?? "") !== path) continue;
+    const o = c.args["old"];
+    const n = c.args["new"];
+    if (typeof o !== "string" || typeof n !== "string") continue;
+    for (const l of removedLines(n, o)) out.add(l);
+  }
+  return out;
+}
+
 function removedLines(before: string, after: string): string[] {
   const kept = new Map<string, number>();
   for (const l of after.split("\n")) {
@@ -2102,8 +2141,12 @@ function editsAPassingTest(
   });
   if (touched.length === 0) return;
   return (
-    `${touched.map((t) => `"${t}"`).join(", ")} passed in the last full run, and this write changes ` +
-    `${touched.length === 1 ? "it" : "them"}. Leave passing tests exactly as they are and change only ` +
+    `${touched
+      .map((t) => `"${t}"`)
+      .join(", ")} passed in the last full run, and this write changes ` +
+    `${
+      touched.length === 1 ? "it" : "them"
+    }. Leave passing tests exactly as they are and change only ` +
     `the failing ${failing.length === 1 ? "test" : "tests"}: ${failing
       .map((t) => `"${t}"`)
       .join(", ")}. Use fs.replace_in_file on the failing test's lines alone.`
@@ -2137,7 +2180,9 @@ function repairsExhausted(
   });
   if (touched.length === 0) return;
   return (
-    `${touched.map((t) => `"${t}"`).join(", ")} still failed after each of ${MAX_REPAIRS_PER_TEST} ` +
+    `${touched
+      .map((t) => `"${t}"`)
+      .join(", ")} still failed after each of ${MAX_REPAIRS_PER_TEST} ` +
     "repairs. Stop changing it: leave it exactly as it is and it will be put to the reviewer " +
     "at the end of the run, as a test problem or a possible defect, with the failure quoted. Work on " +
     "any other failing test, or finish."
@@ -2210,7 +2255,7 @@ function claimNotInDesign(
     const said = items
       .map((it) => {
         const n = /AC-?(\d+)/i.exec(it.covers)?.[1];
-        const ac = n !== undefined ? (facts?.acceptanceCriteria[Number(n) - 1] ?? "") : "";
+        const ac = n !== undefined ? facts?.acceptanceCriteria[Number(n) - 1] ?? "" : "";
         return `${it.expected} ${it.conditions.join(" ")} ${ac}`;
       })
       .join(" ");

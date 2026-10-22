@@ -585,7 +585,8 @@ function firstError(spec: { tests?: Array<{ results?: unknown[] }> }): string {
       // of a coloured one began "…22m failed" — escape-code debris.
       if (!err?.message) continue;
       const clean = (m: string) => withoutBrowserLogs(stripAnsi(m));
-      const first = head(clean(err.message), 600);
+      const axe = axeSummary(clean(err.message));
+      const first = axe ?? head(clean(err.message), 600);
       // On a TEST timeout, Playwright's first error is only "Test timeout of
       // 30000ms exceeded." — the action that was stuck, and the locator it was
       // waiting for, are in a later entry of `errors`. Without it the heal step
@@ -599,6 +600,84 @@ function firstError(spec: { tests?: Array<{ results?: unknown[] }> }): string {
     }
   }
   return "";
+}
+
+/**
+ * An axe scan's failure, said in one paragraph: each rule, its impact, the
+ * elements it failed on and — for colour contrast — the measured and required
+ * ratios. The raw message is the violations array printed as JSON, and its
+ * first 600 characters held only the first rule's tag list, so the agent,
+ * triage and the bug it filed never saw which elements failed (AB#91 in
+ * 20261021T232323Z: bug #127 said "one or more text elements").
+ */
+export function axeSummary(message: string): string | undefined {
+  const at = message.search(/axe violations:\s*\[/i);
+  if (at < 0) return undefined;
+  const start = message.indexOf("[", at);
+  const json = balanced(message, start);
+  if (!json) return undefined;
+  let violations: unknown;
+  try {
+    violations = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(violations)) return undefined;
+  const parts = violations.map((v) => {
+    const r = v as {
+      id?: unknown;
+      impact?: unknown;
+      nodes?: Array<{ target?: unknown; any?: Array<{ data?: Record<string, unknown> }> }>;
+    };
+    const nodes = Array.isArray(r.nodes) ? r.nodes : [];
+    const targets = nodes
+      .map((n) => (Array.isArray(n.target) ? n.target.map(String).join(" ") : ""))
+      .filter(Boolean);
+    const ratios = [
+      ...new Set(
+        nodes.flatMap((n) =>
+          (n.any ?? [])
+            .map((c) => c.data)
+            .filter((d): d is Record<string, unknown> => !!d && d["contrastRatio"] !== undefined)
+            .map(
+              (d) =>
+                `${String(d["contrastRatio"])}:1 (needs ${String(
+                  d["expectedContrastRatio"] ?? "?",
+                )})`,
+            ),
+        ),
+      ),
+    ];
+    const shown =
+      targets.slice(0, 8).join(", ") + (targets.length > 8 ? `, +${targets.length - 8} more` : "");
+    return (
+      `${String(r.id ?? "?")} (${String(r.impact ?? "?")}) on ${targets.length} element(s)` +
+      (shown ? `: ${shown}` : "") +
+      (ratios.length > 0 ? `; contrast ${ratios.join(", ")}` : "")
+    );
+  });
+  return `Error: axe violations — ${parts.join(" | ")}`;
+}
+
+/** The bracketed JSON starting at `start`, or undefined if it never closes. */
+function balanced(text: string, start: number): string | undefined {
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (ch === "\\") i++;
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    else if (ch === "[" || ch === "{") depth++;
+    else if (ch === "]" || ch === "}") {
+      depth--;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return undefined;
 }
 
 /**

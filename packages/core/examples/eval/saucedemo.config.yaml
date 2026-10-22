@@ -1,7 +1,7 @@
 # attestqa evaluation (research/EVALUATION_PLAN.md) - SauceDemo, tracker Azure DevOps (project attestqa-saucedemo).
 # Backlog: scripts/ado-seed/saucedemo.json. Run from packages/core:
-#   node dist/cli.js run "Write tests for <id>" --config examples/eval/saucedemo.config.yaml \
-#     --workspace ../../TestRunApplication/saucedemo --env .env.saucedemo,.env
+#   node dist/cli.js run "Write tests for AB#<id>" --config examples/eval/saucedemo.config.yaml \
+#     --workspace ../../TestRunApplication/saucedemo --env ".env.saucedemo,.env"   # quoted: PowerShell splits on an unquoted comma
 # .env.saucedemo (git-ignored; template: examples/eval/env.saucedemo.example) holds this app's
 # project and test account; .env holds the shared keys. The first file to set a variable wins.
 #

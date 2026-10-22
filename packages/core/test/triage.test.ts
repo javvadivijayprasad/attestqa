@@ -1342,3 +1342,12 @@ describe("a test broken by an edit in this run is the test's fault (20261019T155
     );
   });
 });
+
+describe("an accessibility scan scoped to nothing is the test's fault (20261020T230547Z)", () => {
+  it("matches the axe error as test code, not a defect", async () => {
+    const { TEST_CODE_ERROR } = await import("../src/triage/patterns.js");
+    const msg =
+      "Error: frame.evaluate: Error: No elements found for include in page Context at validateContext";
+    expect(TEST_CODE_ERROR.some((p) => p.re.test(msg))).toBe(true);
+  });
+});

@@ -135,7 +135,9 @@ export function settleBugs(
       drop.push({
         call,
         reason:
-          `its test (${regressedHere.map((t) => `"${titleOfTest(t)}"`).join(", ")}) passed earlier in this run ` +
+          `its test (${regressedHere
+            .map((t) => `"${titleOfTest(t)}"`)
+            .join(", ")}) passed earlier in this run ` +
           "and fails only since it was edited — the edit is the suspect, not the product",
       });
       continue;
@@ -180,7 +182,9 @@ export function settleBugs(
       const field = call.toolName === view.toolName ? "parentId" : "storyKey";
       drop.push({
         call,
-        reason: `it is not linked to story ${opts.workItem} (${field} ${linkedTo ? `is ${linkedTo}` : "missing"})`,
+        reason: `it is not linked to story ${opts.workItem} (${field} ${
+          linkedTo ? `is ${linkedTo}` : "missing"
+        })`,
       });
       continue;
     }
@@ -200,8 +204,9 @@ export function settleBugs(
       drop.push({
         call,
         reason:
-          `its account of its own test is wrong: it claims ${false_.join("; ")}, and the spec does not. ` +
-          "Fix the test or the reasoning, then propose it again",
+          `its account of its own test is wrong: it claims ${false_.join(
+            "; ",
+          )}, and the spec does not. ` + "Fix the test or the reasoning, then propose it again",
       });
       continue;
     }
@@ -240,7 +245,9 @@ export function settleBugs(
       keep.splice(keep.indexOf(call), 1);
       drop.push({
         call,
-        reason: `"${bugTitle(first)}" is already proposed for the same failing test — one bug per failing test`,
+        reason: `"${bugTitle(
+          first,
+        )}" is already proposed for the same failing test — one bug per failing test`,
       });
     } else byTest.set(key, call);
   }
@@ -405,7 +412,22 @@ function selfDoubt(call: ProposedCall): string | undefined {
  * the failing test whose title shares the most words with the bug's own.
  */
 function testKey(call: ProposedCall, candidates: string[]): string {
-  const title = bugTitle(call);
+  return testKeyForTitle(bugTitle(call), candidates);
+}
+
+/**
+ * Whether a bug titled `title` is about the failing test `test`, by the same
+ * reading `settleBugs` uses: the criterion label both carry, the name before
+ * the bug title's colon, or a clear lead in shared words.
+ */
+export function bugIsAbout(title: string, test: string, candidates: string[]): boolean {
+  const key = testKeyForTitle(title, candidates);
+  if (key === test) return true;
+  const labels = acLabels(test).sort().join(",");
+  return labels !== "" && key === labels;
+}
+
+function testKeyForTitle(title: string, candidates: string[]): string {
   const labels = acLabels(title);
   if (labels.length > 0) return labels.sort().join(",");
 

@@ -2,9 +2,17 @@ import { isBugCreate } from "../governance/bug-view.js";
 import { Ledger, sha256 } from "../ledger/ledger.js";
 import { renderMarkdown } from "../ledger/replay.js";
 import type { Gate, GateVerdict } from "../governance/policy.js";
-import type { AgentConfig, PreflightRead, RunStatus, Skill, VerifyPayload } from "../types.js";
+import type {
+  AgentConfig,
+  AnyRunEvent,
+  PreflightRead,
+  RunStatus,
+  Skill,
+  VerifyPayload,
+} from "../types.js";
 import { triageAction } from "../triage/step.js";
-import { bugTitle, settleBugs } from "../triage/settle.js";
+import { bugTitle, lastFullRun, settleBugs } from "../triage/settle.js";
+import { asRecord, completedCalls } from "../verify/evidence.js";
 import { EXIT_CODES } from "../types.js";
 import type { Approver } from "./approval.js";
 import { summarizeCalls } from "./approval.js";
@@ -146,6 +154,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
    * — see `settleBugs` for the run that made this necessary.
    */
   const deferredBugs: ProposedCall[] = [];
+  /** Whether any bug was still held when execution finished (see `finish`). */
+  let heldAtEnd = false;
   let byName = new Map<string, ToolDescriptor>();
   /** Every tool the skill allows, whatever role is active (see runtimeCall). */
   let skillTools = new Map<string, ToolDescriptor>();
@@ -153,6 +163,7 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   /** Settle held bug proposals against the FINAL result, then ask once. */
   async function settleDeferredBugs(): Promise<void> {
     if (deferredBugs.length === 0) return;
+    heldAtEnd = true;
     const pending = deferredBugs.splice(0);
     const s = settleBugs(pending, ledger.read(), {
       ...(skill.workItem !== undefined ? { workItem: skill.workItem } : {}),
@@ -459,10 +470,26 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     // Execution is over, whatever the reason: now, and only now, is there a
     // final result to judge a proposed bug against.
     if (status !== "error") {
+      const filedBefore = bugsFiled(ledger.read());
       try {
         await settleDeferredBugs();
       } catch {
         /* a failure here must not lose the end-of-run record */
+      }
+      // A run may end "done" with red tests because bugs about them were held
+      // for the reviewer (verify/story-to-tests.ts). If none was filed — every
+      // one denied, or dropped against the final result — the tests are red
+      // with nothing reported, and the run did not finish.
+      if (
+        status === "done" &&
+        heldAtEnd &&
+        bugsFiled(ledger.read()) === filedBefore &&
+        !finalRunGreen(ledger.read())
+      ) {
+        status = "blocked";
+        summary =
+          "the suite is red and none of the bugs proposed for its failing tests was filed; " +
+          "the failures stay with the reviewer";
       }
       // Last of all, so the report can say how the bug decision went.
       try {
@@ -1239,6 +1266,18 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
  * the manifest already confines it to "create" + "Bug". This is the loop
  * recognising the same shape so it can keep the question separate.
  */
+/** Bug creations that went through, counted from the ledger. */
+function bugsFiled(events: AnyRunEvent[]): number {
+  return completedCalls(events).filter(
+    (c) => c.ok && isBugCreate({ toolName: c.toolName, args: c.args }),
+  ).length;
+}
+
+/** Whether the last unfiltered suite run was green. */
+function finalRunGreen(events: AnyRunEvent[]): boolean {
+  return asRecord(lastFullRun(events)?.result)?.["green"] === true;
+}
+
 function isBugCreation(call: ProposedCall): boolean {
   // Either tracker: a Jira bug is held and asked about exactly like an ADO one.
   return isBugCreate(call);

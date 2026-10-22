@@ -800,10 +800,9 @@ ${
      - already covered, steps now wrong → ado.testplan_test_case_write with
        action "update_steps" and that case's id;
      - not covered → ado.testplan_test_case_write with action "create", passing
-       title, steps, testsWorkItemId = ${workItem}, and tags:
-       "agentic-qa; story-${workItem}; epic-<epic id>". The tags are how anyone
-       later tells a case a run recorded from one a person wrote, and which
-       story and epic it belongs to; a case without them is refused.
+       title, steps and testsWorkItemId = ${workItem}. That tool has no tags
+       field, so pass none; the link to the story is the case's trace, and the
+       run's results comment lists the cases it created.
    Titles are not a reliable key: the same criterion gets worded differently
    each run, so match on what the criterion MEANS, not on the text. A run that
    creates nothing because everything is already covered is a successful run —

@@ -311,8 +311,12 @@ export function triageAction(
         "compare it with the approved design item and with what the page snapshot shows. Fix " +
         "it if it reads the wrong element, reads before the page has loaded (use a retrying " +
         "expect), or asserts something the design does not say. Do NOT change an expected value " +
-        "the design itself specifies, and do not touch tests that pass. If it still fails, leave " +
-        "it red — it is put to the reviewer at the end of the run, not filed as a bug by you.",
+        "the design itself specifies, and do not touch tests that pass. If the test now reads " +
+        "the right element at the right time and checks only what the design says, and it still " +
+        "fails on what the product shows, propose a bug with the tracker's bug tool: say which " +
+        "test, what it expected, what the product did, and the evidence (for an accessibility " +
+        "scan: the rule, the elements and the measured values). A person decides on it at the end " +
+        "of the run. A locator that matches nothing or a test that cannot parse is never a bug.",
     );
 
   const repairable = payload.verdicts.filter(
@@ -711,10 +715,10 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
       c.toolName === "fs.write_file"
         ? String(c.args["content"] ?? "")
         : edited !== undefined
-          ? edited
-          : typeof asRecord(c.result)?.["content"] === "string"
-            ? String(asRecord(c.result)?.["content"])
-            : undefined;
+        ? edited
+        : typeof asRecord(c.result)?.["content"] === "string"
+        ? String(asRecord(c.result)?.["content"])
+        : undefined;
     if (text === undefined) continue;
     const isWrite = c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file";
     if (isWrite && previous !== undefined && previous !== text) {

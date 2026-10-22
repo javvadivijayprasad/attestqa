@@ -1,13 +1,13 @@
 import type { PreflightDigest, PreflightRead } from "../types.js";
 import { asArray, asRecord } from "../verify/evidence.js";
 import { QA_SUMMARY_PREFIX } from "../report/qa-record.js";
-import { acLabels } from "../triage/settle.js";
 import { featurePathFor, specPathFor, type StoryFacts } from "../design/test-design.js";
 import { KNOWN_BROKEN_STATE, normId, type TrackerId } from "../design/ids.js";
 import { renderProfile, surveyFramework } from "../framework/survey.js";
 import {
   STATE_MEANING,
   clean,
+  criteriaLabels,
   indent,
   isAgentBug,
   isRunReport,
@@ -122,15 +122,7 @@ export async function gatherJiraStoryContext(
       "  only use what is written down: the description, the sub-tasks, the comments and the bugs.",
       "  How the application happens to behave is not a requirement.",
     );
-  facts.acceptanceCriteria = [
-    ...new Set(
-      ac
-        .split("\n")
-        .map((l) => /^\s*[-*]?\s*(AC[- ]?\d+[a-z]?)\s*[:.)\-–—]/i.exec(l)?.[1])
-        .filter((x): x is string => !!x)
-        .flatMap((x) => acLabels(x)),
-    ),
-  ];
+  facts.acceptanceCriteria = criteriaLabels(ac);
   // The description minus the criteria section already shown.
   const desc = clean(
     str(s["acceptanceCriteriaSource"]) === "description"

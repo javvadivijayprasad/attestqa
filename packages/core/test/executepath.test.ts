@@ -295,3 +295,62 @@ describe("a truncated read is not a read", () => {
     expect(why).toContain("lines 40–80");
   });
 });
+
+describe("a run may undo its own edit on the execute path (20261020T230547Z)", () => {
+  const AXE = [
+    '  test("AC-story axe", async ({ page }) => {',
+    "    const r = await new AxeBuilder({ page })",
+    '      .withTags(["wcag2a", "wcag2aa"])',
+    "      .analyze();",
+    "    expect(r.violations).toEqual([]);",
+    "  });",
+  ].join("\n");
+  const WITH_MAIN = AXE.replace(
+    '      .withTags(["wcag2a"',
+    '      .include("main")\n      .withTags(["wcag2a"',
+  );
+
+  it("lets it take out a line it added itself", () => {
+    const events = [
+      route("B"),
+      ...readSpec(AXE),
+      ...failedRun(),
+      ...call(
+        "fs.replace_in_file",
+        {
+          path: SPEC,
+          old: '      .withTags(["wcag2a", "wcag2aa"])',
+          new: '      .include("main")\n      .withTags(["wcag2a", "wcag2aa"])',
+        },
+        { replaced: 1 },
+      ),
+    ];
+    const fixed = WITH_MAIN.replace('      .include("main")', '      .include("#rooms")');
+    expect(storyRefusal(write(fixed), events) ?? "").not.toContain("execute path");
+  });
+
+  it("still protects what the run found in the file", () => {
+    const events = [route("B"), ...readSpec(WITH_MAIN), ...failedRun()];
+    const why = storyRefusal(
+      write(WITH_MAIN.replace("    expect(r.violations).toEqual([]);\n", "")),
+      events,
+    );
+    expect(why).toContain("execute path");
+  });
+});
+
+describe("a scan's region is repaired like a locator", () => {
+  it("lets a later run move an include that matches nothing", () => {
+    const AXE = [
+      '  test("AC-story axe", async ({ page }) => {',
+      "    const r = await new AxeBuilder({ page })",
+      '      .include("main")',
+      "      .analyze();",
+      "    expect(r.violations).toEqual([]);",
+      "  });",
+    ].join("\n");
+    const events = [route("B"), ...readSpec(AXE), ...failedRun()];
+    const moved = AXE.replace('.include("main")', '.include("#rooms")');
+    expect(storyRefusal(write(moved), events) ?? "").not.toContain("execute path");
+  });
+});

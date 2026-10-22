@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.1
+
+### Patch Changes
+
+- Azure DevOps test cases are no longer refused for missing tags. The test-plan tool that creates them has no tags field and rejects fields it does not list, so the rule could never be met and every Azure DevOps run stopped there on "no progress". A case created that way is traced by its TestedBy link to the story and listed in the run's results comment; tags are still required where a tool can carry them.
+- Azure DevOps stories whose acceptance criteria are an HTML list (`<ul><li>AC-1: …</li>`) are read correctly again. In 2.0.0 the list bullets hid every label, the story looked as if it had no criteria, and every design item was refused as "not one of the story's criteria ()". Jira and Azure DevOps now read criteria labels with one function. The example configs now show the Azure DevOps story form (`AB#<id>`) and quote the `--env` list, which PowerShell otherwise splits at the comma.
+- A new test that fails on its first run because the product is wrong can now be reported. After checking the test against its design and the page, the agent may propose a bug with the evidence; a person decides at the end of the run, as for any bug. While that bug is held, its failing test counts as reported rather than unfinished, so the run can complete. If the reviewer files none of the held bugs and the suite is still red, the run ends blocked instead of done. Locator and test-code failures can never become bugs.
+- On the execute path a run may now undo or correct a line it added itself earlier in the same run, and may move an accessibility scan's `.include(...)` / `.exclude(...)` region the way it repairs a locator. Before, a run that scoped a scan to a region not on the page (`.include("main")` on a page with no `<main>`) was refused every attempt to put it right and stopped on no progress. Triage now reads axe's "No elements found for include/exclude" as the test's own error, not a possible product defect.
+- An accessibility test's failure now says what failed: each axe rule, its impact, the elements it failed on and, for colour contrast, the measured and required ratios (for example "color-contrast (serious) on 4 element(s): …; contrast 3.42:1 (needs 4.5:1)"). Before, the message was cut to its first 600 characters, which held one rule's tag list and no element, so the agent, triage and any bug it filed could not say which elements failed. The run report no longer lists a failing test under "Needs your decision" once a bug about it has been filed.
+
 ## 2.0.0
 
 ### Major Changes

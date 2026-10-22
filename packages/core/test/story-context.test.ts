@@ -325,3 +325,22 @@ describe("a refused read is reported as a refusal, never as an absence", () => {
     expect(d.summary).toMatchObject({ epicRefused: 1, tasksRefused: 2, openBugsRefused: 4 });
   });
 });
+
+describe("criteria kept as an HTML list (AB#91 in 20261020T195435Z)", () => {
+  it("reads every label, bullet or not", async () => {
+    const { clean, criteriaLabels } = await import("../src/skills/story-context.js");
+    const html =
+      "<ul><li>AC-1: The home page shows the B&amp;B's name and description. </li>" +
+      "<li>AC-2: The home page lists the rooms, each with its type, a picture and a way to book it. </li>" +
+      "<li>AC-3: The home page shows the B&amp;B's contact details: address, phone and email. </li> </ul>";
+    expect(criteriaLabels(clean(html, 4000))).toEqual(["AC-1", "AC-2", "AC-3"]);
+    expect(criteriaLabels("- AC-1: a\n* AC-2: b\n3. AC-3: c\nAC-4: d")).toEqual([
+      "AC-1",
+      "AC-2",
+      "AC-3",
+      "AC-4",
+    ]);
+    // A mention inside another criterion is not a criterion of its own.
+    expect(criteriaLabels("AC-1: unlike AC-9, this one counts")).toEqual(["AC-1"]);
+  });
+});

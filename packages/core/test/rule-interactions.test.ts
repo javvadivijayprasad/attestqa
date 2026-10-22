@@ -114,8 +114,9 @@ describe("run 20261019T155404Z (TOOL-6): the third clean-gate attempt", () => {
   const events = ledger("20261019T155404Z-79a992bf");
 
   it("sends back the static items labelled state-transition at design time", async () => {
-    const { validateDesign, parseDesign, storyFacts } =
-      await import("../src/design/test-design.js");
+    const { validateDesign, parseDesign, storyFacts } = await import(
+      "../src/design/test-design.js"
+    );
     const call = events.find(
       (e) =>
         e.kind === "call" &&
@@ -230,5 +231,28 @@ describe("what the design says about the address counts (rule audit, 19 Oct)", (
     "The account menu shows Logout",
   ])("refuses it when the design says only %s", (expected) => {
     expect(refusedFor(expected)).toMatch(/checks the page address/);
+  });
+});
+
+describe("Booker on Azure DevOps (20 Oct 2026)", () => {
+  // Refused proposals have no call event; judge the model's proposal itself.
+  const proposal = (events: AnyRunEvent[], eventId: number): string | undefined => {
+    const i = events.findIndex((e) => e.eventId === eventId);
+    const p = (events[i] as AnyRunEvent).payload as unknown as Record<string, unknown>;
+    const refuse = makeStoryRefusal({ testTypes: ["functional", "accessibility"] });
+    return refuse(
+      { toolName: String(p["toolName"]), args: asRecord(p["args"]) ?? {} },
+      events.slice(0, i),
+    );
+  };
+
+  it("lets the run create its test cases — the test-plan tool cannot carry tags (200144Z #138)", () => {
+    const events = ledger("20261020T200144Z-7c2e9f8c");
+    expect(proposal(events, 138) ?? "").not.toContain("carries no");
+  });
+
+  it("lets the run take out the scan region it added itself (230547Z #53)", () => {
+    const events = ledger("20261020T230547Z-0e7acbef");
+    expect(proposal(events, 53) ?? "").not.toContain("execute path");
   });
 });

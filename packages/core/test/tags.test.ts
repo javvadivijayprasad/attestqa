@@ -159,26 +159,43 @@ describe("a scenario says what kind of test it is", () => {
   });
 });
 
-describe("a test case says where it came from", () => {
+describe("a test case says where it came from, where the tool can say it", () => {
   const events = ledgerOf([CONTEXT]);
-  const create = (tags?: string) => ({
-    toolName: "ado.testplan_test_case_write",
-    args: { action: "create", title: "AC-1 …", testsWorkItemId: 44, ...(tags ? { tags } : {}) },
+  const viaWorkItem = (tags?: string) => ({
+    toolName: "ado.wit_work_item_write",
+    args: {
+      action: "create",
+      workItemType: "Test Case",
+      fields: { "System.Title": "AC-1 …", ...(tags ? { "System.Tags": tags } : {}) },
+    },
   });
 
-  it("refuses a case with no tags at all", () => {
-    const why = storyRefusal(create(), events);
+  it("refuses a work-item case with no tags at all", () => {
+    const why = storyRefusal(viaWorkItem(), events);
     expect(why).toContain("agentic-qa");
     expect(why).toContain("story-44");
     expect(why).toContain("epic-42");
   });
 
   it("refuses one that is missing only the epic", () => {
-    const why = storyRefusal(create("agentic-qa; story-44"), events);
+    const why = storyRefusal(viaWorkItem("agentic-qa; story-44"), events);
     expect(why).toContain("epic-42");
   });
 
   it("allows a fully tagged case", () => {
-    expect(storyRefusal(create("agentic-qa; story-44; epic-42"), events)).toBeUndefined();
+    expect(storyRefusal(viaWorkItem("agentic-qa; story-44; epic-42"), events)).toBeUndefined();
+  });
+
+  // ado.testplan_test_case_write has no tags field and rejects unknown fields;
+  // demanding tags there stopped AB#91 in 20261020T200144Z on no progress.
+  it("does not ask the test-plan tool for tags it cannot carry", () => {
+    const why = storyRefusal(
+      {
+        toolName: "ado.testplan_test_case_write",
+        args: { action: "create", title: "AC-1 …", steps: "1. a|b", testsWorkItemId: 44 },
+      },
+      events,
+    );
+    expect(why ?? "").not.toContain("carries no");
   });
 });

@@ -97,7 +97,9 @@ export async function gatherStoryContext(
   summary["storyRead"] = 1;
   facts.story = { id, title: str(sf["System.Title"]) };
   out.push(
-    `STORY AB#${id} [${str(sf["System.WorkItemType"])}, ${str(sf["System.State"])}] ${str(sf["System.Title"])}`,
+    `STORY AB#${id} [${str(sf["System.WorkItemType"])}, ${str(sf["System.State"])}] ${str(
+      sf["System.Title"],
+    )}`,
   );
   const ac = clean(sf["Microsoft.VSTS.Common.AcceptanceCriteria"], 4000);
   if (ac) out.push("Acceptance criteria:", indent(ac));
@@ -110,17 +112,7 @@ export async function gatherStoryContext(
       "  only use what is written down: the description, the tasks, the comments and the bugs.",
       "  How the application happens to behave is not a requirement.",
     );
-  // Criteria are the labels at the start of a line ("AC-1: …"), not every
-  // mention of one inside another criterion's text.
-  facts.acceptanceCriteria = [
-    ...new Set(
-      ac
-        .split("\n")
-        .map((l) => /^\s*(AC[- ]?\d+[a-z]?)\s*[:.)\-–—]/i.exec(l)?.[1])
-        .filter((x): x is string => !!x)
-        .flatMap((x) => acLabels(x)),
-    ),
-  ];
+  facts.acceptanceCriteria = criteriaLabels(ac);
   const desc = clean(sf["System.Description"], DESCRIPTION_CHARS);
   if (desc) out.push("Description:", indent(desc));
 
@@ -206,7 +198,9 @@ export async function gatherStoryContext(
         summary["siblingsRead"] = items.length;
         out.push(
           "",
-          `OTHER STORIES UNDER THIS ${str(pf["System.WorkItemType"]).toUpperCase() || "PARENT"} — behaviour ` +
+          `OTHER STORIES UNDER THIS ${
+            str(pf["System.WorkItemType"]).toUpperCase() || "PARENT"
+          } — behaviour ` +
             "that belongs to one of these is NOT this story's to test. If an open bug below is about one " +
             "of them, say so and leave it:",
         );
@@ -215,7 +209,9 @@ export async function gatherStoryContext(
         for (const w of items) {
           const f = asRecord(w["fields"]) ?? {};
           out.push(
-            `  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}] ${str(f["System.Title"])}`,
+            `  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}] ${str(
+              f["System.Title"],
+            )}`,
           );
           const sac = clean(f["Microsoft.VSTS.Common.AcceptanceCriteria"], DESCRIPTION_CHARS);
           if (sac) out.push(indent(sac, 4));
@@ -262,7 +258,9 @@ export async function gatherStoryContext(
     for (const w of items) {
       const f = asRecord(w["fields"]) ?? {};
       out.push(
-        `  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}, ${str(f["System.State"])}] ${str(f["System.Title"])}`,
+        `  #${str(w["id"] ?? f["System.Id"])} [${str(f["System.WorkItemType"])}, ${str(
+          f["System.State"],
+        )}] ${str(f["System.Title"])}`,
       );
       const d = clean(f["System.Description"], DESCRIPTION_CHARS);
       if (d) out.push(indent(d, 4));
@@ -364,7 +362,9 @@ export async function gatherStoryContext(
     out.push(
       `OPEN BUGS — ${humanBugs.length} filed by people` +
         (bugs.length > humanBugs.length
-          ? `; ${bugs.length - humanBugs.length} proposed by this runtime and never confirmed were left out.`
+          ? `; ${
+              bugs.length - humanBugs.length
+            } proposed by this runtime and never confirmed were left out.`
           : "."),
       "Each state asks something different of you:",
     );
@@ -436,7 +436,7 @@ export function relations(item: unknown): Relations {
 /** A get_batch result as a list of work items, whatever envelope it came in. */
 function workItems(result: unknown): Array<Record<string, unknown>> {
   const rec = asRecord(result);
-  const list = rec ? (rec["value"] ?? rec["workItems"]) : result;
+  const list = rec ? rec["value"] ?? rec["workItems"] : result;
   return asArray(list).map((x) => asRecord(x) ?? {});
 }
 
@@ -484,4 +484,25 @@ export function why(result: unknown): string {
     return `outside agent.scope.work_items (${m}). The governance gate refused it; widen the scope in the config if this item should be read.`;
   }
   return m || "the read failed.";
+}
+
+/**
+ * The criterion labels in a story's acceptance criteria: the label at the start
+ * of a line ("AC-1: …"), not every mention of one inside another criterion's
+ * text. A line may start with a list bullet or number, because stripHtml turns
+ * "<li>" into "• " — and Azure DevOps keeps criteria as an HTML list. Without
+ * that, a story whose criteria were all present read as having none, and every
+ * design item was refused as "not one of the story's criteria ()" (AB#91 in
+ * 20261020T195435Z, attestqa 2.0.0).
+ */
+export function criteriaLabels(text: string): string[] {
+  return [
+    ...new Set(
+      text
+        .split("\n")
+        .map((l) => /^\s*(?:[•·*\-–—]\s*|\d+[.)]\s*)?(AC[- ]?\d+[a-z]?)\s*[:.)\-–—]/i.exec(l)?.[1])
+        .filter((x): x is string => !!x)
+        .flatMap((x) => acLabels(x)),
+    ),
+  ];
 }

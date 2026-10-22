@@ -255,6 +255,46 @@ describe("StoryToTestsVerifier", () => {
     expect(gap?.message).toMatch(/4 passed, 2 failed/);
   });
 
+  it("counts a failing test as reported while a bug about it is held for the reviewer", async () => {
+    const ws = tmp();
+    mkdirSync(join(ws, "tests"), { recursive: true });
+    writeFileSync(join(ws, "tests", "a.spec.ts"), "x");
+    const held = {
+      tool: "agentic-qa" as const,
+      runId: "r",
+      timestamp: 1,
+      eventId: 900,
+      kind: "policy",
+      payload: {
+        toolName: "ado.wit_work_item_write",
+        class: "write_record",
+        decision: "refuse",
+        reason:
+          'deferred until execution finishes: "AC-2: rooms show no picture" is recorded and will be put to the reviewer at the end of the run',
+      },
+    } as unknown as AnyRunEvent;
+    const events = ledger(
+      [
+        { tool: "ado.wit_work_item", args: { action: "get", id: 1, expand: "Relations" } },
+        { tool: "bdd2pw.to_spec", artefacts: ["tests/a.spec.ts"] },
+        {
+          tool: "pw.run_tests",
+          result: {
+            passed: 4,
+            failed: 1,
+            skipped: 0,
+            green: false,
+            failures: [{ title: "AC-2 rooms" }],
+          },
+        },
+      ],
+      [held],
+    );
+    const v = await verify(events, ws);
+    expect(v.gaps.find((g) => g.code === "suite-not-green")).toBeUndefined();
+    expect((v.limitations ?? []).join(" ")).toContain("put to the reviewer at the end of the run");
+  });
+
   it("uses the LAST run, so a green re-run after a red one counts", async () => {
     const ws = tmp();
     const events = [

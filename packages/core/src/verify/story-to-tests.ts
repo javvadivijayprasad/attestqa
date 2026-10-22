@@ -18,7 +18,7 @@ import {
   traceProblems,
   type TestType,
 } from "../design/test-design.js";
-import { lastFullRun, ownTestTitles } from "../triage/settle.js";
+import { bugIsAbout, lastFullRun, ownTestTitles } from "../triage/settle.js";
 import { testsPreExisted } from "../route/route.js";
 import {
   artefacts,
@@ -446,13 +446,35 @@ export class StoryToTestsVerifier implements Verifier {
       // reviewer's now, like a defect candidate: the run ends with it reported,
       // not held open for a fourth guess.
       const exhausted = exhaustedTests(input.events);
+      // A failing test with a bug about it held for the reviewer is reported,
+      // not unfinished: a person decides on the bug at the end of the run, and
+      // if every one is denied the run ends blocked (loop.ts, finish). Without
+      // this, a new test that found a real defect on its first run could only
+      // ever end blocked (AB#91 in 20261020T232150Z: colour contrast, 3.42:1).
+      const heldBugs = input.events
+        .filter((e) => e.kind === "policy")
+        .map(
+          (e) =>
+            /^deferred until execution finishes: "([\s\S]*)" is recorded and will be put/.exec(
+              String((e.payload as { reason?: unknown }).reason ?? ""),
+            )?.[1],
+        )
+        .filter((x): x is string => !!x);
+      const reported = new Set(
+        failingTitles.filter((t) => t && heldBugs.some((b) => bugIsAbout(b, t, failingTitles))),
+      );
       const allDefects =
         failingTitles.length > 0 &&
         failingTitles.every(
           (t) =>
             t &&
             (triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)) ||
-              exhausted.has(t)),
+              exhausted.has(t) ||
+              reported.has(t)),
+        );
+      for (const t of reported)
+        sharedSpecLimitations.push(
+          `"${t}" fails, and a bug about it is put to the reviewer at the end of the run`,
         );
       for (const t of failingTitles)
         if (t && exhausted.has(t))

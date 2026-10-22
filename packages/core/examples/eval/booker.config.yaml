@@ -1,7 +1,7 @@
 # attestqa evaluation (research/EVALUATION_PLAN.md) - Restful-Booker Platform, tracker Azure DevOps (project attestqa-booker).
 # Backlog: scripts/ado-seed/booker.json. Run from packages/core:
-#   node dist/cli.js run "Write tests for <id>" --config examples/eval/booker.config.yaml \
-#     --workspace ../../TestRunApplication/booker --env .env.booker,.env
+#   node dist/cli.js run "Write tests for AB#<id>" --config examples/eval/booker.config.yaml \
+#     --workspace ../../TestRunApplication/booker --env ".env.booker,.env"   # quoted: PowerShell splits on an unquoted comma
 # .env.booker (git-ignored; template: examples/eval/env.booker.example) holds this app's
 # project and test account; .env holds the shared keys. The first file to set a variable wins.
 #

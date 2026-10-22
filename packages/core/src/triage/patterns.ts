@@ -251,6 +251,10 @@ export const TEST_CODE_ERROR: readonly TriagePattern[] = [
   // (20261013T145349Z: getByText('password') matched the label, the hint and
   // two more, and was quarantined as a "possible defect").
   py(String.raw`(?i)\bstrict mode violation\b`),
+  // An accessibility scan scoped to a region that is not on the page: axe
+  // throws before it checks anything. 20261020T230547Z: `.include("main")` on
+  // a page with no <main> was held as a possible product defect at 0.1.
+  py(String.raw`(?i)\bNo elements found for (include|exclude)\b`),
 ];
 
 /** Rationale prefixes the repetition rule and the live line recognise. */
@@ -277,6 +281,10 @@ export const PW_FLAKE_PATTERNS: readonly TriagePattern[] = [
 ];
 
 export const PW_REAL_DEFECT_PATTERNS: readonly TriagePattern[] = [
+  // An accessibility scan that ran and listed elements: what the product
+  // rendered, measured (pw.ts axeSummary). A scan that could not run is
+  // TEST_CODE_ERROR ("No elements found for include").
+  py(String.raw`(?i)\baxe violations — \S+ \((minor|moderate|serious|critical)\) on \d+ element`),
   py(String.raw`(?i)\bexpect\(received\)\.`),
   py(String.raw`(?i)\bObject\.is equality\b`),
   py(String.raw`(?i)\bExpected (substring|string|pattern|value|array|object):`),
