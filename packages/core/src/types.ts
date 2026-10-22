@@ -69,6 +69,8 @@ export interface RequestPayload {
   text: string;
   skill: string;
   configHash: string;
+  /** The engine and generator versions that produced the run (attestqa, bdd2pw). */
+  versions?: Record<string, string>;
 }
 
 export interface PlanPayload {

@@ -38,6 +38,13 @@ const SUITE_TOOL = "pw.run_tests";
 export interface LoopDeps {
   /** The natural-language request from the engineer. */
   requestText: string;
+  /**
+   * The versions that produced this run (attestqa, bdd2pw), written into the
+   * request event. A ledger that cannot name its engine cannot be counted:
+   * 20261022T101137Z ran the 2.0.0 engine eight minutes after 2.0.1 was
+   * published, and only the bug it hit showed which engine it was.
+   */
+  versions?: Record<string, string>;
   model: ModelClient;
   tools: ToolClient;
   gate: Gate;
@@ -514,7 +521,12 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     const text = deps.requestText;
     ledger.append(
       "request",
-      { text, skill: skill.name, configHash: `sha256:${sha256(JSON.stringify(config))}` },
+      {
+        text,
+        skill: skill.name,
+        configHash: `sha256:${sha256(JSON.stringify(config))}`,
+        ...(deps.versions ? { versions: deps.versions } : {}),
+      },
       clock.now(),
     );
 

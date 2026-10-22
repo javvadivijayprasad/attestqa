@@ -1031,3 +1031,26 @@ describe("the two checks that guard the tool chain", () => {
     expect(hasAgentTag(["agentic-qa"])).toBe(false);
   });
 });
+
+describe("a page object with the application's address in it is a gap", () => {
+  const verify = (events: AnyRunEvent[], workspaceDir: string) =>
+    new StoryToTestsVerifier({ workItem: "1" }).verify({ events, workspaceDir });
+  it("names the file and says to navigate relatively", async () => {
+    const ws = tmp();
+    mkdirSync(join(ws, "tests"), { recursive: true });
+    mkdirSync(join(ws, "pages"), { recursive: true });
+    writeFileSync(join(ws, "tests", "a.spec.ts"), "x");
+    writeFileSync(
+      join(ws, "pages", "home.page.ts"),
+      'export class Home { async goto() { await this.page.goto("http://localhost:3003"); } }',
+    );
+    const events = ledger([
+      { tool: "ado.wit_work_item", args: { action: "get", id: 1, expand: "Relations" } },
+      { tool: "bdd2pw.to_spec", artefacts: ["tests/a.spec.ts"] },
+      { tool: "pw.run_tests", result: GREEN },
+    ]);
+    const gap = (await verify(events, ws)).gaps.find((g) => g.code === "absolute-navigation");
+    expect(gap?.message).toContain("pages/home.page.ts");
+    expect(gap?.message).toContain("AQA_APP_URL");
+  });
+});

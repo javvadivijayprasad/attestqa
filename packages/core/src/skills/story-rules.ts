@@ -24,7 +24,7 @@ import {
 import { CATCHES, stuckAction } from "../heal/locator.js";
 import { routePathOf, testsPreExisted } from "../route/route.js";
 import { isFullRun, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
-import { hasAgentTag } from "../verify/story-to-tests.js";
+import { ABSOLUTE_GOTO, hasAgentTag } from "../verify/story-to-tests.js";
 import {
   approvedDesign,
   coverageOf,
@@ -74,6 +74,7 @@ export function storyRefusal(
   // every bug rule below applies to both trackers without being copied.
   call = asAdoBug(call);
   return (
+    absoluteNavigation(call, events, opts.workspaceDir) ??
     duplicateTestCase(call, events) ??
     duplicateBug(call, events) ??
     agentRunReport(call) ??
@@ -1891,7 +1892,7 @@ function writeOnExecutePath(
   );
   const unrepairable = gone.filter((l) => {
     if (/\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l)) return !claimsAfter.has(claimOf(l));
-    return !LOCATOR_EXPR.test(l) && !CATCHES.test(l) && !SCAN_SCOPE.test(l);
+    return !LOCATOR_EXPR.test(l) && !CATCHES.test(l) && !SCAN_SCOPE.test(l) && !NAVIGATION.test(l);
   });
   if (unrepairable.length === 0) return;
   return (
@@ -1954,6 +1955,39 @@ const LOCATOR_EXPR = /getBy[A-Z]\w*\s*\(|\.locator\s*\(|frameLocator\s*\(|\$\$?\
  * <main> was left on disk, and the next run could not change it).
  */
 const SCAN_SCOPE = /^\s*\.(include|exclude)\s*\(/;
+/** A navigation line: where a test goes is repaired like a locator. */
+const NAVIGATION = /\.goto\s*\(/;
+
+/**
+ * A spec or page object that navigates to an absolute address.
+ *
+ * The application's address is AQA_APP_URL in the .env file, applied as
+ * Playwright's baseURL; a test navigates relatively (`page.goto("/")`). All
+ * four evaluation projects had the address written into their page object by
+ * the generator (22 Oct 2026), so a seeded-fault build on another host would
+ * have been tested against the real one without anyone noticing.
+ */
+function absoluteNavigation(
+  call: { toolName: string; args: Record<string, unknown> },
+  events: AnyRunEvent[],
+  workspaceDir?: string,
+): string | undefined {
+  if (call.toolName !== "fs.write_file") return;
+  const path = String(call.args["path"] ?? "");
+  if (!/\.(spec|test|page)\.[cm]?[jt]sx?$/i.test(path)) return;
+  const after = String(call.args["content"] ?? "");
+  const before = lastKnownContent(path, events, workspaceDir) ?? "";
+  const added = removedLines(after, before).filter((l) => ABSOLUTE_GOTO.test(l));
+  if (added.length === 0) return;
+  return (
+    `${path} would navigate to an absolute address: ${added[0]?.slice(
+      0,
+      120,
+    )}. The application's ` +
+    "address comes from AQA_APP_URL in the .env file, as Playwright's baseURL; navigate relatively " +
+    '(page.goto("/") or page.goto("/the/path")), so the same test runs against any build.'
+  );
+}
 
 /**
  * A write whose only change is prose, while a test is failing.

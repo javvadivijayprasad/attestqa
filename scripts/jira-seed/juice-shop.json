@@ -1,0 +1,254 @@
+{
+  "project": "SCRUM",
+  "projectName": "attestqa",
+  "label": "aqa-seed",
+  "target": "OWASP Juice Shop, run locally (http://localhost:3100)",
+  "note": "Evaluation backlog for Juice Shop (research/EVALUATION_PLAN.md section 4), 12 stories in the same mix as the other three applications. The Customer account access epic, its three stories, their sub-tasks and the token bug were entered by hand on 10 Oct 2026 (backlog.json); they carry their keys here and are reused, not created again. Run the stories in 'order'. 'kind', 'order', 'uiChange' and 'verify' are not posted to Jira.",
+  "verify": [
+    "Juice Shop is running at http://localhost:3100 from the same image as the corpus runs; record the image tag in TestRunApplication/targets.yaml.",
+    "Every acceptance criterion below describes what the build under test does. Walk each story once in the browser before seeding and correct any criterion that does not match; a criterion that is wrong from the start makes every result for that story meaningless.",
+    "UI changes: Juice Shop runs from a published image, so a changed label or control needs either a customised build or Juice Shop's own customisation config. Decide which before the first ui-change run; if neither is practical, run those two stories as 'shared-epic' and say so in the threats section.",
+    "Reproduce both linked bugs on the build under test before seeding. SCRUM-12 already exists. The order-tracking bug must return other customers' orders through the tracking endpoint; if it does not, replace it with one that reproduces in the same area.",
+    "A second customer account with at least one placed order is needed for the order history and tracking stories; create it once and put it in .env as AQA_OTHER_USER/AQA_OTHER_PASS, never in this file."
+  ],
+  "epics": [
+    {
+      "ref": "account",
+      "summary": "Customer account access",
+      "description": [
+        "Everything a customer does to get into and out of their Juice Shop account: registering, signing in and signing out.",
+        "Target: OWASP Juice Shop running locally at http://localhost:3100. Test accounts only."
+      ],
+      "key": "SCRUM-5"
+    },
+    {
+      "ref": "shopping",
+      "summary": "Finding and buying products",
+      "description": [
+        "Everything a customer does to find a product, put it in the basket and say what they thought of it.",
+        "Target: OWASP Juice Shop running locally at http://localhost:3100. Test accounts only."
+      ]
+    },
+    {
+      "ref": "support",
+      "summary": "Customer support",
+      "description": [
+        "How a customer reaches the shop and gets back into an account they cannot open.",
+        "Target: OWASP Juice Shop running locally at http://localhost:3100. Test accounts only."
+      ]
+    },
+    {
+      "ref": "profile",
+      "summary": "Customer profile and orders",
+      "description": [
+        "What a signed-in customer keeps in their account: delivery addresses, password, language and past orders.",
+        "Target: OWASP Juice Shop running locally at http://localhost:3100. Test accounts only."
+      ]
+    }
+  ],
+  "stories": [
+    {
+      "ref": "login",
+      "order": 1,
+      "kind": "ui-change",
+      "epic": "account",
+      "summary": "Customer signs in with email and password",
+      "key": "SCRUM-6",
+      "subtasks": [{ "summary": "Show an error message when the credentials are wrong", "key": "SCRUM-7" }],
+      "uiChange": "After the first run: rename the visible label of the Log in button and change its id. Run the story again against that build."
+    },
+    {
+      "ref": "logout",
+      "order": 2,
+      "kind": "linked-bug",
+      "epic": "account",
+      "summary": "Customer signs out",
+      "key": "SCRUM-8",
+      "subtasks": [{ "summary": "Remove the authentication token from the browser on logout", "key": "SCRUM-9" }]
+    },
+    {
+      "ref": "register",
+      "order": 3,
+      "kind": "ui-change",
+      "epic": "account",
+      "summary": "New customer registers an account",
+      "key": "SCRUM-10",
+      "subtasks": [{ "summary": "Check that password and repeat password match before enabling Register", "key": "SCRUM-11" }],
+      "uiChange": "After the first run: rename the visible label of the email field on the registration page and change its id. Run the story again against that build."
+    },
+    {
+      "ref": "search",
+      "order": 4,
+      "kind": "new-area",
+      "epic": "shopping",
+      "summary": "Customer searches the product list",
+      "description": [
+        "As a customer I want to search the products by name so that I can find what I came for without scrolling.",
+        "Search is opened from the magnifying-glass icon in the top bar."
+      ],
+      "acceptance": [
+        "AC-1: Searching for part of a product's name lists only products whose name or description contains it.",
+        "AC-2: The results page says which term was searched for.",
+        "AC-3: Searching for a term no product matches shows a message that nothing was found, not an empty page."
+      ]
+    },
+    {
+      "ref": "basket",
+      "order": 5,
+      "kind": "shared-epic",
+      "epic": "shopping",
+      "summary": "Customer adds products to the basket and changes quantities",
+      "description": [
+        "As a signed-in customer I want to put products in my basket and change how many I want before I check out."
+      ],
+      "acceptance": [
+        "AC-1: Adding a product from the product list confirms it on screen, and the basket count in the top bar goes up by one.",
+        "AC-2: In the basket, increasing or decreasing a product's quantity changes the line and the total price accordingly.",
+        "AC-3: Removing a product takes it out of the basket and out of the total."
+      ],
+      "subtasks": [{ "summary": "Keep the basket when the customer signs out and back in" }]
+    },
+    {
+      "ref": "review",
+      "order": 6,
+      "kind": "shared-epic",
+      "epic": "shopping",
+      "summary": "Customer writes a review of a product",
+      "description": [
+        "As a signed-in customer I want to say what I thought of a product so that other customers can decide.",
+        "Reviews are written from the product's detail view, opened by choosing the product in the list."
+      ],
+      "acceptance": [
+        "AC-1: A signed-in customer can write a review in the product's detail view and submit it; a confirmation is shown.",
+        "AC-2: The submitted review is then listed under the product's reviews with the customer's email as its author.",
+        "AC-3: The submit button stays disabled while the review text is empty."
+      ],
+      "comments": [
+        "Product owner: a customer who is not signed in may read reviews but not write one; that is intended."
+      ]
+    },
+    {
+      "ref": "feedback",
+      "order": 7,
+      "kind": "new-area",
+      "epic": "support",
+      "summary": "Customer sends feedback with the feedback form",
+      "description": [
+        "As a customer I want to tell the shop what I think of it, so that it can improve.",
+        "The form is the Customer Feedback page, reached from the side menu."
+      ],
+      "acceptance": [
+        "AC-1: The form asks for a comment, a rating and the answer to a small arithmetic question shown on the form.",
+        "AC-2: Submit stays disabled until the comment, the rating and the answer have all been given.",
+        "AC-3: Submitting with the correct answer thanks the customer and clears the form.",
+        "AC-4: Submitting with a wrong answer is refused with a message, and the feedback is not saved."
+      ]
+    },
+    {
+      "ref": "forgot",
+      "order": 8,
+      "kind": "a11y-security",
+      "epic": "support",
+      "summary": "Customer resets a forgotten password with the security question",
+      "description": [
+        "As a customer who has forgotten my password I want to set a new one by answering my security question, so that I can sign in again.",
+        "The page is reached from the login page (\"Forgot your password?\")."
+      ],
+      "acceptance": [
+        "AC-1: After the customer enters their email, the form shows that account's security question.",
+        "AC-2: With the right answer and a new password entered twice, the password is changed and a confirmation is shown.",
+        "AC-3: With a wrong answer the password is not changed and a message says the answer is wrong.",
+        "AC-4: The form gives no sign of whether an email address has an account before the security question is answered correctly."
+      ]
+    },
+    {
+      "ref": "address",
+      "order": 9,
+      "kind": "new-area",
+      "epic": "profile",
+      "summary": "Customer saves a delivery address",
+      "description": [
+        "As a signed-in customer I want to save my delivery address once, so that I do not type it at every checkout.",
+        "Saved addresses are under Account, Orders & Payment, My saved addresses."
+      ],
+      "acceptance": [
+        "AC-1: Adding a new address with country, name, mobile number, ZIP code, address, city and state saves it, and a confirmation names the city.",
+        "AC-2: The saved address is listed among the customer's addresses.",
+        "AC-3: The address cannot be submitted while any required field is empty."
+      ]
+    },
+    {
+      "ref": "password",
+      "order": 10,
+      "kind": "shared-epic",
+      "epic": "profile",
+      "summary": "Customer changes their password",
+      "description": [
+        "As a signed-in customer I want to change my password, so that I can keep my account safe.",
+        "The page is under Account, Privacy & Security, Change Password."
+      ],
+      "acceptance": [
+        "AC-1: With the current password correct and the new password entered twice, the password is changed and a confirmation is shown.",
+        "AC-2: With a wrong current password the change is refused with a message.",
+        "AC-3: The change is refused while the new password and its repeat differ."
+      ],
+      "comments": [
+        "Product owner: the test account's password must be set back after this story's tests run, so other stories keep working. Use a dedicated account for it."
+      ]
+    },
+    {
+      "ref": "language",
+      "order": 11,
+      "kind": "a11y-security",
+      "epic": "profile",
+      "summary": "Customer chooses the shop's language",
+      "description": [
+        "As a customer I want to use the shop in my own language.",
+        "The language is chosen from the globe icon in the top bar."
+      ],
+      "acceptance": [
+        "AC-1: Choosing another language from the menu shows the shop's labels in that language.",
+        "AC-2: The chosen language is kept when the page is reloaded.",
+        "AC-3: The page declares the chosen language to assistive technology (the document's language attribute changes with it)."
+      ]
+    },
+    {
+      "ref": "orders",
+      "order": 12,
+      "kind": "linked-bug",
+      "epic": "profile",
+      "summary": "Customer sees their order history and tracks an order",
+      "description": [
+        "As a signed-in customer I want to see the orders I have placed and follow one of them, so that I know when it will arrive.",
+        "Order history is under Account, Orders & Payment, Order History."
+      ],
+      "acceptance": [
+        "AC-1: Order history lists each order the customer has placed, with its order number and total.",
+        "AC-2: Tracking an order shows that order's status and its products.",
+        "AC-3: A customer can only ever see their own orders, whether through the page or by tracking an order number."
+      ]
+    }
+  ],
+  "bugs": [
+    {
+      "ref": "token",
+      "story": "logout",
+      "status": "In Progress",
+      "summary": "Session token is still accepted after logout",
+      "key": "SCRUM-12",
+      "description": []
+    },
+    {
+      "ref": "bug-tracking",
+      "story": "orders",
+      "status": "In Progress",
+      "summary": "Order tracking returns other customers' orders",
+      "description": [
+        "Steps: sign in as a customer, open order history and track one order; then request the tracking endpoint with an order id that is not this customer's, or with an id built to match every order.",
+        "EXPECTED: only the signed-in customer's own order is returned, or nothing.",
+        "ACTUAL: orders that belong to other customers are returned (to be confirmed on the build under test before seeding).",
+        "Filed by a person, not by attestqa."
+      ]
+    }
+  ]
+}

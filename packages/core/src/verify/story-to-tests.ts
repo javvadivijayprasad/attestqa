@@ -1,6 +1,6 @@
 import { normId, sameId as sameTrackerId, type Tracker } from "../design/ids.js";
 import { exhaustedTests, MAX_REPAIRS_PER_TEST } from "../triage/quarantine.js";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type {
   AnyRunEvent,
@@ -197,6 +197,37 @@ export class StoryToTestsVerifier implements Verifier {
       ...new Set([...artefacts(calls).filter(isSpecPath), ...specPathsTouched(calls)]),
     ];
     const present = specs.filter((p) => fileExists(input.workspaceDir, p));
+    // 2a. the application's address comes from .env, not from a test ---------
+    // A spec or page object this run touched, or the page objects beside it,
+    // that navigates to an absolute address tests that address whatever
+    // AQA_APP_URL says (all four evaluation projects, 22 Oct 2026).
+    {
+      const pageObjects = (() => {
+        try {
+          return readdirSync(resolve(input.workspaceDir, "pages"))
+            .filter((f) => /\.page\.[cm]?[jt]sx?$/i.test(f))
+            .map((f) => `pages/${f}`);
+        } catch {
+          return [];
+        }
+      })();
+      const absolute = [...new Set([...present, ...pageObjects])].filter((p) =>
+        (readIfPresent(input.workspaceDir, p) ?? "").split("\n").some((l) => ABSOLUTE_GOTO.test(l)),
+      );
+      if (absolute.length > 0)
+        gaps.push(
+          gap(
+            "absolute-navigation",
+            `${absolute.join(", ")} navigate${
+              absolute.length === 1 ? "s" : ""
+            } to an absolute address. ` +
+              "The application's address is AQA_APP_URL in the .env file, applied as Playwright's " +
+              'baseURL: change each page.goto("http…") to a relative path (page.goto("/")) with ' +
+              "fs.replace_in_file, then run the suite again.",
+            { files: absolute },
+          ),
+        );
+    }
     // 2b. a spec THIS RUN wrote came from a feature file ---------------------
     // The pipeline is .feature -> bdd2pw.scaffold -> spec, and it was being
     // skipped: across a day of runs the generator was called ZERO times and
@@ -834,6 +865,9 @@ function specPathsTouched(calls: CallRecord[]): string[] {
 }
 
 /** File contents, or undefined when it is absent or unreadable. */
+/** A navigation to an absolute address, as a string literal (see 2a above). */
+export const ABSOLUTE_GOTO = /\.goto\s*\(\s*["'`]https?:\/\//;
+
 function readIfPresent(workspaceDir: string, rel: string): string | undefined {
   try {
     const abs = resolve(workspaceDir, rel);

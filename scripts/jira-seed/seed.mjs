@@ -65,7 +65,8 @@ async function jira(method, path, body) {
 }
 
 const para = (t) => ({ type: "paragraph", content: [{ type: "text", text: t }] });
-function adf(lines, acceptance) {
+function adf(lines = [], acceptance) {
+  // An item with a given key carries no text of its own; nothing is posted for it.
   const content = lines.map(para);
   if (acceptance?.length) {
     // Acceptance criteria LAST, under their own heading: that is the section the
@@ -153,7 +154,15 @@ async function existing(summary) {
 }
 
 const keys = {};
-async function create(ref, type, summary, description, extra = {}) {
+// An item with a "key" already exists in Jira — entered by hand before this
+// seeder, so without the aqa-seed label it would not be found by summary and
+// would be created twice (Juice Shop SCRUM-5..12, 10 Oct 2026). It is used as
+// it is: nothing is created or edited for it.
+async function create(ref, type, summary, description, extra = {}, givenKey) {
+  if (givenKey) {
+    console.log(`  = ${givenKey}  ${type.name}: ${summary} (key given in the seed file)`);
+    return (keys[ref] = givenKey);
+  }
   const found = await existing(summary);
   if (found) {
     console.log(`  = ${found}  ${type.name}: ${summary} (already there)`);
@@ -183,14 +192,14 @@ const bugType = typeOf("Bug");
 const subType = typeOf("subtask");
 
 console.log("\nEpics");
-for (const e of epics) await create(e.ref, epicType, e.summary, adf(e.description));
+for (const e of epics) await create(e.ref, epicType, e.summary, adf(e.description), {}, e.key);
 
 console.log("\nStories");
 for (const s of plan.stories) {
   const parent = apply ? { parent: { key: keys[epicOf(s)] } } : {};
-  await create(s.ref, storyType, s.summary, adf(s.description, s.acceptance), parent);
+  await create(s.ref, storyType, s.summary, adf(s.description, s.acceptance), parent, s.key);
   for (const t of s.subtasks ?? []) {
-    await create(`${s.ref}-task-${t.summary.slice(0, 12)}`, subType, t.summary, adf([t.summary]), apply ? { parent: { key: keys[s.ref] } } : {});
+    await create(`${s.ref}-task-${t.summary.slice(0, 12)}`, subType, t.summary, adf([t.summary]), apply ? { parent: { key: keys[s.ref] } } : {}, t.key);
   }
   for (const c of s.comments ?? []) {
     if (!apply) {
@@ -208,7 +217,7 @@ for (const s of plan.stories) {
 
 console.log("\nBugs");
 for (const b of plan.bugs) {
-  await create(b.ref, bugType, b.summary, adf(b.description));
+  await create(b.ref, bugType, b.summary, adf(b.description), {}, b.key);
   if (!apply) {
     console.log(`    link: relates to ${b.story}; status → ${b.status ?? "(unchanged)"}`);
     continue;

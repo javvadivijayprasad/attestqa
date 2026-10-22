@@ -967,3 +967,16 @@ describe("preflight: reads of items linked to the story", () => {
     expect(reasons[0]).toContain("reached from the in-scope story");
   });
 });
+
+describe("a ledger names the engine that wrote it (20261022T101137Z)", () => {
+  it("records the versions in the request event", async () => {
+    const d = deps([goal], {});
+    await runLoop({ ...d, versions: { attestqa: "9.9.9", bdd2pw: "4.6.5" } });
+    const first = d.ledger.read()[0];
+    expect(first?.kind).toBe("request");
+    expect((first?.payload as unknown as { versions?: unknown }).versions).toEqual({
+      attestqa: "9.9.9",
+      bdd2pw: "4.6.5",
+    });
+  });
+});

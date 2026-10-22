@@ -1,6 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
+ * The application's address comes from AQA_APP_URL in the .env file, and from
+ * nowhere else: not a default here, not a literal in a page object. A missing
+ * value stops the run instead of quietly testing some other address.
+ */
+const appUrl = process.env["AQA_APP_URL"];
+if (!appUrl)
+  throw new Error(
+    "AQA_APP_URL is not set. Put the application's address in the .env file the run uses " +
+      '(attestqa: --env ".env.<app>,.env"; plain Playwright: set AQA_APP_URL in the shell).',
+  );
+
+/**
  * The agent's workspace for Toolshop (research/EVALUATION_PLAN.md).
  *
  * The application lives at `AQA_APP_URL` (http://localhost:4200 by default). The address is
@@ -15,7 +27,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env["CI"] ? "line" : "list",
   use: {
-    baseURL: process.env["AQA_APP_URL"] ?? "http://localhost:4200",
+    baseURL: appUrl,
     // Toolshop marks its elements with data-test, not data-testid, so getByTestId
     // ("product-price") finds them.
     testIdAttribute: "data-test",

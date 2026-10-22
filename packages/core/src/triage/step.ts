@@ -139,7 +139,17 @@ export async function runTriage(
     };
   }
 
-  const local = triageRun(failures);
+  const lastRun = [...input.events]
+    .reverse()
+    .find(
+      (e) =>
+        e.kind === "observation" &&
+        typeof (asRecord((e.payload as { result?: unknown }).result) ?? {})["passed"] === "number",
+    );
+  const passedNow = Number(
+    (asRecord((lastRun?.payload as { result?: unknown } | undefined)?.result) ?? {})["passed"] ?? 0,
+  );
+  const local = triageRun(failures, { passed: passedNow });
   const attempt = history.length + 1;
 
   if (!opts.service) {

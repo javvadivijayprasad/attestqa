@@ -354,3 +354,40 @@ describe("a scan's region is repaired like a locator", () => {
     expect(storyRefusal(write(moved), events) ?? "").not.toContain("execute path");
   });
 });
+
+describe("the application's address comes from .env, not from a test (22 Oct 2026)", () => {
+  const PAGE = "pages/login.page.ts";
+  const OBJ = [
+    "export class LoginPage {",
+    "  async goto(): Promise<void> {",
+    '    await this.page.goto("/");',
+    "  }",
+    "}",
+  ].join("\n");
+  const pageWrite = (content: string) => ({
+    toolName: "fs.write_file",
+    args: { path: PAGE, content },
+  });
+
+  it("refuses a write that navigates to an absolute address", () => {
+    const events = [
+      route("A"),
+      ...call("fs.read_file", { path: PAGE }, { path: PAGE, content: OBJ }),
+    ];
+    const why = storyRefusal(
+      pageWrite(OBJ.replace('goto("/")', 'goto("https://www.saucedemo.com")')),
+      events,
+    );
+    expect(why).toContain("AQA_APP_URL");
+  });
+
+  it("lets the execute path change an absolute goto to a relative one", () => {
+    const absolute = OBJ.replace('goto("/")', 'goto("http://localhost:3003")');
+    const events = [
+      route("B"),
+      ...call("fs.read_file", { path: PAGE }, { path: PAGE, content: absolute }),
+      ...failedRun(),
+    ];
+    expect(storyRefusal(pageWrite(OBJ), events)).toBeUndefined();
+  });
+});

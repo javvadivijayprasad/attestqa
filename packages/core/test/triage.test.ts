@@ -1351,3 +1351,69 @@ describe("an accessibility scan scoped to nothing is the test's fault (20261020T
     expect(TEST_CODE_ERROR.some((p) => p.re.test(msg))).toBe(true);
   });
 });
+
+describe("a page that never loaded (20261022T102919Z)", () => {
+  const goto = {
+    test: "AC-1 Valid credentials show the product list",
+    message:
+      'Test timeout of 30000ms exceeded.\nError: page.goto: Test timeout of 30000ms exceeded.\nCall log:\n  - navigating to "https://www.saucedemo.com/", waiting until "load"',
+  };
+
+  it("is the environment when nothing else in the run reached the application", async () => {
+    const { triageRun } = await import("../src/triage/classify.js");
+    const r = triageRun([goto as never]);
+    expect(r.verdicts[0]?.category).toBe("environmental");
+    expect(r.runLevel).toBe("environmental");
+  });
+
+  it("is a transient, not a written-off run, when other tests passed", async () => {
+    const { triageRun } = await import("../src/triage/classify.js");
+    const r = triageRun([goto as never], { passed: 3 });
+    expect(r.verdicts[0]?.category).toBe("flake");
+    expect(r.runLevel).toBeNull();
+    expect(r.quarantined).toEqual([]);
+  });
+});
+
+describe("the report reader keeps every error of an attempt", () => {
+  it("includes the page.goto detail Playwright puts in a second error entry", async () => {
+    const { parseFailures } = await import("../src/triage/report.js");
+    const report = {
+      suites: [
+        {
+          file: "a.spec.ts",
+          specs: [
+            {
+              title: "AC-1",
+              ok: false,
+              tests: [
+                {
+                  results: [
+                    {
+                      status: "timedOut",
+                      error: { message: "Test timeout of 30000ms exceeded." },
+                      errors: [
+                        { message: "Test timeout of 30000ms exceeded." },
+                        {
+                          message:
+                            'Error: page.goto: Test timeout of 30000ms exceeded.\nCall log:\n  - navigating to "https://x.test/", waiting until "load"',
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const f = (parseFailures(JSON.stringify(report)) ?? [])[0];
+    expect(f?.message).toContain("page.goto");
+    // The repeated first error is kept once.
+    expect(
+      (f?.message ?? "").split("\n").filter((l) => l === "Test timeout of 30000ms exceeded.")
+        .length,
+    ).toBe(1);
+  });
+});

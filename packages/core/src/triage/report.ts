@@ -243,7 +243,15 @@ function lastResult(spec: PwSpec): {
     for (const r of results) {
       const err = r.error ?? r.errors?.[0];
       if (err?.message) {
-        message = stripAnsi(err.message);
+        // Every error of the attempt, not only the first. On a test timeout the
+        // first is just "Test timeout of 30000ms exceeded."; what was stuck —
+        // here `page.goto … navigating to "https://www.saucedemo.com/"` — is in
+        // a later entry, and without it a page that never loaded was triaged as
+        // a flake instead of as the environment (20261022T102919Z).
+        const all = [err.message, ...(r.errors ?? []).map((e) => e.message ?? "")]
+          .map((m) => stripAnsi(m))
+          .filter((m, i, xs) => m && xs.indexOf(m) === i);
+        message = all.join("\n");
         stack = stripAnsi(err.stack ?? "");
         durationMs = r.duration ?? 0;
       }

@@ -21,6 +21,7 @@ export class LoginPage {
   }
 
   async goto(): Promise<void> {
-    await this.page.goto("http://localhost:3100");
+    // The address is AQA_APP_URL (.env), applied as baseURL in playwright.config.ts.
+    await this.page.goto("/");
   }
 }

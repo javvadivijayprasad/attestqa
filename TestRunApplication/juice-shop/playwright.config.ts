@@ -1,6 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
+ * The application's address comes from AQA_APP_URL in the .env file, and from
+ * nowhere else: not a default here, not a literal in a page object. A missing
+ * value stops the run instead of quietly testing some other address.
+ */
+const appUrl = process.env["AQA_APP_URL"];
+if (!appUrl)
+  throw new Error(
+    "AQA_APP_URL is not set. Put the application's address in the .env file the run uses " +
+      '(attestqa: --env ".env.<app>,.env"; plain Playwright: set AQA_APP_URL in the shell).',
+  );
+
+/**
  * The agent's workspace for the sandbox run (PLAN §1 A8).
  *
  * The application under test lives at `AQA_APP_URL` — OWASP Juice Shop on
@@ -18,7 +30,7 @@ export default defineConfig({
   retries: 0,
   reporter: process.env["CI"] ? "line" : "list",
   use: {
-    baseURL: process.env["AQA_APP_URL"] ?? "http://localhost:3100",
+    baseURL: appUrl,
     // Juice Shop opens a welcome banner over a cookie bar on every fresh
     // browser; the banner swallows clicks meant for anything under it. Both
     // remember "dismissed" in a cookie, so every test starts with those two

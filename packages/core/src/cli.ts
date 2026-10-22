@@ -73,8 +73,8 @@ export function ownBdd2pw(): { cli: string; version: string } | undefined {
       typeof pkg.bin === "string"
         ? pkg.bin
         : typeof pkg.bin === "object" && pkg.bin !== null
-          ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
-          : undefined;
+        ? (pkg.bin as Record<string, unknown>)["bdd2pw"]
+        : undefined;
     if (typeof bin !== "string") return undefined;
     const cli = join(dirname(pkgPath), bin);
     if (!existsSync(cli)) return undefined;
@@ -95,6 +95,10 @@ function packageVersion(): string {
 }
 
 export const VERSION = packageVersion();
+
+/** The git commit the CLI was built from (tsup.config.ts); "unknown" when not stamped. */
+declare const __AQA_COMMIT__: string | undefined;
+export const COMMIT = typeof __AQA_COMMIT__ === "string" ? __AQA_COMMIT__ : "unknown";
 
 /** In-process adapters, by `--servers` name. */
 export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira"];
@@ -173,8 +177,9 @@ export interface CliIo {
 export async function main(argv: string[], io: CliIo = stdio()): Promise<number> {
   const [cmd, ...rest] = argv;
   try {
-    if (!cmd || cmd === "--help" || cmd === "-h") return (io.out(USAGE), 0);
-    if (cmd === "--version" || cmd === "-v") return (io.out(`${VERSION}\n`), 0);
+    if (!cmd || cmd === "--help" || cmd === "-h") return io.out(USAGE), 0;
+    if (cmd === "--version" || cmd === "-v")
+      return io.out(`${VERSION}${COMMIT !== "unknown" ? ` (${COMMIT})` : ""}\n`), 0;
     if (cmd === "init") return await init(rest, io);
     if (cmd === "replay") return replay(rest, io);
     if (cmd === "discover") return await discover(rest, io);
@@ -236,10 +241,9 @@ export async function init(args: string[], io: CliIo, ask: Ask = terminalAsk): P
     trackerRaw === "jira"
       ? "jira"
       : ["ado", "azure", "azure-devops", "azuredevops"].includes(trackerRaw)
-        ? "ado"
-        : undefined;
-  if (!tracker)
-    return (io.err(`aqa init: --tracker must be jira or ado, not "${trackerRaw}"\n`), 1);
+      ? "ado"
+      : undefined;
+  if (!tracker) return io.err(`aqa init: --tracker must be jira or ado, not "${trackerRaw}"\n`), 1;
   const scope = await need(
     "--scope",
     tracker === "jira"
@@ -318,10 +322,10 @@ export async function init(args: string[], io: CliIo, ask: Ask = terminalAsk): P
 
 function replay(args: string[], io: CliIo): number {
   const target = positional(args)[0];
-  if (!target) return (io.err("aqa replay: missing <path>\n"), 1);
+  if (!target) return io.err("aqa replay: missing <path>\n"), 1;
   const out = flag(args, "--out");
   const file = resolveLedgerFile(resolve(target));
-  if (!file) return (io.err(`aqa replay: no ${LEDGER_FILE} found under ${target}\n`), 1);
+  if (!file) return io.err(`aqa replay: no ${LEDGER_FILE} found under ${target}\n`), 1;
   const events = readLedgerFile(file);
   const md = renderMarkdown(events);
   if (out && out !== "-") {
@@ -517,9 +521,9 @@ export async function discover(args: string[], io: CliIo, deps: ToolingDeps = {}
 
 export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Promise<number> {
   const request = positional(args)[0];
-  if (!request) return (io.err(`aqa run: missing "<request>"\n`), 1);
+  if (!request) return io.err(`aqa run: missing "<request>"\n`), 1;
   const configPath = flag(args, "--config");
-  if (!configPath) return (io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1);
+  if (!configPath) return io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1;
   const config = await loadAgentConfig(configPath);
 
   if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
@@ -551,9 +555,11 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
     io.out(`aqa run --dry-run: "${request}"\n`);
     io.out(`  tracker: ${picked.tracker === "jira" ? "Jira" : "Azure DevOps"}\n`);
     io.out(
-      `  config: model ${describeModel(config.model, undefined, readRuntimeEnv(process.env, { requireAnthropic: false }))}, budgets ${config.budgets.steps} steps / ${
-        config.budgets.tokens
-      } tokens\n`,
+      `  config: model ${describeModel(
+        config.model,
+        undefined,
+        readRuntimeEnv(process.env, { requireAnthropic: false }),
+      )}, budgets ${config.budgets.steps} steps / ${config.budgets.tokens} tokens\n`,
     );
     io.out(
       `  scope: work_items ${config.scope.work_items.join(",") || "(none)"}; repos ${
@@ -615,14 +621,14 @@ async function live(
   // over the file (standard dotenv precedence) and silently shadows it, which
   // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
   const credVar = credentialVarFor(config.model, false, env);
-  const credValue = credVar ? (process.env[credVar] ?? "") : "";
+  const credValue = credVar ? process.env[credVar] ?? "" : "";
   const keySource = !credVar
     ? "no credential needed"
     : loaded.includes(credVar)
-      ? `${credVar} ${mask(credValue)} from ${envFile}`
-      : credValue
-        ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
-        : `${credVar} is not set anywhere`;
+    ? `${credVar} ${mask(credValue)} from ${envFile}`
+    : credValue
+    ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
+    : `${credVar} is not set anywhere`;
   io.err(
     `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(
       config.model,
@@ -843,6 +849,11 @@ async function live(
 
     const result = await runLoop({
       requestText: request,
+      versions: {
+        attestqa: VERSION,
+        commit: COMMIT,
+        ...(ownBdd2pw()?.version ? { bdd2pw: ownBdd2pw()?.version as string } : {}),
+      },
       model,
       tools,
       gate: new ScopedGate(config.policy, config.scope, { sandbox: env.sandbox }),
@@ -977,8 +988,8 @@ export function liveLine(e: AnyRunEvent): string {
           s["frameworkFound"] === undefined
             ? ""
             : s["frameworkFound"]
-              ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
-              : "aqa: framework — NONE FOUND; point --workspace at a Playwright project (npm init playwright@latest creates one)\n";
+            ? `aqa: framework — ${n("existingSpecs")} existing spec(s) in this project's layout\n`
+            : "aqa: framework — NONE FOUND; point --workspace at a Playwright project (npm init playwright@latest creates one)\n";
         return (
           fw +
           `aqa: context — story ${n("storyRead") ? "read" : "NOT READ"}, ` +
@@ -1051,7 +1062,11 @@ export function liveLine(e: AnyRunEvent): string {
       }
       const verdicts = Array.isArray(p["verdicts"]) ? p["verdicts"] : [];
       if (verdicts.length === 0)
-        return "aqa: suite is green — the earlier failures are gone, nothing is held for you\n";
+        // No failing test is not the same as green: tests with empty TODO
+        // steps pass without checking anything, and the suite line above
+        // already said whether the run is green (20261022T102919Z printed
+        // "suite red — … 2 not implemented" and then "suite is green").
+        return "aqa: no test is failing now — nothing is held for you\n";
       const by = new Map<string, number>();
       const frozen = new Set(
         (Array.isArray(p["quarantined"]) ? (p["quarantined"] as string[]) : []).map(
@@ -1100,8 +1115,9 @@ export function liveLine(e: AnyRunEvent): string {
           }`,
         environmental: (n) => `${n} never reached the product (setup or environment failed)`,
         unproven: (n) =>
-          `${n} new test${n === 1 ? "" : "s"} failing that ${n === 1 ? "has" : "have"} never passed — ` +
-          "the agent checks the test first; not yet a defect",
+          `${n} new test${n === 1 ? "" : "s"} failing that ${
+            n === 1 ? "has" : "have"
+          } never passed — ` + "the agent checks the test first; not yet a defect",
         unrecognised: (n) =>
           `${n} matched no known failure pattern — held for you as possible defect${
             n === 1 ? "" : "s"
@@ -1197,8 +1213,8 @@ export function pickTracker(
         ? "jira"
         : "ado"
       : !parseWorkItemRef(request) && jiraRef
-        ? "jira"
-        : "ado");
+      ? "jira"
+      : "ado");
   if (tracker === "jira" && !env.jira)
     return {
       error:

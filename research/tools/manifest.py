@@ -90,7 +90,12 @@ def row_for(run_dir, study, target, core_commit):
         "target": target, "story_id": story_id, "story_sha256": story_sha,
         "mode": req.get("skill", ""), "provider": inf.get("provider", "anthropic" if inf else ""),
         "model": inf.get("model", ""), "prompt_version": inf.get("promptVersion", ""),
-        "core_commit": core_commit, "config_hash": req.get("configHash", ""),
+        # The engine version the ledger names (attestqa 2.0.2+), else what the
+        # operator passed with --core-commit.
+        "core_commit": (f"attestqa {req['versions']['attestqa']}"
+                        + (f" @{req['versions']['commit']}" if req["versions"].get("commit") not in (None, "unknown") else "")
+                        if isinstance(req.get("versions"), dict) and req["versions"].get("attestqa") else core_commit),
+        "config_hash": req.get("configHash", ""),
         "passed": passed, "failed": failed, "quarantined": quarantined,
         "refusals": len(refusals), "weakening_refusals": weak,
         "approvals": sum(1 for r in resolved if r.get("decision") == "approved"),

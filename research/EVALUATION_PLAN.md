@@ -90,7 +90,9 @@ application (`scripts/jira-seed/<id>.json`, and an Azure DevOps equivalent), cre
 by a person, as SCRUM was.
 
 Written 13 Oct: `scripts/jira-seed/toolshop.json`, `scripts/ado-seed/booker.json`,
-`scripts/ado-seed/saucedemo.json`. Each story carries `order` (run order; later stories in an epic
+`scripts/ado-seed/saucedemo.json`. Written 22 Oct: `scripts/jira-seed/juice-shop.json` (project SCRUM; the
+account epic, its three stories and SCRUM-12 were entered by hand on 10 Oct and carry their keys,
+which the seeder now reuses instead of creating them again). Each story carries `order` (run order; later stories in an epic
 append to its file) and `kind` (the row of the table above); "UI changes" stories carry `uiChange`,
 the change to apply before their second pass; each file has a `verify` list for the setup week.
 None of these notes is posted to the tracker. Each application gets its own tracker project

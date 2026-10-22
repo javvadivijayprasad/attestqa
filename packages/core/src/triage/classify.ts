@@ -378,8 +378,28 @@ export interface TriageResult {
  * because nothing was measured, and a defect candidate drawn from an unmeasured
  * run would send someone to investigate a bug that may not exist.
  */
-export function triageRun(failures: FailureSignal[]): TriageResult {
-  const verdicts = failures.map(classifyFailure);
+export function triageRun(
+  failures: FailureSignal[],
+  /**
+   * How many tests PASSED in the same run. When some did, the application was
+   * reachable: an environmental failure of one test (a page that took too long
+   * to load) is a transient, not "nothing was measured". 20261022T102919Z:
+   * three SauceDemo tests passed and one timed out in page.goto.
+   */
+  opts: { passed?: number } = {},
+): TriageResult {
+  const verdicts = failures.map(classifyFailure).map((v) =>
+    (opts.passed ?? 0) > 0 && v.category === "environmental"
+      ? {
+          ...v,
+          category: "flake" as TriageCategory,
+          rationale:
+            "The application did not answer this test in time, but it answered other tests in " +
+            "the same run, so it was reachable: treated as a transient and run again, not as " +
+            "a failure of the environment and not as a product defect.",
+        }
+      : v,
+  );
 
   // The earliest contagious category present, so a run with both reports the
   // more fundamental one.

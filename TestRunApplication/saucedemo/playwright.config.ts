@@ -1,6 +1,18 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
+ * The application's address comes from AQA_APP_URL in the .env file, and from
+ * nowhere else: not a default here, not a literal in a page object. A missing
+ * value stops the run instead of quietly testing some other address.
+ */
+const appUrl = process.env["AQA_APP_URL"];
+if (!appUrl)
+  throw new Error(
+    "AQA_APP_URL is not set. Put the application's address in the .env file the run uses " +
+      '(attestqa: --env ".env.<app>,.env"; plain Playwright: set AQA_APP_URL in the shell).',
+  );
+
+/**
  * The agent's workspace for SauceDemo (research/EVALUATION_PLAN.md).
  *
  * The application lives at `AQA_APP_URL` (https://www.saucedemo.com by default). The address is
@@ -13,11 +25,17 @@ export default defineConfig({
   // pw.run_tests reads the JSON reporter; keep retries at 0, because the
   // verifier treats green as evidence and a flaky pass is not.
   retries: 0,
+  // SauceDemo is a hosted site on the public internet, not a local container:
+  // a page load can take longer than Playwright's 30 s default for a whole
+  // test (20261022T102919Z: AC-1 timed out in page.goto after the suite had
+  // been green). More time for the network, not for the assertions.
+  timeout: 60_000,
   // A hosted site: one test at a time, as targets.yaml asks.
   workers: 1,
   reporter: process.env["CI"] ? "line" : "list",
   use: {
-    baseURL: process.env["AQA_APP_URL"] ?? "https://www.saucedemo.com",
+    navigationTimeout: 45_000,
+    baseURL: appUrl,
     // SauceDemo marks its elements with data-test, not data-testid, so getByTestId
     // ("login-button") finds them.
     testIdAttribute: "data-test",
