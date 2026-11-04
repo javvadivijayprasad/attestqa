@@ -84,9 +84,12 @@ jobs:
       - name: Engine - publish to npm
         if: env.DRY_RUN != 'true'
         working-directory: packages/core
-        # No token: npm trusted publishing (OIDC) - the publisher is configured on
-        # npmjs.com (package attestqa -> Settings -> Trusted Publisher -> GitHub
-        # Actions, this repo, this workflow file). Nothing to rotate, no OTP.
+        env:
+          # OIDC trusted publishing returned E404 (unauthorized) on 2.0.3, so this
+          # authenticates with an npm automation/granular token instead. The token
+          # must have publish rights to `attestqa`. `--provenance` still attaches a
+          # provenance statement via the job's `id-token: write`.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           v=$(node -p "require('./package.json').version")
           if npm view "attestqa@$v" version >/dev/null 2>&1; then
