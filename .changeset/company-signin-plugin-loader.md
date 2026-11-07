@@ -1,0 +1,5 @@
+---
+"attestqa": minor
+---
+
+Load the model provider and company sign-in plug-ins the config names. The provider seam (a plug-in registry, a `TokenSource` for short-lived credentials, and `buildModel` routing for `auth: entra | aws-sso`) already existed, but nothing loaded the packages that fill it. A run now, before it validates the config, auto-imports the package a non-built-in provider or a sign-in mode names — `provider: bedrock` → `@attestqa/provider-bedrock`, `auth: entra` → `@attestqa/auth-azure`, `auth: aws-sso` → `@attestqa/auth-aws` — registers the provider so the config validator accepts it, and (on a real run, not a dry run or `check-rules`) signs in and builds a `TokenSource` that `buildModel` uses instead of a stored key. A missing package is reported with the exact `npm i` to run, and the run banner says which sign-in supplied the credential. The default (`provider: anthropic`, `auth: key`) is unchanged and loads nothing. Additive: new behaviour behind config a project opts into, and new exports (`resolveModelPlugins`, `ensureProvider`, `loadTokenSource`) for the VS Code extension and web UI to reuse.

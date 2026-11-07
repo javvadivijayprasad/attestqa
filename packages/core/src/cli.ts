@@ -12,8 +12,8 @@ import {
   TEST_CODE_RATIONALE,
 } from "./triage/patterns.js";
 import { CONFIG_FILE, modelRoute, runInit, scopeEntry } from "./setup/init.js";
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, extname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
 import { readLedgerFile, LEDGER_FILE } from "./ledger/ledger.js";
 import { readRuns } from "./design/fingerprint.js";
@@ -22,9 +22,12 @@ import {
   ConfigError,
   loadAgentConfig,
   loadDotEnv,
+  parseConfigText,
   readRuntimeEnv,
   type RuntimeEnv,
 } from "./config.js";
+import { resolveModelPlugins } from "./runtime/plugins.js";
+import type { TokenSource } from "./runtime/token.js";
 import { Ledger, newRunId, APPROVALS_DIR } from "./ledger/ledger.js";
 import { runLoop } from "./runtime/loop.js";
 import { buildModel, describeModel, credentialVarFor } from "./runtime/provider.js";
@@ -525,12 +528,42 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
   if (!request) return (io.err(`aqa run: missing "<request>"\n`), 1);
   const configPath = flag(args, "--config");
   if (!configPath) return (io.err("aqa run: --config <ai-quality.config.yaml> is required\n"), 1);
+
+  // Load the model plug-ins the config names BEFORE validating it: a plug-in
+  // provider (for example bedrock) must be registered before agent.model.provider
+  // is checked, and a sign-in auth mode needs its package to build a TokenSource.
+  // Env is loaded here so the sign-in can read its non-secret settings; a real
+  // run signs in now, a dry run does not (it builds no model).
+  const dryRun = args.includes("--dry-run");
+  const envFile = flag(args, "--env") ?? ".env";
+  const loaded = loadDotEnv(envFile);
+  const env = readRuntimeEnv(process.env, { requireAnthropic: false });
+  let tokenSource: TokenSource | undefined;
+  try {
+    const raw = await parseConfigText(
+      readFileSync(resolve(configPath), "utf8"),
+      extname(configPath),
+    );
+    ({ tokenSource } = await resolveModelPlugins(raw, env, {
+      signIn: !dryRun,
+      warn: (m) => io.err(`aqa: ${scrub(m).text}\n`),
+    }));
+  } catch (err) {
+    if (err instanceof ConfigError) return (io.err(`aqa run: ${err.message}\n`), 2);
+    throw err;
+  }
+
   const config = await loadAgentConfig(configPath);
 
-  if (!args.includes("--dry-run")) return live(request, args, config, io, deps);
+  if (!dryRun)
+    return live(request, args, config, io, deps, {
+      env,
+      loaded,
+      envFile,
+      ...(tokenSource ? { tokenSource } : {}),
+    });
   // The same tracker choice the real run makes, so a dry run checks the
   // servers and tools that run would actually use.
-  loadDotEnv(flag(args, "--env") ?? ".env");
   const picked = pickTracker(
     args,
     request,
@@ -609,31 +642,34 @@ async function live(
   config: AgentConfig,
   io: CliIo,
   deps: ToolingDeps,
+  preloaded: { env: RuntimeEnv; loaded: string[]; envFile: string; tokenSource?: TokenSource },
 ): Promise<number> {
-  const envFile = flag(args, "--env") ?? ".env";
-  const loaded = loadDotEnv(envFile);
-  // Read without demanding the API key first: refusing an out-of-scope request
-  // should not require credentials, and the key is only needed once a model is
-  // actually built.
-  const env = readRuntimeEnv(process.env, { requireAnthropic: false });
+  // The .env was loaded once in run() — before the model plug-ins resolved —
+  // and passed in here. Reloading it would see the keys already in process.env
+  // and report "0 loaded … from the shell", mislabelling where the key came
+  // from. The caller read it, so this uses what it was handed.
+  const { env, loaded, envFile, tokenSource } = preloaded;
 
   // Say where the credential came from — for the provider the config names,
   // not for Anthropic by assumption. A stale key already in the shell wins
   // over the file (standard dotenv precedence) and silently shadows it, which
-  // otherwise surfaces only as an unexplained 401 (20261007T163224Z).
-  const credVar = credentialVarFor(config.model, false, env);
+  // otherwise surfaces only as an unexplained 401 (20261007T163224Z). A company
+  // sign-in supplies a token instead of a key, so there is no env var to report.
+  const credVar = credentialVarFor(config.model, Boolean(tokenSource), env);
   const credValue = credVar ? (process.env[credVar] ?? "") : "";
-  const keySource = !credVar
-    ? "no credential needed"
-    : loaded.includes(credVar)
-      ? `${credVar} ${mask(credValue)} from ${envFile}`
-      : credValue
-        ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
-        : `${credVar} is not set anywhere`;
+  const keySource = tokenSource
+    ? `sign-in: ${tokenSource.describe()}`
+    : !credVar
+      ? "no credential needed"
+      : loaded.includes(credVar)
+        ? `${credVar} ${mask(credValue)} from ${envFile}`
+        : credValue
+          ? `${credVar} ${mask(credValue)} from the shell environment (NOT ${envFile})`
+          : `${credVar} is not set anywhere`;
   io.err(
     `aqa: env ${resolve(envFile)} — ${loaded.length} key(s) loaded; model ${describeModel(
       config.model,
-      undefined,
+      tokenSource,
       env,
     )}; ${keySource}\n`,
   );
@@ -811,6 +847,7 @@ async function live(
         ...(config.budgets.maxOutputTokens
           ? { maxOutputTokens: config.budgets.maxOutputTokens }
           : {}),
+        ...(tokenSource ? { tokenSource } : {}),
         warn: (m) => io.err(`aqa: ${scrub(m).text}\n`),
       });
 
@@ -1274,6 +1311,21 @@ export async function checkRules(args: string[], io: CliIo): Promise<number> {
   if (dirs.length === 0 || !configPath) {
     io.err("aqa check-rules: <run-dir>... and --config <ai-quality.config.yaml> are required\n");
     return 1;
+  }
+  // Register a plug-in provider the config may name (so validation accepts it);
+  // no model is built here and nothing is signed in — this only re-judges
+  // recorded ledgers against today's rules.
+  try {
+    const raw = await parseConfigText(
+      readFileSync(resolve(configPath), "utf8"),
+      extname(configPath),
+    );
+    await resolveModelPlugins(raw, readRuntimeEnv(process.env, { requireAnthropic: false }), {
+      signIn: false,
+    });
+  } catch (err) {
+    if (err instanceof ConfigError) return (io.err(`aqa check-rules: ${err.message}\n`), 2);
+    throw err;
   }
   const config = await loadAgentConfig(configPath);
   const workspace = flag(args, "--workspace");

@@ -138,6 +138,17 @@ Most companies do not hand out personal Anthropic keys. Use the route your compa
 - **Azure OpenAI** or **another OpenAI-compatible gateway:** a `provider` block in the config, with
   the endpoint and model or deployment name (`aqa init` writes it), and the key in `.env`
   (`AZURE_OPENAI_API_KEY`, `AQA_GATEWAY_API_KEY`).
+- **Amazon Bedrock, directly** (no gateway in front): `npm i @attestqa/provider-bedrock`, then set
+  `provider: bedrock` with the Bedrock model id as the name (for example
+  `anthropic.claude-3-5-sonnet-20241022-v2:0`). Requests are signed with your AWS credentials from
+  the standard chain — `aws sso login`, an `AWS_PROFILE`, or an instance/task role — so attestqa
+  stores no API key; set `AWS_REGION` for the region.
+- **Company sign-in — a short-lived token, no stored key.** On an Azure OpenAI, OpenAI-compatible or
+  gateway endpoint that accepts a bearer token, add `auth: entra` (`npm i @attestqa/auth-azure`,
+  sign in with `az login`) or `auth: aws-sso` (`npm i @attestqa/auth-aws`, `aws sso login`).
+  attestqa fetches a fresh token for each request instead of holding a key; the run's first line
+  shows who you signed in as, never the token. attestqa loads the matching package by the `provider`
+  or `auth` name, so there is nothing else to wire.
 
 - **GitHub Copilot, in VS Code.** VS Code lends a person's Copilot models to extensions (after a
   one-time consent prompt), so the attestqa extension can run a story on your Copilot plan: choose

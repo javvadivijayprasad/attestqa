@@ -1,0 +1,60 @@
+{
+  "name": "@attestqa/auth-aws",
+  "version": "0.1.0",
+  "description": "AWS SSO sign-in for attestqa: supply a short-lived AWS IAM Identity Center (SSO) access token as the model credential, so no API key is stored.",
+  "license": "MIT",
+  "author": "Vijay P. Javvadi <jvijayprasad@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javvadivijayprasad/attestqa.git",
+    "directory": "packages/auth-aws"
+  },
+  "homepage": "https://github.com/javvadivijayprasad/attestqa/tree/main/packages/auth-aws#readme",
+  "bugs": {
+    "url": "https://github.com/javvadivijayprasad/attestqa/issues"
+  },
+  "keywords": ["attestqa", "aws", "sso", "iam-identity-center", "auth", "sign-in", "plugin"],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "prepublishOnly": "npm run typecheck && npm test && npm run lint && npm run build"
+  },
+  "peerDependencies": {
+    "attestqa": ">=2.2.0"
+  },
+  "dependencies": {
+    "@aws-sdk/token-providers": "^3.1163.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.10.0",
+    "@types/node": "^20.14.0",
+    "attestqa": "*",
+    "eslint": "^9.10.0",
+    "prettier": "^3.3.0",
+    "tsup": "^8.2.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.5.0",
+    "vitest": "^2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

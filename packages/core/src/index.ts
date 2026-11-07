@@ -175,6 +175,14 @@ export {
   registeredProviderNames,
 } from "./runtime/provider.js";
 export type { BuildModelOptions, ProviderFactory, TokenSource, Token } from "./runtime/provider.js";
+export { resolveModelPlugins, ensureProvider, loadTokenSource } from "./runtime/plugins.js";
+export type {
+  Importer,
+  ProviderPluginModule,
+  AuthPluginModule,
+  AuthOptions,
+  ResolvedPlugins,
+} from "./runtime/plugins.js";
 export { OpenAiCompatibleModel, endpointFor } from "./runtime/openai.js";
 export { LEDGER_TOOL, LEDGER_TOOLS } from "./types.js";
 export type { ModelAuth, ModelConfig, ModelProvider, LedgerTool } from "./types.js";

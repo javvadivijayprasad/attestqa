@@ -1,0 +1,60 @@
+{
+  "name": "@attestqa/provider-bedrock",
+  "version": "0.1.0",
+  "description": "AWS Bedrock provider plug-in for attestqa: run the agent on Claude through Amazon Bedrock, authenticated by the AWS credential chain (no stored API key).",
+  "license": "MIT",
+  "author": "Vijay P. Javvadi <jvijayprasad@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/javvadivijayprasad/attestqa.git",
+    "directory": "packages/provider-bedrock"
+  },
+  "homepage": "https://github.com/javvadivijayprasad/attestqa/tree/main/packages/provider-bedrock#readme",
+  "bugs": {
+    "url": "https://github.com/javvadivijayprasad/attestqa/issues"
+  },
+  "keywords": ["attestqa", "aws", "bedrock", "anthropic", "claude", "provider", "plugin"],
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
+    "prepublishOnly": "npm run typecheck && npm test && npm run lint && npm run build"
+  },
+  "peerDependencies": {
+    "attestqa": ">=2.2.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^1.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.10.0",
+    "@types/node": "^20.14.0",
+    "attestqa": "*",
+    "eslint": "^9.10.0",
+    "prettier": "^3.3.0",
+    "tsup": "^8.2.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.5.0",
+    "vitest": "^2.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

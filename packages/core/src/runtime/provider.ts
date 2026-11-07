@@ -48,11 +48,20 @@ export const CREDENTIAL_VAR: Record<string, string | null> = {
   local: null,
 };
 
-/** The package that supplies a token source for each sign-in mode. */
-const TOKEN_PACKAGE: Record<string, string> = {
+/**
+ * The package that supplies a token source for each sign-in mode. Exported so
+ * the plug-in loader (runtime/plugins.ts) auto-imports the same package this
+ * module's error messages tell the user to install — one convention, one place.
+ */
+export const TOKEN_PACKAGE: Record<string, string> = {
   entra: "@attestqa/auth-azure",
   "aws-sso": "@attestqa/auth-aws",
 };
+
+/** The package that supplies a provider the config names but the core does not build in. */
+export function providerPackage(name: string): string {
+  return `@attestqa/provider-${name}`;
+}
 
 /**
  * The environment variable a run will read its key from, or null when it reads

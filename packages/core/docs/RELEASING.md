@@ -99,6 +99,26 @@ publish --no-dependencies` in `packages/vscode` after `npx @vscode/vsce login vi
 PAT of the owner account, scope Marketplace → Manage), then *Re-run failed jobs* so the remaining
 steps complete.
 
+## The plug-in packages (`@attestqa/*`)
+
+The provider and sign-in plug-ins — `@attestqa/provider-bedrock`, `@attestqa/auth-aws`,
+`@attestqa/auth-azure` — ship from the same workflow but **version independently** of the engine:
+they are not in the `fixed` set in `.changeset/config.json`, so `changeset version` bumps each only
+when a changeset names it, and the tag-match check ignores them. The *Plug-in packages* steps in
+`release.yml` publish each one idempotently (skip if that version is already on npm), so a release
+only ships the ones whose version moved.
+
+Two one-time steps per **new** package, before its first release:
+
+1. **First publish by hand.** npm trusted publishing cannot be configured for a name that does not
+   exist yet, so create it once from the package folder with your own npm login:
+   `cd packages/<pkg> && npm publish --access public`.
+2. **Then add its Trusted Publisher** on npmjs.com (package `@attestqa/<pkg>` → Settings → Trusted
+   Publisher → GitHub Actions: owner `javvadivijayprasad`, repository `attestqa`, workflow
+   `release.yml`).
+
+After that, CI publishes every later version through OIDC, exactly like the engine — no token.
+
 ## Version bumps
 
 Semantic versioning, with one project rule: anything in the contract surface

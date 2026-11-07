@@ -214,7 +214,11 @@ export class AnthropicModel implements ModelClient {
   private api: MessagesApi | undefined;
 
   constructor(opts: AnthropicModelOptions) {
-    if (!opts.apiKey && !opts.authToken)
+    // A custom factory owns how it reaches the API, including authentication —
+    // the AWS Bedrock provider signs with AWS credentials and has no API key,
+    // and the test factories supply their own transport. The key is required
+    // only for the default SDK factory, which talks to the Anthropic API.
+    if (!opts.factory && !opts.apiKey && !opts.authToken)
       throw new Error("AnthropicModel requires an API key or a gateway auth token");
     this.apiKey = opts.apiKey;
     this.connection = {
