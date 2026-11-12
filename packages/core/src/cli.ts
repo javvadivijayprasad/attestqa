@@ -106,8 +106,8 @@ export const COMMIT = typeof __AQA_COMMIT__ === "string" ? __AQA_COMMIT__ : "unk
 /** In-process adapters, by `--servers` name. */
 export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira"];
 /**
- * `tcg` and `synthdata` are site-specific (they need TCG_URL / SYNTHDATA_CMD),
- * so they are opt-in rather than on by default.
+ * `tcg` and `synthdata` are site-specific (they need TCG_URL, and SYNTHDATA_CMD
+ * or SYNTHDATA_CLI), so they are opt-in rather than on by default.
  */
 export const DEFAULT_SERVERS = "ado,playwright,fs,bdd2pw,pw";
 /** The same set for a Jira story: Jira in place of Azure DevOps. */
@@ -418,8 +418,10 @@ async function buildTooling(
       );
     else if (w === "tcg" && !env.tcgUrl)
       throw new ConfigError("--servers includes tcg but TCG_URL is not set");
-    else if (w === "synthdata" && !env.synthdataCmd)
-      throw new ConfigError("--servers includes synthdata but SYNTHDATA_CMD is not set");
+    else if (w === "synthdata" && !env.synthdataCmd && !env.synthdataCli)
+      throw new ConfigError(
+        "--servers includes synthdata but neither SYNTHDATA_CMD nor SYNTHDATA_CLI is set",
+      );
     else if (w === "jira" && !env.jira)
       throw new ConfigError(
         "--servers includes jira but JIRA_BASE_URL and its credential (JIRA_EMAIL + JIRA_API_TOKEN, or JIRA_PAT) are not set",
@@ -484,8 +486,14 @@ async function buildTooling(
         if (wanted.includes("jira") && env.jira)
           clients.push(new JiraTools(env.jira, { evidenceRoot: workspace }));
         if (wanted.includes("tcg") && env.tcgUrl) clients.push(new TcgTools(env.tcgUrl));
-        if (wanted.includes("synthdata") && env.synthdataCmd)
-          clients.push(new SynthdataTools(env.synthdataCmd, workspace));
+        if (wanted.includes("synthdata") && (env.synthdataCmd || env.synthdataCli))
+          clients.push(
+            new SynthdataTools(
+              env.synthdataCmd ?? "",
+              workspace,
+              env.synthdataCli ? { examplesCli: env.synthdataCli } : {},
+            ),
+          );
         return { tools: new CompositeTools(clients), close: () => mcp.close() };
       })();
   return { specs, ...built, workspace };

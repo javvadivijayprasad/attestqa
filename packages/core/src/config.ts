@@ -332,7 +332,10 @@ export interface RuntimeEnv {
   jira?: JiraConnection;
   tcgUrl?: string;
   governanceUrl?: string;
+  /** SYNTHDATA_CMD — the project's own data generator (`synthdata.generate`). */
   synthdataCmd?: string;
+  /** SYNTHDATA_CLI — the synthdata CLI, e.g. `npx synthdata` (`synthdata.examples`). */
+  synthdataCli?: string;
   sandbox: boolean;
 }
 
@@ -371,6 +374,7 @@ export function readRuntimeEnv(
   if (env["TCG_URL"]) out.tcgUrl = env["TCG_URL"];
   if (env["AI_GOVERNANCE_URL"]) out.governanceUrl = env["AI_GOVERNANCE_URL"];
   if (env["SYNTHDATA_CMD"]) out.synthdataCmd = env["SYNTHDATA_CMD"];
+  if (env["SYNTHDATA_CLI"]) out.synthdataCli = env["SYNTHDATA_CLI"];
   return out;
 }
 

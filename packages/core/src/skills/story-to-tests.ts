@@ -1388,6 +1388,11 @@ export function storyToTestsSkill(
       // synthdata server is actually running (SYNTHDATA_CMD is set), so it is a
       // no-op on a project that has not configured one.
       "synthdata.generate",
+      // The synthdata CLI, for the rows of a Scenario Outline's Examples table
+      // (boundary and invalid values of a form field). Listed always, and like
+      // the tool above it only reaches the model when it is configured
+      // (SYNTHDATA_CLI is set).
+      "synthdata.examples",
     ],
     sourceTools: trackerSources(tracker),
     verifier: new StoryToTestsVerifier(options),
@@ -1450,6 +1455,21 @@ function testDesignStep(types: readonly string[]): string {
    project's synthetic-data generator — use it to produce the unique datum per
    test (a unique room number, a unique guest) into a workspace file the test
    reads; it never touches real data.
+
+   Take a form field's values from its rules, not from memory. If a
+   synthdata.examples tool is offered and an item is boundary-value-analysis or
+   equivalence-partitioning on a field with stated limits (required, a maximum
+   length, a range, an allowed set), call it BEFORE you submit the design: state
+   the rules as one small CREATE TABLE, ask for profile "edge" (the valid
+   boundaries) and profile "negative" (invalid rows, one broken rule each, named
+   in _violation — the value one outside a range is in this profile). Put the
+   values it returns into the item's conditions, so the approver sees the exact
+   values that will run. After approval, write that item as ONE Scenario Outline
+   whose Examples table holds those rows — one row per value, the columns named
+   for the placeholders in the steps, the expected message in its own column —
+   carrying the item's tags like any other scenario. Keep only the columns the
+   steps use; leave _violation and row ids out of the feature file. When the tool
+   is not offered, choose the values yourself as before.
 
    Pick the technique from the RULE the criterion states:
      - a field that is required or has limits → boundary-value-analysis

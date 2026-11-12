@@ -15,8 +15,8 @@ On 18 Oct, seven Toolshop runs each stopped on a different problem. Each fix was
 |---|---|---|---|
 | 0 | Route | Decide A (new tests), A2 (complete missing items), or B (run existing tests) | `route/route.ts`, `skills/story-to-tests.ts` (`reroute`) |
 | 1 | Story context | The runtime reads the story, epic, siblings, comments, open bugs and framework *before* the model's first turn | `skills/story-context.ts`, `skills/jira-story-context.ts`, `framework/survey.ts` |
-| 2 | Test design | The agent proposes items (`aqa.test_design`); the runtime checks them; a person approves | `design/test-design.ts` (`validateDesign`), `skills/story-rules.ts` (`invalidDesign`, `takenDesignIds`, `designFirst`) |
-| 3 | Authoring | The agent writes the epic's `.feature` scenarios from the approved design | the agent, policed by the feature rules (§6) |
+| 2 | Test design | The agent proposes items (`aqa.test_design`); the runtime checks them; a person approves. With `SYNTHDATA_CLI` set, the agent may first call `synthdata.examples` for a form field's boundary and invalid values and put them in the item's conditions (2.3.0). No rule acts on that tool: it writes only its own output directory, and `designFirst` names the calls it refuses | `design/test-design.ts` (`validateDesign`), `skills/story-rules.ts` (`invalidDesign`, `takenDesignIds`, `designFirst`), `mcp/adapters/synthdata.ts` |
+| 3 | Authoring | The agent writes the epic's `.feature` scenarios from the approved design. Generated values go in as one Scenario Outline with an inline Examples table, an ordinary feature write under the same rules; bdd2pw's `--data` is not used because it replaces the Examples of every outline in the shared epic file | the agent, policed by the feature rules (§6) |
 | 4 | Build | `bdd2pw.analyze`, then `bdd2pw.scaffold`, generate the spec and page object | `mcp/adapters/bdd2pw.ts` and the bdd2pw package |
 | 5 | Implement | The agent fills in the TODO steps bdd2pw could not bind | the agent, policed by the spec rules (§6) |
 | 6 | Execution | `pw.run_tests` (first run needs approval; the runtime may also run it itself via `autoRun`) | `mcp/adapters/pw.ts`, `runtime/loop.ts` |

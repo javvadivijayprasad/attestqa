@@ -178,6 +178,7 @@ defined-but-blank value is otherwise a long afternoon).
 | `AZURE_DEVOPS_ORG_URL` / `_PAT` / `_PROJECT`    | required together for the `ado` server    |
 | `AQA_APP_URL` / `AQA_APP_USER` / `AQA_APP_PASS` | read by the workspace's Playwright config |
 | `TCG_URL`, `SYNTHDATA_CMD`                      | enable those adapters when set            |
+| `SYNTHDATA_CLI`                                 | the synthdata CLI, for `synthdata.examples` |
 | `AQA_SANDBOX=1`                                 | relaxes URL scope to allow `*`            |
 
 ---
@@ -246,7 +247,8 @@ A `ToolClient` is anything with `listTools()` and `call(server, name, args)`. Tw
 | `bdd2pw`    | `parse`, `to_spec`                    | Gherkin → Playwright skeleton (`fixme` + TODOs)         |
 | `pw`        | `list_tests`, `run_tests`             | shells out to `npx playwright test --reporter=json`     |
 | `tcg`       | `generate_cases`                      | POSTs to `TCG_URL`; the one adapter that leaves the box |
-| `synthdata` | `generate`                            | opt-in via `SYNTHDATA_CMD`                              |
+| `synthdata` | `generate`                            | opt-in via `SYNTHDATA_CMD` (the project's own generator) |
+| `synthdata` | `examples`                            | opt-in via `SYNTHDATA_CLI` (the synthdata CLI, `auto` mode) |
 | `aqa`       | `run_summary`                         | counts this run's report from the ledger                |
 
 `pw.run_tests` returns `{ passed, failed, skipped, flaky, green, failures[], exitCode }`. Note that
