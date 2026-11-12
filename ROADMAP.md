@@ -55,18 +55,26 @@ date does not move. The near-term sequence below is committed; the technical pla
 | Release | Target | Feature |
 | --- | --- | --- |
 | **v2.3.0** | 15 Jan 2027 | **Generated test data (synthdata)** — for a form-field story, the design agent requests boundary and invalid data and bakes it into a Scenario Outline + Examples table; an `aqa seed` subcommand generates application/DB seed data into the workspace (loading stays a project step). Opt-in, off by default. |
-| **v2.4.0** | 15 Feb 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so Jira runs are governed by the same rules as Azure DevOps (today most tracker-write rules name `ado.*` and Jira runs are under-governed). Behaviour-preserving for ADO. |
-| **v2.5.0** | 15 Mar 2027 | **Approved locator repairs** — a repair the two rankers agree on, or that a person approves, with the before/after evidence. Off by default. |
-| **v2.6.0** | 15 Apr 2027 | **Local web UI** — `aqa serve` runs the engine behind a browser on `127.0.0.1`; nothing leaves the machine. Parity with the VS Code extension. A signed Windows app wraps it later. |
-| **v2.7.0** | 15 May 2027 | **Budget reservation** — guarantee the healer a minimum budget slice so a stuck earlier phase cannot starve it. Opt-in. |
-| **v2.8.0** | 15 Jun 2027 | **The agent split** — execute, author, implement and defect each become their own agent with their own tools and instructions, as heal already is; the replay corpus is unchanged. Web testing complete. |
+| **v2.4.0** | 15 Feb 2027 | **Project documents** — the agent searches the project's own documents for a value the story does not state, and cites the passage; the citation is checked in code and shown at approval. With it, an evaluation command (`aqa eval`) and a local dashboard page that compare runs with search off and on. Opt-in, no model or key for the search. |
+| **v2.5.0** | 15 Mar 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so Jira runs are governed by the same rules as Azure DevOps (today most tracker-write rules name `ado.*` and Jira runs are under-governed). Behaviour-preserving for ADO. |
+| **v2.6.0** | 15 Apr 2027 | **Approved locator repairs** — a repair the two rankers agree on, or that a person approves, with the before/after evidence. Off by default. |
+| **v2.7.0** | 15 May 2027 | **Memory across runs** — facts rebuilt from past run ledgers (a flaky test, which tests belong to a story, a repair that worked) and read through one governed, read-only tool; the model cannot write a fact. Uses the vector search plug-in when installed. Off by default. |
+| **v2.8.0** | 15 Jun 2027 | **Local web UI** — `aqa serve` runs the engine behind a browser on `127.0.0.1`; nothing leaves the machine. Parity with the VS Code extension, plus the dashboard and memory pages and a choice of the kinds of test for a run. Two new kinds: **responsive layout** and **cross-browser**. A signed Windows app wraps it later. |
+| **v2.9.0** | 15 Jul 2027 | **Budget reservation** — guarantee the healer a minimum budget slice so a stuck earlier phase cannot starve it. Opt-in. Settings become editable from the web UI (never secrets). |
+| **v2.10.0** | 15 Aug 2027 | **The agent split** — execute, author, implement and defect each become their own agent with their own tools and instructions, as heal already is; the replay corpus is unchanged. |
+| **v2.11.0** | 15 Sep 2027 | **Visual check** — a page compared with a screenshot a person approved. |
+| **v2.12.0** | 15 Oct 2027 | **Performance smoke** — a page must load and respond within a time stated by the story or a document. |
+| **v2.13.0** | 15 Nov 2027 | **Guided exploration and requirements review** — the agent proposes test ideas from exploring the app, and reviews a story for gaps before a test is designed. Web testing complete. |
+
+**Vector search** is a separately versioned plug-in, built between 2.6.0 and 2.7.0 and loaded
+from 2.7.0. It needs no vector database: a project's documents are small enough to search exactly.
 
 Migrating an existing Selenium suite is a separate standalone tool, **sel2pw**
 (`npx @vijaypjavvadi/sel2pw convert`), not a subcommand of attestqa: convert with it, then run
 attestqa on your next story — route B adds governed tests beside the converted ones.
 
-Guided **exploration** and reviewing requirements **inside the app** remain on the list beyond the
-committed sequence; they are not yet scheduled.
+The order above was set on 12 Nov 2026; the reasons and the design for 2.4.0 are in
+`research/decisions/ADR-008-project-document-retrieval.md`.
 
 ---
 
@@ -74,13 +82,13 @@ committed sequence; they are not yet scheduled.
 
 | Release | Date | Headline |
 | --- | --- | --- |
-| **v3.0.0** | 15 Jul 2027 | **API testing** |
-| v3.1.0 | 15 Aug 2027 | API exploration; contracts from traffic |
-| **v4.0.0** | 15 Sep 2027 | **Web version of attestqa** (hosting, accounts, multi-user approvals) |
-| v4.1.0 | 15 Oct 2027 | MCP and multi-user approvals |
-| **v5.0.0** | 15 Nov 2027 | **Security testing** |
-| v5.1.0 | 15 Dec 2027 | Active scanning |
-| **v6.0.0** | 15 Jan 2028 | **ETL testing** — all four kinds of testing |
+| **v3.0.0** | 15 Dec 2027 | **API testing** |
+| v3.1.0 | 15 Jan 2028 | API exploration; contracts from traffic |
+| **v4.0.0** | 15 Feb 2028 | **Web version of attestqa** (hosting, accounts, multi-user approvals) |
+| v4.1.0 | 15 Mar 2028 | MCP and multi-user approvals |
+| **v5.0.0** | 15 Apr 2028 | **Security testing** |
+| v5.1.0 | 15 May 2028 | Active scanning |
+| **v6.0.0** | 15 Jun 2028 | **ETL testing** — all four kinds of testing |
 
 Dates beyond the next release are a plan, not a promise. Changes to the plan are recorded as
 decision records in `research/decisions/`.
