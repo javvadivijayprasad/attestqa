@@ -1,6 +1,7 @@
 # Versions
 
-Three artefacts ship from this repository and they are versioned independently.
+The runtime, the extension and the archive ship from this repository on one version line
+(ADR-005); the `@attestqa/*` plug-ins ship from it too and are versioned independently.
 This file is the single place that says what is released where, because the
 answer has been wrong twice already — once when `aqa --version` printed a
 hardcoded `0.1.0-dev.0` that a substring assertion had been happily matching,
@@ -12,11 +13,12 @@ Check this table against reality before every release, with the commands below.
 
 | Artefact | Name | Version | Published | Source |
 | --- | --- | --- | --- | --- |
-| Runtime | `attestqa` | **2.1.0** (on npm 5 Nov 2026) | npm | `packages/core/package.json` |
-| Extension | `attestqa-vscode` | **2.1.0** (on the Marketplace 5 Nov 2026) | VS Code Marketplace | `packages/vscode/package.json` |
+| Runtime | `attestqa` | **2.2.0** (on npm 10 Nov 2026) | npm | `packages/core/package.json` |
+| Extension | `attestqa-vscode` | **2.2.0** (on the Marketplace 10 Nov 2026) | VS Code Marketplace | `packages/vscode/package.json` |
+| Plug-ins | `@attestqa/provider-bedrock`, `@attestqa/auth-aws`, `@attestqa/auth-azure` | **0.1.0** each (on npm 10 Nov 2026); versioned independently | npm | `packages/<plug-in>/package.json` |
 | Archive | `attestqa` | every release; cite the concept DOI (see `CITATION.cff`) | Zenodo (GitHub release integration) | `CITATION.cff` |
 
-The next version is built on `release/2.2.0` (ADR-006); nothing is published until its tag. The
+The next version is built on `release/2.3.0` (ADR-006); nothing is published until its tag. The
 forward plan is in [ROADMAP.md](../../../ROADMAP.md).
 
 One version line (ADR-005, 3 Nov 2026): the product release tag, the runtime and the extension carry the
@@ -28,7 +30,7 @@ release is citable. `CITATION.cff` carries the *concept* DOI, which always resol
 version, so only `version` and `date-released` change per release (`packages/core/CITATION.cff` is
 the copy that ships in the npm package and must say the same). A paper that needs a fixed version
 cites that version's own DOI from its Zenodo page (2.0.1: 10.5281/zenodo.23897787, cited by the
-SoftwareX article; 2.0.2: 10.5281/zenodo.23932981; 2.1.0: 10.5281/zenodo.23979481).
+SoftwareX article; 2.0.2: 10.5281/zenodo.23932981; 2.1.0: 10.5281/zenodo.23979481; 2.2.0: 10.5281/zenodo.24116301).
 
 ## What 2.0.x means here
 
