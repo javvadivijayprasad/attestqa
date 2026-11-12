@@ -41,6 +41,10 @@ From a user story in **Jira or Azure DevOps** to governed Playwright tests.
   configurable per-call output cap (`agent.budgets.max_output_tokens`), the synthdata generator
   wired into the data-isolation story behind `SYNTHDATA_CMD`, and the rest of the October
   evaluation's fixes. See `packages/core/CHANGELOG.md`.
+- **2.2.0** (10 Nov 2026) — company sign-in + Bedrock: keyless sign-in with Microsoft Entra ID or
+  AWS SSO, and Amazon Bedrock as a provider. Each is a plug-in the config names, installed only by
+  the projects that need it (`@attestqa/auth-azure`, `@attestqa/auth-aws`,
+  `@attestqa/provider-bedrock`).
 
 ### Planned — one feature per minor, on the 15th of the month
 
@@ -50,7 +54,6 @@ date does not move. The near-term sequence below is committed; the technical pla
 
 | Release | Target | Feature |
 | --- | --- | --- |
-| **v2.2.0** | 15 Dec 2026 | **Company sign-in + Bedrock** — Microsoft Entra ID and AWS SSO, no stored key; AWS Bedrock as a provider. |
 | **v2.3.0** | 15 Jan 2027 | **Generated test data (synthdata)** — for a form-field story, the design agent requests boundary and invalid data and bakes it into a Scenario Outline + Examples table; an `aqa seed` subcommand generates application/DB seed data into the workspace (loading stays a project step). Opt-in, off by default. |
 | **v2.4.0** | 15 Feb 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so Jira runs are governed by the same rules as Azure DevOps (today most tracker-write rules name `ado.*` and Jira runs are under-governed). Behaviour-preserving for ADO. |
 | **v2.5.0** | 15 Mar 2027 | **Approved locator repairs** — a repair the two rankers agree on, or that a person approves, with the before/after evidence. Off by default. |
