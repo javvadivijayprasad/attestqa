@@ -161,6 +161,17 @@ Most companies do not hand out personal Anthropic keys. Use the route your compa
   (marked `estimated`); and it works only from VS Code — a terminal or CI run on Copilot stops at
   once and says so, because VS Code gives other programs no supported access to Copilot.
 
+**Generated values for form fields (optional).** When a story has a field with stated limits (a
+required field, a maximum length, a range, an allowed set), attestqa can take the boundary and
+invalid values from a generator instead of leaving the model to choose them. Install
+[synthdata](https://www.npmjs.com/package/@vijaypjavvadi/synthdata) in the project, add
+`SYNTHDATA_CLI=npx synthdata` to `.env`, and add `synthdata` to `--servers`. The agent then states
+the field's rules, asks for the valid boundaries and for invalid rows, shows those values in the
+design you approve, and writes them as one Scenario Outline with an Examples table. No model is
+called for this and the same seed always gives the same rows; the schema and the CSV are kept in the
+workspace beside the tests. It is off unless you set it. (`SYNTHDATA_CMD` is a different setting:
+your project's own data generator, used for a unique datum per test.)
+
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 
 Copy `examples/ai-quality.jira.config.yaml` (Jira) or `examples/ai-quality.config.yaml` (Azure

@@ -11,7 +11,12 @@ import {
 } from "../src/mcp/adapters/bdd2pw.js";
 import { PwTools, summarise, MAX_TESTS_RECORDED, stripAnsi } from "../src/mcp/adapters/pw.js";
 import { TcgTools, type FetchLike } from "../src/mcp/adapters/tcg.js";
-import { SynthdataTools } from "../src/mcp/adapters/synthdata.js";
+import {
+  SynthdataTools,
+  examplesTable,
+  parseCsv,
+  MAX_EXAMPLE_ROWS,
+} from "../src/mcp/adapters/synthdata.js";
 import { splitCommand, spawnable, type CommandRunner } from "../src/mcp/adapters/process.js";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "aqa-ad-"));
@@ -456,6 +461,214 @@ describe("synthdata generate", () => {
     const failed = await t(boom).call("synthdata", "generate", { schema: "u", out: "a" });
     expect(failed.ok).toBe(false);
     expect(JSON.stringify(failed.result)).toContain("schema unknown");
+  });
+});
+
+/**
+ * `synthdata.examples` runs the synthdata CLI (SYNTHDATA_CLI), which is a
+ * different program with a different calling convention from the project's own
+ * generator behind SYNTHDATA_CMD. The CSV the fake runner writes below is what
+ * synthdata 1.4.0 really printed for this schema on 12 Nov 2026 (seed 42).
+ */
+describe("synthdata examples", () => {
+  const DDL = `CREATE TABLE signup_form (
+  id INTEGER PRIMARY KEY,
+  username VARCHAR(20) NOT NULL,
+  age INTEGER NOT NULL CHECK (age BETWEEN 18 AND 120),
+  plan VARCHAR(10) NOT NULL CHECK (plan IN ('free','pro','team'))
+);`;
+  const NEGATIVE_CSV =
+    "id,username,age,plan,_violation\n" +
+    "1,,69,pro,username: NULL in NOT NULL column\n" +
+    "2,XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX,18,team,username: exceeds max length 20\n" +
+    "3,rahul55,17,team,age: outside CHECK range (17)\n" +
+    "4,suresh708,120,INVALID,plan: value not in allowed set\n";
+
+  const writing =
+    (csv: string, seen: string[][]): CommandRunner =>
+    async (command, args, opts) => {
+      seen.push([command, ...args]);
+      const dir = args[args.indexOf("--csv") + 1] as string;
+      writeFileSync(join(opts.cwd, dir, "signup_form.csv"), csv);
+      return { code: 0, stdout: "OK: 1 tables", stderr: "" };
+    };
+
+  it("offers each tool only when its own command is configured", async () => {
+    const names = async (cmd: string, cli?: string) =>
+      (await new SynthdataTools(cmd, tmp(), cli ? { examplesCli: cli } : {}).listTools()).map(
+        (t) => t.name,
+      );
+    expect(await names("gen")).toEqual(["generate"]);
+    expect(await names("", "synthdata")).toEqual(["examples"]);
+    expect(await names("gen", "synthdata")).toEqual(["generate", "examples"]);
+    expect(await names("")).toEqual([]);
+  });
+
+  it("writes the schema, runs the CLI in auto mode and returns an Examples table", async () => {
+    const ws = tmp();
+    const seen: string[][] = [];
+    const t = new SynthdataTools("", ws, {
+      examplesCli: "node tools/synthdata/bin/cli.js",
+      runner: writing(NEGATIVE_CSV, seen),
+    });
+    const r = await t.call("synthdata", "examples", {
+      ddl: DDL,
+      profile: "negative",
+      rows: 4,
+      out: "test-data/SCRUM-9-D1",
+    });
+    expect(r.ok).toBe(true);
+    expect(seen[0]).toEqual([
+      "node",
+      "tools/synthdata/bin/cli.js",
+      "auto",
+      "-s",
+      "test-data/SCRUM-9-D1/schema.sql",
+      "--rows",
+      "4",
+      "--profile",
+      "negative",
+      "--csv",
+      "test-data/SCRUM-9-D1",
+      "--seed",
+      "42",
+    ]);
+    expect(readFileSync(join(ws, "test-data/SCRUM-9-D1/schema.sql"), "utf8")).toContain(
+      "BETWEEN 18 AND 120",
+    );
+    expect(r.artefacts).toEqual([
+      "test-data/SCRUM-9-D1/schema.sql",
+      "test-data/SCRUM-9-D1/signup_form.csv",
+    ]);
+    const result = r.result as {
+      tables: Array<{ table: string; columns: string[]; rowCount: number; examples: string }>;
+      note?: string;
+    };
+    expect(result.tables[0]?.table).toBe("signup_form");
+    expect(result.tables[0]?.columns).toEqual(["id", "username", "age", "plan", "_violation"]);
+    expect(result.tables[0]?.rowCount).toBe(4);
+    expect(result.tables[0]?.examples).toContain("    Examples:");
+    expect(result.tables[0]?.examples).toContain("| 17 ");
+    expect(result.tables[0]?.examples).toContain("age: outside CHECK range (17)");
+    expect(result.note).toMatch(/_violation/);
+  });
+
+  it("defaults to the edge profile, six rows and seed 42", async () => {
+    const ws = tmp();
+    const seen: string[][] = [];
+    const t = new SynthdataTools("", ws, {
+      examplesCli: "synthdata",
+      runner: writing("id,age\n1,18\n2,120\n", seen),
+    });
+    const r = await t.call("synthdata", "examples", { ddl: DDL, out: "data" });
+    expect(r.ok).toBe(true);
+    expect(seen[0]?.slice(1)).toEqual([
+      "auto",
+      "-s",
+      "data/schema.sql",
+      "--rows",
+      "6",
+      "--profile",
+      "edge",
+      "--csv",
+      "data",
+      "--seed",
+      "42",
+    ]);
+    expect((r.result as { note?: string }).note).toBeUndefined();
+  });
+
+  it("refuses what it cannot run safely, before running anything", async () => {
+    const ws = tmp();
+    let ran = 0;
+    const runner: CommandRunner = async () => {
+      ran++;
+      return { code: 0, stdout: "", stderr: "" };
+    };
+    const t = new SynthdataTools("", ws, { examplesCli: "synthdata", runner });
+    const call = (args: Record<string, unknown>) => t.call("synthdata", "examples", args);
+
+    expect((await call({ ddl: "SELECT 1", out: "d" })).ok).toBe(false);
+    expect((await call({ ddl: DDL, out: "../outside" })).ok).toBe(false);
+    expect((await call({ ddl: DDL, out: "d & calc" })).ok).toBe(false);
+    expect((await call({ ddl: DDL, out: "d", profile: "volume" })).ok).toBe(false);
+    expect((await call({ ddl: DDL, out: "d", rows: 0 })).ok).toBe(false);
+    expect((await call({ ddl: DDL, out: "d", rows: MAX_EXAMPLE_ROWS + 1 })).ok).toBe(false);
+    expect((await call({ ddl: DDL, out: "d", seed: -1 })).ok).toBe(false);
+    expect((await call({ ddl: DDL })).ok).toBe(false);
+    expect(ran).toBe(0);
+
+    const unset = new SynthdataTools("gen", ws, { runner });
+    expect((await unset.call("synthdata", "examples", { ddl: DDL, out: "d" })).ok).toBe(false);
+    expect(ran).toBe(0);
+  });
+
+  it("refuses a range written as two comparisons, which synthdata 1.4.0 half-reads", async () => {
+    // Probe of 12 Nov 2026: CHECK (age >= 18 AND age <= 120) produced 518 and
+    // 1018 under profile edge. Those are not boundaries, and nothing said so.
+    const ws = tmp();
+    let ran = 0;
+    const t = new SynthdataTools("", ws, {
+      examplesCli: "synthdata",
+      runner: async () => {
+        ran++;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    const r = await t.call("synthdata", "examples", {
+      ddl: "CREATE TABLE f (age INTEGER NOT NULL CHECK (age >= 18 AND age <= 120));",
+      out: "d",
+    });
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(r.result)).toContain("BETWEEN");
+    expect(ran).toBe(0);
+  });
+
+  it("reports a failed run and a run that wrote nothing", async () => {
+    const ws = tmp();
+    const boom: CommandRunner = async () => ({
+      code: 1,
+      stdout: "",
+      stderr: "error: CHECK constraint failed",
+    });
+    const silent: CommandRunner = async () => ({ code: 0, stdout: "OK", stderr: "" });
+    const t = (runner: CommandRunner) =>
+      new SynthdataTools("", ws, { examplesCli: "synthdata", runner });
+    const failed = await t(boom).call("synthdata", "examples", { ddl: DDL, out: "a" });
+    expect(failed.ok).toBe(false);
+    expect(JSON.stringify(failed.result)).toContain("CHECK constraint failed");
+    const empty = await t(silent).call("synthdata", "examples", { ddl: DDL, out: "b" });
+    expect(empty.ok).toBe(false);
+    expect(JSON.stringify(empty.result)).toContain("wrote no CSV");
+  });
+});
+
+describe("parseCsv and examplesTable", () => {
+  it("reads quoted cells, escaped quotes, empty cells and CRLF", () => {
+    expect(parseCsv('a,b,c\r\n1,"x, y",\r\n2,"say ""hi""",z\r\n')).toEqual([
+      ["a", "b", "c"],
+      ["1", "x, y", ""],
+      ["2", 'say "hi"', "z"],
+    ]);
+  });
+
+  it("renders an aligned Gherkin table and escapes the pipe", () => {
+    expect(
+      examplesTable(
+        ["age", "message"],
+        [
+          ["18", "ok"],
+          ["17", "a|b"],
+        ],
+      ),
+    ).toBe(
+      [
+        "    Examples:",
+        "      | age | message |",
+        "      | 18  | ok      |",
+        "      | 17  | a\\|b    |",
+      ].join("\n"),
+    );
   });
 });
 

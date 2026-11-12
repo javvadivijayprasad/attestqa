@@ -1,0 +1,5 @@
+---
+"attestqa": minor
+---
+
+Generated values for form fields. A new opt-in tool, `synthdata.examples`, runs the synthdata CLI (`@vijaypjavvadi/synthdata`, set as `SYNTHDATA_CLI`, for example `npx synthdata`) in its `auto` mode to produce the boundary values (`edge`) and the invalid rows (`negative`, one broken rule each) for a field whose rules the agent states as a small `CREATE TABLE`. The agent calls it before submitting the design for a boundary-value or equivalence-partitioning item, so the approver sees the exact values that will run, and then writes them as one Scenario Outline with an inline Examples table. No model is called, the same seed gives the same rows, and the schema and CSV are written inside the workspace. A range written as two comparisons joined by `AND` is refused with the instruction to use `BETWEEN`, because synthdata 1.4.0 half-reads that form and returns values that are not boundaries. Nothing existing changes: `synthdata.generate` and `SYNTHDATA_CMD` (a project's own generator) work as before, each tool is offered only when its own setting is present, and with neither set a run is unchanged. New environment variable: `SYNTHDATA_CLI`.
