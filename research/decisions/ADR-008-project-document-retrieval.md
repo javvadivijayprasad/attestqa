@@ -340,7 +340,8 @@ One changeset per slice, each cut from `release/2.4.0`:
 ### 12. The rest of the 2.x line, as agreed
 
 These are recorded here so the roadmap change has one source. Each gets its own design when its
-turn comes.
+turn comes. The fuller account of every release, as discussed, is in
+`ADR-008-appendix-release-plan.md`.
 
 - **2.8.0, local web UI.** `aqa serve` on `127.0.0.1`, the same flow as the VS Code extension. A
   seven-screen mock-up was reviewed on 12 Nov 2026: New run, Run and approval, Runs, Coverage,
