@@ -108,7 +108,16 @@ export interface TestDesign {
 
 /** What stage 1 established about the story — the ground a design is checked against. */
 export interface StoryFacts {
+  /** The criteria's LABELS ("AC-1", "AC-2"), which is what a design item cites. */
   acceptanceCriteria: string[];
+  /**
+   * A hash of what the story SAYS — its acceptance criteria and description,
+   * in full (`storyTextHash` in design/fingerprint.ts). The labels above do
+   * not change when a criterion is reworded, so without this a corrected
+   * requirement read as an unchanged story (run 20261112T232301Z). Absent in
+   * ledgers recorded before it existed.
+   */
+  textHash?: string;
   bugs: Array<{ id: TrackerId; state: string; title: string }>;
   /**
    * EVERY bug already on this story, including the ones this runtime filed —
@@ -619,6 +628,7 @@ export function factsFrom(raw: unknown): StoryFacts | undefined {
   if (!f) return undefined;
   return {
     acceptanceCriteria: asArray(f["acceptanceCriteria"]).map(String),
+    ...(typeof f["textHash"] === "string" && f["textHash"] ? { textHash: f["textHash"] } : {}),
     bugs: asArray(f["bugs"]).map((b) => {
       const r = asRecord(b) ?? {};
       return {

@@ -1033,6 +1033,12 @@ export function storyToTestsSkill(
       ...(unverified ? { unverifiedTests: { runId: state.runId } } : {}),
     };
     const unchanged = prior !== undefined && prior.fingerprint === fingerprint;
+    // Everything the earlier run DID record is the same, and it recorded no
+    // wording: the difference is only that this run knows more.
+    const wordingUnknown =
+      prior !== undefined &&
+      !prior.textRecorded &&
+      prior.fingerprint === storyFingerprint(facts, types, false);
     if (unverified)
       return {
         ...plain,
@@ -1047,7 +1053,13 @@ export function storyToTestsSkill(
         because,
         ...(prior && !unchanged
           ? {
-              reason: `${d.reason} — the story changed since run ${prior.runId}, so it is designed again`,
+              // A run recorded before the wording was part of the facts cannot
+              // say whether the wording changed; claiming it did would be a guess.
+              reason: !wordingUnknown
+                ? `${d.reason} — the story changed since run ${prior.runId}, so it is designed again`
+                : `${d.reason} — run ${prior.runId} was recorded before a story's wording was kept ` +
+                  "with its fingerprint, so whether the story changed since cannot be known and it " +
+                  "is designed again (once)",
             }
           : {}),
       };

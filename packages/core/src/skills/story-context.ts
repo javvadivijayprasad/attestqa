@@ -4,6 +4,7 @@ import { stripHtml } from "../runtime/render-approval.js";
 import { AGENT_TAG } from "../verify/story-to-tests.js";
 import { acLabels } from "../triage/settle.js";
 import { featurePathFor, specPathFor, type StoryFacts } from "../design/test-design.js";
+import { storyTextHash } from "../design/fingerprint.js";
 import { renderProfile, surveyFramework } from "../framework/survey.js";
 
 /**
@@ -113,6 +114,12 @@ export async function gatherStoryContext(
       "  How the application happens to behave is not a requirement.",
     );
   facts.acceptanceCriteria = criteriaLabels(ac);
+  // The whole wording, not the copy cut for the prompt: a change past the cut
+  // is still a change to the requirement.
+  facts.textHash = storyTextHash(
+    clean(sf["Microsoft.VSTS.Common.AcceptanceCriteria"], Number.MAX_SAFE_INTEGER),
+    clean(sf["System.Description"], Number.MAX_SAFE_INTEGER),
+  );
   const desc = clean(sf["System.Description"], DESCRIPTION_CHARS);
   if (desc) out.push("Description:", indent(desc));
 

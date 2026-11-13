@@ -2,6 +2,7 @@ import type { PreflightDigest, PreflightRead } from "../types.js";
 import { asArray, asRecord } from "../verify/evidence.js";
 import { QA_SUMMARY_PREFIX } from "../report/qa-record.js";
 import { featurePathFor, specPathFor, type StoryFacts } from "../design/test-design.js";
+import { storyTextHash } from "../design/fingerprint.js";
 import { KNOWN_BROKEN_STATE, normId, type TrackerId } from "../design/ids.js";
 import { renderProfile, surveyFramework } from "../framework/survey.js";
 import {
@@ -123,6 +124,11 @@ export async function gatherJiraStoryContext(
       "  How the application happens to behave is not a requirement.",
     );
   facts.acceptanceCriteria = criteriaLabels(ac);
+  // The whole wording, not the copy cut for the prompt (design/fingerprint.ts).
+  facts.textHash = storyTextHash(
+    clean(s["acceptanceCriteria"], Number.MAX_SAFE_INTEGER),
+    clean(s["description"], Number.MAX_SAFE_INTEGER),
+  );
   // The description minus the criteria section already shown.
   const desc = clean(
     str(s["acceptanceCriteriaSource"]) === "description"

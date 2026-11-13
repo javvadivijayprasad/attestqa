@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { latestPriorDesign, readRuns, storyFingerprint } from "../src/design/fingerprint.js";
+import {
+  latestPriorDesign,
+  readRuns,
+  storyFingerprint,
+  storyTextHash,
+} from "../src/design/fingerprint.js";
 import { approvedDesign, type StoryFacts } from "../src/design/test-design.js";
 import { storyToTestsSkill } from "../src/skills/story-to-tests.js";
 import { StageTracker } from "../src/runtime/stages.js";
@@ -144,6 +149,23 @@ describe("storyFingerprint", () => {
     expect(storyFingerprint(FACTS, ["functional", "accessibility"])).not.toBe(fp);
   });
 
+  it("changes with the story's wording, and is what it always was without it", () => {
+    // Real facts hold the criteria's LABELS; the wording arrives as a hash.
+    const labels = { ...FACTS, acceptanceCriteria: ["AC-1"] };
+    const a = storyTextHash("AC-1: a message giving the range", "");
+    const b = storyTextHash('AC-1: the message "Phone must be between 11 and 21 characters."', "");
+    expect(storyTextHash("  ac-1: A message   giving the range ", "")).toBe(a);
+    expect(b).not.toBe(a);
+    expect(storyTextHash("", "AC-1: a message giving the range")).not.toBe(a);
+    expect(storyFingerprint({ ...labels, textHash: a }, ["functional"])).not.toBe(
+      storyFingerprint({ ...labels, textHash: b }, ["functional"]),
+    );
+    // A ledger recorded before 2.3.0 has no hash: its fingerprint must not move,
+    // or every route event already written would stop matching its own run.
+    // The value is what the code before this change computed for these facts.
+    expect(storyFingerprint(labels, ["functional"])).toBe("60eccbda1da7");
+  });
+
   it("finds the latest earlier run of the same story that had a design approved", () => {
     const other = { ...FACTS, story: { id: "SCRUM-8", title: "Logout" } };
     const runs = [
@@ -249,6 +271,33 @@ describe("the route for an unchanged story", () => {
     expect(d?.because?.["carriedDesign"]).toBeUndefined();
     expect(d?.because?.["fingerprint"]).toBe(storyFingerprint(FACTS, ["functional"]));
     expect(d?.reason).toContain("the story changed since run 20261018T100000Z");
+  });
+
+  it("designs again when only the wording of a criterion changed (20261112T232301Z)", () => {
+    const labels = { ...FACTS, acceptanceCriteria: ["AC-1"] };
+    const old = { ...labels, textHash: storyTextHash("AC-1: a message giving the range", "") };
+    const now = {
+      ...labels,
+      textHash: storyTextHash('AC-1: the message "Phone must be between 11 and 21."', ""),
+    };
+    const d = skillWith(workspace(), [priorRun(old)]).route?.(preflight(now));
+    expect(d?.deny).not.toContain("aqa.test_design");
+    expect(d?.because?.["carriedDesign"]).toBeUndefined();
+    expect(d?.reason).toContain("the story changed since run 20261018T100000Z");
+    // Same wording: the design is still reused.
+    const same = skillWith(workspace(), [priorRun(old)]).route?.(preflight(old));
+    expect(same?.deny).toContain("aqa.test_design");
+    expect(same?.reason).toContain("story unchanged since run 20261018T100000Z");
+  });
+
+  it("designs once more after a run recorded before the wording was kept, and says why", () => {
+    const labels = { ...FACTS, acceptanceCriteria: ["AC-1"] };
+    const now = { ...labels, textHash: storyTextHash("AC-1: valid credentials", "") };
+    const d = skillWith(workspace(), [priorRun(labels)]).route?.(preflight(now));
+    expect(d?.deny).not.toContain("aqa.test_design");
+    expect(d?.because?.["carriedDesign"]).toBeUndefined();
+    expect(d?.reason).toContain("whether the story changed since cannot be known");
+    expect(d?.reason).not.toContain("the story changed since run");
   });
 
   it("designs again when a design item lost its scenario", () => {

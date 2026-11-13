@@ -24,29 +24,61 @@ import { storyFacts, type StoryFacts } from "./test-design.js";
  * A real team runs a story once; until the story changes nobody reruns its
  * design. Every rerun so far asked for a fresh design, reworded it, and asked
  * the reviewer to approve the same tests again. The fingerprint is what the
- * design was checked against — title, acceptance criteria, the open bugs
+ * design was checked against — title, acceptance criteria (their labels AND
+ * their wording, with the description: `facts.textHash`), the open bugs
  * (their state included: a fixed bug flips its confirmation test) and the test
  * types in scope — so "unchanged" means the approved design still answers the
  * same question.
+ *
+ * The wording was missing until 2.3.0: `facts.acceptanceCriteria` holds labels
+ * only, so a story whose three criteria were rewritten to quote the real
+ * validation messages kept its fingerprint, the old design was reused on the
+ * execute-only path, and five tests asserting an invented message could not be
+ * corrected (run 20261112T232301Z). A ledger recorded before then has no
+ * `textHash`; its fingerprint is what it always was, which never equals one
+ * that has the hash — so such a story is designed once more, and the route
+ * says that is why.
  *
  * It is stored nowhere separately: a recorded run's facts are in its ledger, so
  * any earlier run's fingerprint can be recomputed — the same replay argument as
  * everywhere else. The route event records it too, for a reader.
  */
-export function storyFingerprint(facts: StoryFacts, testTypes: readonly string[] = []): string {
+export function storyFingerprint(
+  facts: StoryFacts,
+  testTypes: readonly string[] = [],
+  /** `false` leaves the wording out: the fingerprint as a pre-2.3.0 run computed it. */
+  withText = true,
+): string {
   const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
   const basis = {
     story: facts.story ? { id: String(facts.story.id), title: norm(facts.story.title) } : null,
     criteria: facts.acceptanceCriteria.map(norm),
+    ...(withText && facts.textHash ? { text: facts.textHash } : {}),
     bugs: facts.bugs.map((b) => `${String(b.id)}|${norm(b.state)}|${norm(b.title)}`).sort(),
     types: [...testTypes].map(norm).sort(),
   };
   return createHash("sha256").update(JSON.stringify(basis)).digest("hex").slice(0, 12);
 }
 
+/**
+ * What the story says, as one short hash: its acceptance criteria and its
+ * description, whitespace and case aside. Both, because a story without
+ * criteria is designed from its description, and Jira may keep the criteria
+ * inside it. Pass the FULL text — the prompt's copy is cut to a length.
+ */
+export function storyTextHash(criteria: string, description: string): string {
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  return createHash("sha256")
+    .update(JSON.stringify([norm(criteria), norm(description)]))
+    .digest("hex")
+    .slice(0, 12);
+}
+
 export interface PriorDesign {
   runId: string;
   fingerprint: string;
+  /** False for a run recorded before the story's wording was hashed into its facts. */
+  textRecorded: boolean;
   /** The approved `aqa.test_design` arguments, exactly as recorded. */
   args: Record<string, unknown>;
   /** Tests that failed in that run's last full suite run — not yet shown to work. */
@@ -120,6 +152,7 @@ export function priorDesignState(
       usable: {
         runId: r.runId,
         fingerprint: storyFingerprint(facts, testTypes),
+        textRecorded: facts.textHash !== undefined,
         args: approved.args,
         failing,
       },

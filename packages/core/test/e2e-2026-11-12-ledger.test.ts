@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeRunReport } from "../src/mcp/adapters/summary.js";
 import { storyRefusal } from "../src/skills/story-rules.js";
+import { latestPriorDesign, storyFingerprint, storyTextHash } from "../src/design/fingerprint.js";
+import { storyFacts } from "../src/design/test-design.js";
 import type { AnyRunEvent } from "../src/types.js";
 
 /**
@@ -77,3 +79,52 @@ describe.skipIf(!existsSync(LEDGER2))("run 20261112T225751Z, replayed", () => {
     expect(text).not.toContain("Suite: green");
   });
 });
+
+/**
+ * Runs 20261112T230358Z (run 4) and 20261112T232301Z (run 5) of story 176.
+ * Between them all three acceptance criteria were rewritten in Azure DevOps to
+ * quote the application's messages. Run 5 answered "story unchanged", reused
+ * run 4's design and could not correct five tests asserting an invented message.
+ */
+const RUN4 = "20261112T230358Z-8e528bb0";
+const RUN5 = "20261112T232301Z-f7a3ac4a";
+const ledgerOf = (runId: string) => join(__dirname, "..", ".aqa", "runs", runId, "events.jsonl");
+const read = (runId: string): AnyRunEvent[] =>
+  readFileSync(ledgerOf(runId), "utf8")
+    .trim()
+    .split("\n")
+    .map((l) => JSON.parse(l) as AnyRunEvent);
+
+describe.skipIf(!existsSync(ledgerOf(RUN4)) || !existsSync(ledgerOf(RUN5)))(
+  "runs 20261112T230358Z and 20261112T232301Z, replayed",
+  () => {
+    it("recorded the same facts for a story whose three criteria had been rewritten", () => {
+      const before = storyFacts(read(RUN4));
+      const after = storyFacts(read(RUN5));
+      // Labels only — which is why the two fingerprints were equal.
+      expect(before?.acceptanceCriteria).toEqual(["AC-1", "AC-2", "AC-3"]);
+      expect(after?.acceptanceCriteria).toEqual(before?.acceptanceCriteria);
+      const route = read(RUN5).find((e) => e.kind === "route");
+      expect(JSON.stringify(route?.payload)).toContain("story unchanged since run " + RUN4);
+      // Neither ledger has the wording, so their fingerprints are what they were.
+      if (!before || !after) throw new Error("no facts");
+      expect(storyFingerprint(after, ["functional"])).toBe(
+        storyFingerprint(before, ["functional"]),
+      );
+    });
+
+    it("no longer reuses run 4's design once the story is read with its wording", () => {
+      const after = storyFacts(read(RUN5));
+      if (!after) throw new Error("no facts");
+      const prior = latestPriorDesign([{ runId: RUN4, events: read(RUN4) }], after.story, [
+        "functional",
+      ]);
+      expect(prior?.textRecorded).toBe(false);
+      // What a read of the story makes of it today.
+      const now = { ...after, textHash: storyTextHash("AC-1: Phone must be between…", "") };
+      expect(storyFingerprint(now, ["functional"])).not.toBe(prior?.fingerprint);
+      // …and the route can tell "not recorded" from "changed".
+      expect(storyFingerprint(now, ["functional"], false)).toBe(prior?.fingerprint);
+    });
+  },
+);
