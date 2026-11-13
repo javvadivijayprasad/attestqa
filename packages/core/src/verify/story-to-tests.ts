@@ -19,6 +19,12 @@ import {
   type TestType,
 } from "../design/test-design.js";
 import { bugIsAbout, lastFullRun, ownTestTitles } from "../triage/settle.js";
+import {
+  changedScenariosWithoutATest,
+  untouchedChangedItems,
+  untouchedLine,
+  type ChangedAtSwitch,
+} from "../design/cases.js";
 import { testsPreExisted } from "../route/route.js";
 import {
   artefacts,
@@ -31,6 +37,47 @@ import {
   testedByIds,
   type CallRecord,
 } from "./evidence.js";
+
+/** The changed items of the last route, with their scenario and test as recorded at the switch. */
+function changedAtSwitchOf(events: AnyRunEvent[]): ChangedAtSwitch[] {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
+    return asArray(because?.["changed"]).flatMap((c) => {
+      const r = asRecord(c);
+      const str = (k: string) => (typeof r?.[k] === "string" ? (r[k] as string) : undefined);
+      const id = str("id");
+      const scenario = str("scenario");
+      const body = str("body");
+      if (!id || !scenario || body === undefined) return [];
+      return [
+        {
+          id,
+          scenario,
+          body,
+          test: str("test") ?? "",
+          was: str("was") ?? "",
+          now: str("now") ?? "",
+        },
+      ];
+    });
+  }
+  return [];
+}
+
+/** Ids of the design items the last route marked as changed (`because.changed`). */
+function changedIdsOf(events: AnyRunEvent[]): string[] {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
+    return asArray(because?.["changed"])
+      .map((c) => asRecord(c)?.["id"])
+      .filter((id): id is string => typeof id === "string");
+  }
+  return [];
+}
 
 export interface StoryToTestsOptions {
   /** The work item the tests are for, e.g. "1". */
@@ -388,6 +435,29 @@ export class StoryToTestsVerifier implements Verifier {
                 { items: t.untested },
               ),
             );
+          // A changed item's scenario, rewritten, with no test of its name:
+          // the item's id is still on the old test, so `untested` is silent.
+          const reworked = changedIdsOf(input.events);
+          const orphaned = specTexts.flatMap((s) =>
+            features.flatMap((f) =>
+              changedScenariosWithoutATest(reworked, f.text, s.text, normId(this.opts.workItem)),
+            ),
+          );
+          if (orphaned.length > 0)
+            gaps.push(
+              gap(
+                "design-item-not-tested",
+                `${orphaned.length} scenario(s) of changed design items have no test named after ` +
+                  `them in the spec: ${orphaned
+                    .map((o) => `${o.id} "${o.scenario}"`)
+                    .join("; ")}. ` +
+                  "The scenario was rewritten for what the item expects now and its test was not: " +
+                  "the test that carries the item's id still checks the earlier expectation. Bring " +
+                  "the test into line with the scenario — same title, each step and assertion the " +
+                  "scenario now has — with fs.replace_in_file; nothing is generated for it.",
+                { items: orphaned.map((o) => o.id), scenarios: orphaned.map((o) => o.scenario) },
+              ),
+            );
           if (t.untagged.length > 0)
             gaps.push(
               gap(
@@ -414,8 +484,18 @@ export class StoryToTestsVerifier implements Verifier {
           );
         // Weaker or broader than the design but working: one attempt for the
         // agent, then the reviewer's (isReviewOnly in design/test-design.ts).
-        if (t.reviewShape.length > 0) {
-          const { fresh, forReview } = splitReviewItems(t.reviewShape, input.events);
+        // And the changed items nobody touched: the same one attempt, then the
+        // reviewer — an item may have been reworded only, and its test is right.
+        const untouched = specTexts.flatMap((s) =>
+          features.flatMap((f) =>
+            untouchedChangedItems(changedAtSwitchOf(input.events), f.text, s.text).map(
+              untouchedLine,
+            ),
+          ),
+        );
+        const review = [...t.reviewShape, ...untouched];
+        if (review.length > 0) {
+          const { fresh, forReview } = splitReviewItems(review, input.events);
           for (const x of forReview) reviewItems.push(`for your review — ${x}`);
           if (fresh.length > 0)
             gaps.push(

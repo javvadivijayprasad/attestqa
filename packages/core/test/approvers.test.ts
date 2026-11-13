@@ -186,6 +186,31 @@ describe("FileApprover", () => {
     return a.ask(req);
   }
 
+  it("writes the runtime's note into the request file, and nothing when there is none", async () => {
+    // 20261113T131724Z: the note says which design items changed and how; a
+    // reviewer deciding through the file was never shown it.
+    const ask = async (note?: string) => {
+      const dir = mkdtempSync(join(tmpdir(), "aqa-appr-"));
+      const time = fakeTime();
+      const f = join(dir, "apr-0001.json");
+      let seen: Record<string, unknown> = {};
+      const a = new FileApprover({
+        dir,
+        pollMs: 10,
+        now: time.now,
+        sleep: async (ms) => {
+          await time.sleep(ms);
+          seen = JSON.parse(readFileSync(f, "utf8")) as Record<string, unknown>;
+          writeFileSync(f, JSON.stringify({ decision: "approved", by: "reviewer" }));
+        },
+      });
+      await a.ask({ ...req, ...(note ? { note } : {}) });
+      return seen;
+    };
+    expect((await ask("CHANGED since run X: D5"))["note"]).toBe("CHANGED since run X: D5");
+    expect("note" in (await ask())).toBe(false);
+  });
+
   it("carries a denial's reason back from the file", async () => {
     const r = await decide({
       decision: "denied",

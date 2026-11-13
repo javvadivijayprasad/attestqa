@@ -76,6 +76,15 @@ export interface FileApprovalRecord {
   approvalId: string;
   summary: string;
   calls: ApprovalRequest["calls"];
+  /**
+   * What the runtime tells the reviewer about this request, as the terminal
+   * prompt prints it: for a test design, the cases and their state, which
+   * items are already tested, and which changed since the design approved
+   * before, with both wordings. Until 2.3.0 it was shown at the terminal only,
+   * so a reviewer deciding through this file never saw it
+   * (20261113T131724Z). Absent when there is nothing to say.
+   */
+  note?: string;
   requestedAt: string;
   /** Filled in by the platform (handoff B4). `null` until decided. */
   decision: "approved" | "denied" | null;
@@ -131,6 +140,7 @@ export class FileApprover implements Approver {
       approvalId: request.approvalId,
       summary: request.summary,
       calls: request.calls,
+      ...(request.note ? { note: request.note } : {}),
       requestedAt: new Date(this.now()).toISOString(),
       decision: null,
     };

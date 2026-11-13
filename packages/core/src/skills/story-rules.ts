@@ -2257,12 +2257,29 @@ export function editsAPassingTest(
   if (before === undefined) return;
   const was = testsByTitle(before);
   const now = testsByTitle(String(call.args["content"] ?? ""));
-  const squash = (x: string) => x.replace(/\s+/g, " ").trim();
+  // A test's text runs to the start of the next test, so it ends with the tag
+  // comments that belong to THAT test. Marking a failing test as a known bug
+  // (`// @bug:180` above it) therefore read as a change to the passing test
+  // before it: 20261113T134043Z proposed that edit three times, was refused
+  // each time for "AC-3 … passed in the last full run", and the run blocked.
+  // Trailing comment and blank lines are not part of the test.
+  const squash = (x: string) =>
+    x
+      .replace(/(?:\r?\n[ \t]*(?:\/\/[^\n]*)?)+$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
   // A gap the verifier raised about a test is a reason to change it.
   const gapText = JSON.stringify(
     [...events].reverse().find((e) => e.kind === "verify")?.payload ?? {},
   );
+  // So is a design item whose expectation changed in this run: its test was
+  // written for the earlier one, and may well still pass — an item that only
+  // GAINED a requirement does. 20261113T134043Z: the agent ran the suite, the
+  // old AC-1 test passed, and adding "the confirmation is not shown" to it was
+  // then refused here as changing a passing test.
+  const reworked = changedScenarioTitles(events);
   const touched = passed.filter((title) => {
+    if (reworked.has(title.trim())) return false;
     const a = was.get(title);
     if (a === undefined) return false;
     const b = now.get(title);
@@ -2533,6 +2550,16 @@ function lastRouteBecause(events: AnyRunEvent[]): Record<string, unknown> | unde
   return undefined;
 }
 
+/** Scenario titles of the items the last route marked as changed (`because.changed`). */
+function changedScenarioTitles(events: AnyRunEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of asArray(lastRouteBecause(events)?.["changed"])) {
+    const s = asRecord(c)?.["scenario"];
+    if (typeof s === "string") out.add(s.trim());
+  }
+  return out;
+}
+
 /**
  * After a re-route from "execute" to "complete", the feature file may only
  * GROW: the scenarios for the new design items are added, every scenario that
@@ -2791,10 +2818,7 @@ export function appendOnlySpec(
   // in a data row were corrected; the fourth, whose text sat in the `expect`
   // line itself, was refused four times as an existing test losing an
   // assertion, and stayed red.
-  for (const c of asArray(because?.["changed"])) {
-    const s = asRecord(c)?.["scenario"];
-    if (typeof s === "string") own.add(s.trim());
-  }
+  for (const title of changedScenarioTitles(events)) own.add(title);
   const lost: string[] = [];
   const weakened: string[] = [];
   for (const [title, body] of was) {

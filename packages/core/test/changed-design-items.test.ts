@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { changedItems } from "../src/design/cases.js";
+import {
+  changedItems,
+  changedScenariosWithoutATest,
+  untouchedChangedItems,
+  untouchedLine,
+  type ChangedAtSwitch,
+} from "../src/design/cases.js";
 import { storyTextHash } from "../src/design/fingerprint.js";
 import {
   approvedDesign,
@@ -15,7 +21,11 @@ import {
 } from "../src/design/test-design.js";
 import { TestDesignTools } from "../src/mcp/adapters/test-design.js";
 import { roleFor } from "../src/agents/roles.js";
-import { appendOnlyAfterReroute, appendOnlySpec } from "../src/skills/story-rules.js";
+import {
+  appendOnlyAfterReroute,
+  appendOnlySpec,
+  editsAPassingTest,
+} from "../src/skills/story-rules.js";
 import {
   storyToTestsSkill,
   TURNS_TO_UPDATE_CHANGED,
@@ -231,6 +241,90 @@ describe("changedItems", () => {
     };
     expect(changedItems(parseDesign(respaced), covered, parseDesign(OLD_DESIGN))).toEqual([]);
   });
+
+  it("does not call an item changed for punctuation, an article or reworded conditions", () => {
+    // 20261113T124917Z (AB#91): the story had not changed and four of four
+    // items were reported changed.
+    const before = {
+      items: [
+        {
+          ...item("D5", "AC-1", "The home page lists rooms, each with its type, a picture"),
+          conditions: ["Visitor opens the home page"],
+        },
+      ],
+    };
+    const after = {
+      items: [
+        {
+          ...item("D5", "AC-1", "The home page lists the rooms, each with its type, a picture."),
+          conditions: ["A read-only visitor opens the public home page; no state is mutated."],
+        },
+      ],
+    };
+    const one = new Map([["D5", { scenario: PHONE }]]);
+    expect(changedItems(parseDesign(after), one, parseDesign(before))).toEqual([]);
+  });
+
+  it("does not compare two items that only share an id", () => {
+    const before = { items: [{ ...item("D5", "story", "no violations"), type: "accessibility" }] };
+    const after = { items: [item("D5", "AC-1", "each product shows its own picture")] };
+    const one = new Map([["D5", { scenario: PHONE }]]);
+    expect(changedItems(parseDesign(after), one, parseDesign(before))).toEqual([]);
+  });
+
+  it("calls an item changed when a number in its conditions moves", () => {
+    const at = (max: number) => ({
+      items: [
+        {
+          ...item("D5", "AC-1", "a phone outside the range is refused"),
+          conditions: [`Phone length 10, 11, ${max} and ${max + 1} characters`],
+        },
+      ],
+    });
+    const one = new Map([["D5", { scenario: PHONE }]]);
+    expect(changedItems(parseDesign(at(25)), one, parseDesign(at(21))).map((c) => c.id)).toEqual([
+      "D5",
+    ]);
+    expect(changedItems(parseDesign(at(21)), one, parseDesign(at(21)))).toEqual([]);
+  });
+});
+
+describe("changedScenariosWithoutATest", () => {
+  // 20261113T131724Z: D5's scenario was split in two under new titles, the
+  // spec was not touched, the old test passed and the run was accepted.
+  const SPLIT = FEATURE.replace(
+    `  Scenario: ${PHONE}`,
+    [
+      "  Scenario: AC-1a A phone number of 11 characters is accepted",
+      "    When I enter a phone of 11 characters",
+      "",
+      "  @story:176 @ac:1 @design:D5 @type:functional",
+      "  Scenario: AC-1b A short phone number is refused and no confirmation is shown",
+    ].join("\n"),
+  );
+
+  it("names a rewritten scenario of a changed item that no test is named after", () => {
+    expect(changedScenariosWithoutATest(["D5"], SPLIT, SPEC, 176)).toEqual([
+      { id: "D5", scenario: "AC-1a A phone number of 11 characters is accepted" },
+      {
+        id: "D5",
+        scenario: "AC-1b A short phone number is refused and no confirmation is shown",
+      },
+    ]);
+  });
+
+  it("is silent when the tests follow, for unchanged items, and for other stories", () => {
+    const followed = SPEC.replace(
+      `test("${PHONE}"`,
+      'test("AC-1a A phone number of 11 characters is accepted", async () => {});\n' +
+        'test("AC-1b A short phone number is refused and no confirmation is shown"',
+    );
+    expect(changedScenariosWithoutATest(["D5"], SPLIT, followed, 176)).toEqual([]);
+    expect(changedScenariosWithoutATest(["D5"], FEATURE, SPEC, 176)).toEqual([]);
+    expect(changedScenariosWithoutATest([], SPLIT, SPEC, 176)).toEqual([]);
+    // D1 belongs to story 91: not this run's, whatever its id.
+    expect(changedScenariosWithoutATest(["D1"], FEATURE, "", 176)).toEqual([]);
+  });
 });
 
 describe("a story that changed, with tests on disk", () => {
@@ -241,6 +335,48 @@ describe("a story that changed, with tests on disk", () => {
     const earlier = previousDesign(routed);
     expect(earlier?.runId).toBe("20261112T230358Z");
     expect(earlier?.design.items.map((i) => i.id)).toEqual(["D5", "D6"]);
+  });
+
+  it("does none of this when the earlier run did not record the story's wording", () => {
+    // 20261113T130619Z: whether the story changed could not be known; the
+    // comparison found only rewording, and a passing test lost an assertion.
+    const ws = workspace();
+    const before = priorRun();
+    const noWording = {
+      ...before,
+      events: before.events.map((e) =>
+        e.kind === "observation" && (e.payload.result as { facts?: unknown } | null)?.facts
+          ? ({
+              ...e,
+              payload: {
+                ...e.payload,
+                result: {
+                  ...(e.payload.result as object),
+                  facts: { ...OLD_FACTS, textHash: undefined },
+                },
+              },
+            } as AnyRunEvent)
+          : e,
+      ),
+    };
+    const skill = storyToTestsSkill({
+      workItem: "176",
+      tracker: "ado",
+      workspaceDir: ws,
+      testTypes: ["functional"],
+      previousRuns: () => [noWording],
+    });
+    const events = preflight(FACTS);
+    const first = skill.route?.(events);
+    expect(first?.reason).toContain("whether the story changed since cannot be known");
+    const designed = [
+      ...events,
+      routeEvent(first ?? {}),
+      ...pair("aqa", "test_design", NEW_DESIGN, { recorded: true }),
+    ];
+    expect(previousDesign(designed)).toBeUndefined();
+    expect(skill.reroute?.(designed)).toBeUndefined();
+    expect(skill.autoRun?.(designed)?.toolName).toBe("pw.run_tests");
   });
 
   it("says in the design tool's answer which tests to change, not that all is tested", async () => {
@@ -271,11 +407,12 @@ describe("a story that changed, with tests on disk", () => {
   });
 
   it("switches the run to changing those tests, and locks every other scenario", () => {
-    const { skill, designed } = started(workspace());
+    const ws = workspace();
+    const { skill, designed } = started(ws);
     const again = skill.reroute?.(designed);
     expect(again?.path).toBe("A2");
     expect(again?.reason).toContain("changes 1 item(s) that already have a test (D5)");
-    expect(again?.because["changed"]).toEqual([{ id: "D5", scenario: PHONE }]);
+    expect(again?.because["changed"]).toMatchObject([{ id: "D5", scenario: PHONE }]);
     expect(again?.because["missing"]).toEqual([]);
     const locked = (again?.because["locked"] as Array<{ scenario: string }>).map((l) => l.scenario);
     expect(locked).toEqual([OTHER, NAME]);
@@ -284,6 +421,13 @@ describe("a story that changed, with tests on disk", () => {
     expect(again?.deny).not.toContain("aqa.test_design");
     // Decided once.
     const switched = [...designed, routeEvent(again ?? {})];
+    expect(skill.reroute?.(switched)).toBeUndefined();
+    // 20261113T131724Z: rewriting the changed scenario under a new title leaves
+    // D5 without a test for a moment. That is not a new item to add.
+    writeFileSync(
+      join(ws, FEATURE_PATH),
+      FEATURE.replace(`Scenario: ${PHONE}`, "Scenario: AC-1b A short phone number is refused"),
+    );
     expect(skill.reroute?.(switched)).toBeUndefined();
   });
 
@@ -360,6 +504,108 @@ describe("a story that changed, with tests on disk", () => {
     const refused = write(SPEC.replace("Name may not be blank", "Name is required"));
     expect(refused).toContain("would lose an assertion");
     expect(refused).toContain(`"${NAME}"`);
+  });
+
+  it("reports a changed item whose scenario and test were never touched", () => {
+    // 20261113T133431Z: the item had gained a requirement, the old test still
+    // passed, nothing was changed and the run was accepted.
+    const ws = workspace();
+    const { skill, designed } = started(ws);
+    const again = skill.reroute?.(designed);
+    const atSwitch = again?.because["changed"] as ChangedAtSwitch[];
+    expect(atSwitch[0]?.body).toContain(OLD_MSG);
+    expect(atSwitch[0]?.test).toMatch(/^[0-9a-f]{12}$/);
+
+    expect(untouchedChangedItems(atSwitch, FEATURE, SPEC).map((c) => c.id)).toEqual(["D5"]);
+    const line = untouchedLine(atSwitch[0] as ChangedAtSwitch);
+    expect(line).toContain("before: refused with a message giving the range 11 to 21");
+    expect(line).toContain(NEW_MSG);
+    // Changing the test, or the scenario, is enough to take it off the list:
+    // whether the change is right is the other checks' business.
+    expect(untouchedChangedItems(atSwitch, FEATURE, SPEC.replace(OLD_MSG, NEW_MSG))).toEqual([]);
+    expect(untouchedChangedItems(atSwitch, FEATURE.replace(OLD_MSG, NEW_MSG), SPEC)).toEqual([]);
+    // Another test changing does not count for this one.
+    expect(
+      untouchedChangedItems(atSwitch, FEATURE, SPEC.replace("Name may not be blank", "x")).map(
+        (c) => c.id,
+      ),
+    ).toEqual(["D5"]);
+  });
+
+  it("lets the changed item's test be changed after it has passed, and no other", () => {
+    // 20261113T134043Z: the suite ran first, the old test passed, and the
+    // edit that added the new requirement was refused.
+    const ws = workspace();
+    const { skill, designed } = started(ws);
+    const switched = [
+      ...designed,
+      routeEvent(skill.reroute?.(designed) ?? {}),
+      ...pair(
+        "pw",
+        "run_tests",
+        { spec: SPEC_PATH },
+        {
+          green: false,
+          tests: [
+            { title: PHONE, status: "passed" },
+            { title: NAME, status: "passed" },
+            { title: OTHER, status: "failed" },
+          ],
+        },
+      ),
+    ];
+    const write = (content: string) =>
+      editsAPassingTest(
+        { toolName: "fs.write_file", args: { path: SPEC_PATH, content } },
+        switched,
+        ws,
+        "176",
+      );
+    expect(write(SPEC.replace(OLD_MSG, NEW_MSG))).toBeUndefined();
+    expect(write(SPEC.replace("Name may not be blank", "Name is required"))).toContain(
+      "passed in the last full run",
+    );
+  });
+
+  it("does not take the tags above the next test for a change to the passing test before it", () => {
+    // 20261113T134043Z: `// @bug:180` added above the failing test was refused
+    // three times as a change to the passing test that precedes it.
+    const ws = workspace();
+    const { designed } = started(ws);
+    const ran = [
+      ...designed,
+      ...pair(
+        "pw",
+        "run_tests",
+        { spec: SPEC_PATH },
+        {
+          green: false,
+          tests: [
+            { title: OTHER, status: "passed" },
+            { title: PHONE, status: "failed" },
+            { title: NAME, status: "passed" },
+          ],
+        },
+      ),
+    ];
+    const write = (content: string) =>
+      editsAPassingTest(
+        { toolName: "fs.write_file", args: { path: SPEC_PATH, content } },
+        ran,
+        ws,
+        "176",
+      );
+    // The comment sits after OTHER's closing brace and before PHONE's test line.
+    const tagged = SPEC.replace(
+      "// @story:176 @ac:1 @design:D5",
+      "// @story:176 @ac:1 @design:D5\n// @bug:180",
+    );
+    expect(tagged).not.toBe(SPEC);
+    expect(write(tagged)).toBeUndefined();
+    // A change inside the passing test is still refused.
+    expect(write(SPEC.replace("toHaveTitle(/x/)", "toHaveTitle(/y/)"))).toContain(
+      "passed in the last full run",
+    );
   });
 
   it("does not send a changed item's failing test to the locator healer", () => {

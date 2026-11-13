@@ -26,6 +26,7 @@ import { factsFrom, previousDesign, storyFacts, traceProblems } from "../design/
 import { latestPriorDesign, priorDesignState, storyFingerprint } from "../design/fingerprint.js";
 import {
   caseTally,
+  changedAtSwitch,
   changedItems,
   designCases,
   existingCases,
@@ -1090,8 +1091,17 @@ export function storyToTestsSkill(
         // The tests on disk were written for the design approved in that run.
         // Recorded so the design approved in THIS run can be compared with it
         // (design/cases.ts `changedItems`) from the ledger alone.
+        //
+        // Only when the story is KNOWN to have changed. A design is worded
+        // afresh every run, so against an unchanged story the comparison finds
+        // differences that are only wording — and acting on them lets working
+        // tests be rewritten. 20261113T130619Z (AB#109, earlier run recorded
+        // before the wording was kept, story not changed): four items were
+        // called changed, one of them by an id the two designs used for
+        // different things, and a passing test lost its URL assertion because
+        // the new wording of its item no longer mentioned the address.
         because:
-          prior && !unchanged && d.path === "B"
+          prior && !unchanged && !wordingUnknown && d.path === "B"
             ? { ...because, previousDesign: { runId: prior.runId, args: prior.args } }
             : because,
         ...(prior && !unchanged
@@ -1309,6 +1319,14 @@ export function storyToTestsSkill(
       // Items whose expectation differs from the design approved before: their
       // tests exist but check the earlier expectation, and this run changes them.
       const reworked = cases.filter((c) => c.state === "changed").map((c) => c.design);
+      // Both wordings, so the reviewer can tell a new expectation from the same
+      // one said differently.
+      const wordings = changedItems(parsed, covered, prior ? parseDesign(prior.args) : undefined)
+        .filter((c) => reworked.includes(c.id))
+        .flatMap((c) => [
+          `  ${c.id}  before: ${c.was}`,
+          `  ${" ".repeat(c.id.length)}  now:    ${c.now}`,
+        ]);
       const note = [
         ...caseBlock,
         reworked.length > 0
@@ -1325,7 +1343,9 @@ export function storyToTestsSkill(
               )}. ` +
                 "Their tests were written for what those items expected then. Approving lets this run " +
                 "change those scenarios and tests — and only those — to what the items expect now. " +
-                "Read them most closely.",
+                "Read them most closely; where the two wordings say the same thing, the test needs " +
+                "no change:",
+              ...wordings,
               "",
             ]
           : []),
@@ -1433,15 +1453,27 @@ export function storyToTestsSkill(
       // earlier run expected (design/cases.ts). The story changed, a person
       // approved the new expectation, so those tests are this run's to bring
       // into line — and nothing else is. Decided once, when the run switches.
+      // Each with its scenario and test as they stand, so the verifier can
+      // tell at the end which were never touched (`untouchedChangedItems`).
       const changed = completing
         ? []
-        : changedItems(design, covered, previousDesign(events)?.design).map((c) => ({
-            id: c.id,
-            scenario: c.scenario,
-          }));
+        : changedAtSwitch(
+            changedItems(design, covered, previousDesign(events)?.design),
+            featureText ?? "",
+            specText ?? "",
+          );
       if (missing.length === 0 && changed.length === 0) return undefined;
       if (completing) {
         const before = new Set((last?.["missing"] as string[] | undefined) ?? []);
+        // A changed item whose scenario the run is rewriting has, for a moment,
+        // no test under its new title. That is the rewrite in progress, not a
+        // new item to add: 20261113T131724Z split D5's scenario in two, was
+        // re-routed to "adds 1 item (D5)", and went looking for the generator.
+        // The verifier still reports the item if it ends without a test.
+        for (const c of asArray(last?.["changed"])) {
+          const id = asRecord(c)?.["id"];
+          if (typeof id === "string") before.add(id);
+        }
         // Items finishing one by one shrink the list; only a NEW number is a new plan.
         if (missing.every((id) => before.has(id))) return undefined;
       }
