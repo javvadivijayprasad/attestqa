@@ -12,6 +12,7 @@ import {
 } from "../../verify/evidence.js";
 import { createdCaseIds } from "../../verify/story-to-tests.js";
 import { lastFullRun, ownTestTitles } from "../../triage/settle.js";
+import { approvedDesign } from "../../design/test-design.js";
 
 export interface SummaryOptions {
   /** The story the run is scoped to, when there is one. */
@@ -223,6 +224,9 @@ export function composeRunReport(
     bugsAlreadyFiled,
     knownBugsNotReproduced,
     otherStoryFailures,
+    ...(storyHasNoTests(events) || noneOfTheSuiteIsMine(suite, mine) || noSpecForANewStory(events)
+      ? { noOwnTests: true }
+      : {}),
     ...(opts.agentNote ? { agentNote: opts.agentNote } : {}),
   });
   return {
@@ -325,9 +329,71 @@ interface Rendered {
   bugsAlreadyFiled?: string[];
   knownBugsNotReproduced?: KnownBugPass[];
   otherStoryFailures?: string[];
+  /** The verifier found no test for any approved design item: nothing that ran is this story's. */
+  noOwnTests?: boolean;
   agentNote?: string;
   /** Set when triage wrote the run off: nothing in it measured the product. */
   runLevel?: { level: string; evidence: string };
+}
+
+/**
+ * The verifier's last word was that NO approved design item has a test.
+ *
+ * Then whatever the epic's spec ran, none of it was this story's. Run
+ * 20261112T224735Z approved four items for story 176, wrote no test for any of
+ * them, and its report began "Suite: green for story 176 — 4 passed": the four
+ * were story 91's. Read from the ledger alone, so a replay says the same.
+ */
+function storyHasNoTests(events: AnyRunEvent[]): boolean {
+  const design = approvedDesign(events);
+  if (!design || design.items.length === 0) return false;
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (!e || e.kind !== "verify") continue;
+    const gap = e.payload.gaps.find((g) => g.code === "design-item-not-tested");
+    const untested = asArray(asRecord(gap?.evidence)?.["items"]);
+    return untested.length >= design.items.length;
+  }
+  return false;
+}
+
+/**
+ * The spec is known, tests ran, and not one of them carries this story's tag.
+ *
+ * The same fact by another route: run 20261112T225751Z stopped before the
+ * verifier ran, so there was no gap to read, and reported story 91's four
+ * tests as story 176's.
+ */
+function noneOfTheSuiteIsMine(
+  suite: Record<string, unknown> | undefined,
+  mine: Set<string> | undefined,
+): boolean {
+  if (!suite || !mine) return false;
+  const titles = asArray(suite["tests"])
+    .map((t) => String(asRecord(t)?.["title"] ?? ""))
+    .filter((t) => t);
+  return titles.length > 0 && titles.every((t) => !mine.has(t));
+}
+
+/**
+ * The story had no scenario when the run began, and the run wrote no spec.
+ *
+ * Read from the route the run was put on and the calls that completed, so it
+ * holds when the run stopped before the verifier and when the spec was only
+ * read in part (run 20261112T225751Z: both).
+ */
+function noSpecForANewStory(events: AnyRunEvent[]): boolean {
+  let scenarios: unknown;
+  for (const e of events)
+    if (e.kind === "route") scenarios = asRecord(e.payload.because as unknown)?.["storyScenarios"];
+  if (scenarios !== 0) return false;
+  return !completedCalls(events).some(
+    (c) =>
+      c.ok &&
+      (c.toolName === "bdd2pw.scaffold" ||
+        ((c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") &&
+          /\.spec\.[tj]s$/i.test(String(c.args["path"] ?? "")))),
+  );
 }
 
 /** Markdown, because the destination is an Azure DevOps work item comment. */
@@ -364,7 +430,15 @@ function render(r: Rendered): string {
     // paragraphs down (20260925T184615Z). What another story's tests did is
     // context, and is reported as context.
     const others = writtenOff ? [] : (r.otherStoryFailures ?? []);
-    if (!writtenOff) {
+    if (!writtenOff && r.noOwnTests && r.workItem) {
+      // Nothing that ran was this story's, so there is no verdict to give on it.
+      lines.push(
+        `**No test of story ${r.workItem} ran.** Its approved design items have no test yet. ` +
+          `The epic's spec ran ${n("passed") + n("failed") + n("skipped")} test(s) that belong to ` +
+          `other stories — ${n("passed")} passed, ${n("failed")} failed, ${n("skipped")} skipped — ` +
+          "and they say nothing about this story.",
+      );
+    } else if (!writtenOff) {
       const failedHere = Math.max(0, n("failed") - others.length);
       const ui = r.suite?.["unimplemented"];
       const notImplemented = Array.isArray(ui) ? ui.length : 0;

@@ -235,7 +235,12 @@ export class ScopedGate extends TableGate {
           cls,
           this.scope.urls.length === 0
             ? `agent.scope.urls is empty, so the agent may not browse at all (asked for ${url})`
-            : `url "${url}" is not in the allowed urls`,
+            : // Name them. Run 20261112T225751Z took a stale port from a comment in
+              // the project, was told only "not allowed", and tried 127.0.0.1,
+              // 0.0.0.0 and host.docker.internal on the same port before stopping.
+              `url "${url}" is not in the allowed urls (${this.scope.urls.join(", ")}) — ` +
+                "use one of those exactly; another host name or port for the same application " +
+                "is a different address and is refused the same way",
         );
       }
       notes.push(`url ${url} in scope`);

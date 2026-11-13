@@ -41,6 +41,19 @@ const SHELL_UNSAFE = /[&|<>^"'`$;%\r\n]/;
 const COMPOUND_RANGE_CHECK = /CHECK\s*\([^()]*[<>]=?[^()]*\bAND\b[^()]*[<>]=?[^()]*\)/i;
 
 /**
+ * A rule on the LENGTH of a text column, `CHECK (LENGTH(phone) BETWEEN 11 AND 21)`.
+ *
+ * synthdata 1.4.0 reads a column's maximum from `VARCHAR(n)` and ignores a
+ * length rule altogether. For that phone rule, profile `edge` returned a
+ * one-character value as valid and profile `negative` a 31-character one as the
+ * invalid case, where the boundaries are 10, 11, 21 and 22 (run
+ * 20261112T224735Z). A minimum text length is the commonest form rule there is,
+ * so the wrong rows are refused here; remove this once synthdata reads the rule
+ * (handed to its maintainer on 12 Nov 2026).
+ */
+const LENGTH_CHECK = /\b(?:CHAR_LENGTH|CHARACTER_LENGTH|LENGTH|LEN)\s*\(/i;
+
+/**
  * In-process `synthdata` adapter. Two tools, each behind its own setting:
  *
  * `generate` — the project's own synthetic test-data generator, configured as
@@ -196,6 +209,14 @@ export class SynthdataTools implements ToolClient {
       return fail(
         "write the range as CHECK (col BETWEEN a AND b), not as two comparisons joined by AND: " +
           "synthdata reads only half of the compound form and returns values that are not boundaries",
+      );
+    if (LENGTH_CHECK.test(ddl))
+      return fail(
+        "synthdata does not read a rule on the LENGTH of a text column: it returns a one-character " +
+          "value as valid and a far too long one as invalid, whatever the minimum is. Work the " +
+          "length boundaries out yourself — one below the minimum, the minimum, the maximum and " +
+          "one above the maximum — and put those lengths in the item's conditions. Use this tool " +
+          "for number ranges (BETWEEN), allowed sets (IN) and required fields (NOT NULL)",
       );
 
     const profile = args["profile"] === undefined ? "edge" : args["profile"];

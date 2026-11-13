@@ -65,7 +65,7 @@ Each cycle is about 25–30k input tokens. A 1.5M-token budget is therefore only
 | `refusedAt` | A refused call is a repeat only while nothing has succeeded since (18 Oct fix) |
 | `MAX_SAME_REFUSAL = 5` | The same tool refused for the same reason five times means blocked (18 Oct) |
 | `MAX_SAME_DESIGN_PROBLEM = 6` | The same design problem six times means blocked |
-| `MAX_DESIGN_DENIALS = 2` | A reviewer denies the design twice, and the run ends |
+| `MAX_DESIGN_DENIALS = 2` | A denied design goes back to the agent with the reviewer's reason, twice; the third denial ends the run. The reason comes from the terminal prompt or, from 2.3.0, from an optional `reason` in the approval file (`runtime/approvers.ts`, `readDecision`). Before that the file's reason was dropped: run `20261112T223242Z` was denied three times with a written reason and the agent submitted the same design each time |
 | `deferredBugs` | Bug proposals are refused as "deferred" and settled at the end |
 | Mixed-bug rule | A bug in the same approval batch as other calls is refused |
 | `approve_execution` | The first suite run needs a person's approval |
@@ -82,6 +82,14 @@ Grouped by stage, in the order the chain checks them (first match wins).
 **Order of work:** `specBeforeScaffold`, `featureFirst`, `unboundStepsBeforeScaffold` (relaxed 18 Oct: after a second analysis), `scaffoldWouldOverwrite`, `noFramework`, `frameworkOwned`, `notInstalled`, `scratchInTheSuite`, `wrongEpicFile`
 
 **Shared epic feature file:** `rewordsAnotherStory`, `dropsAnotherStory`, `untaggedScenario`, `missingKindTags`, `appendOnlyAfterReroute`, `appendOnlySpec`, `writeOnExecutePath`
+
+- **`dropsAnotherStory` reads the file on disk when the run has not read it (fixed in 2.3.0).** The rule compared a feature write with what the run's own events knew of the file. Run `20261112T224735Z` (story 176, a model that wrote without reading) overwrote the epic's shared feature file twice and removed story 91's four scenarios; with nothing in the events about the file the rule said nothing. It now falls back to the workspace file, as `rewordsAnotherStory` and `takenDesignIds` already do. With no workspace (a replay of a ledger alone) it behaves as before, so the replay corpus is unchanged; replaying that run with the workspace refuses the first write.
+
+**Two smaller things from the same end-to-end run (2.3.0):**
+
+- **`synthdata.examples` refuses a text-length rule** (`LENGTH(col)` in a `CHECK`). synthdata 1.4.0 ignores it: for a phone of 11 to 21 characters it returned a one-character value as valid. The refusal tells the agent to work the length boundaries out itself; the skill says the same. Number ranges, allowed sets and required fields are unaffected.
+- **A URL refused for scope names the allowed URLs** (`governance/policy.ts`). Run `20261112T225751Z` took a stale port from a comment in the project, was told only "not in the allowed urls", and tried `127.0.0.1`, `0.0.0.0` and `host.docker.internal` on that port. The refusal now lists `agent.scope.urls` and says another host or port is refused the same way.
+- **The run report gives no verdict on a story that has no tests.** When the verifier's last result is that no approved design item has a test, the headline is "No test of story N ran" and the tests that did run are named as other stories'. Before, the report read "Suite: green for story 176 — 4 passed" when all four were story 91's.
 
 **Loops and churn:** `alreadyRead`, `noChangeWrite`, `writeChurn`, `staleRerun`, `editorialOnly`
 

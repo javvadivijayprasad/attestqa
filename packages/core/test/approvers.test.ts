@@ -166,6 +166,47 @@ describe("FileApprover", () => {
     expect(r.by).toBe("unknown");
     expect(r.at).toMatch(/T/);
   });
+
+  // Run 20261112T223242Z: three denials of a test design, each with a reason
+  // written in the file, and the agent was told "denied" three times and
+  // resubmitted the same design.
+  async function decide(written: Record<string, unknown>) {
+    const dir = mkdtempSync(join(tmpdir(), "aqa-appr-"));
+    const time = fakeTime();
+    const f = join(dir, "apr-0001.json");
+    const a = new FileApprover({
+      dir,
+      pollMs: 10,
+      now: time.now,
+      sleep: async (ms) => {
+        await time.sleep(ms);
+        writeFileSync(f, JSON.stringify(written));
+      },
+    });
+    return a.ask(req);
+  }
+
+  it("carries a denial's reason back from the file", async () => {
+    const r = await decide({
+      decision: "denied",
+      by: "reviewer",
+      reason: "  D6 and D7 are boundary-value items with no values.  ",
+    });
+    expect(r.decision).toBe("denied");
+    expect(r.reason).toBe("D6 and D7 are boundary-value items with no values.");
+  });
+
+  it("has no reason when the file gives none, or gives one that is not text", async () => {
+    expect((await decide({ decision: "denied", by: "reviewer" })).reason).toBeUndefined();
+    expect((await decide({ decision: "denied", reason: 7 })).reason).toBeUndefined();
+    expect((await decide({ decision: "denied", reason: "   " })).reason).toBeUndefined();
+  });
+
+  it("ignores a reason on an approval", async () => {
+    const r = await decide({ decision: "approved", by: "reviewer", reason: "looks fine" });
+    expect(r.decision).toBe("approved");
+    expect(r.reason).toBeUndefined();
+  });
 });
 
 // ---------------------------------------------------------------------------

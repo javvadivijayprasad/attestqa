@@ -340,6 +340,10 @@ and polls. Answer by writing the same object back with `decision` set to `"appro
 and `by` set. Silence past `--approval-timeout` (default 1800s) becomes
 `{ decision: "denied", by: "timeout" }`.
 
+A denial may also carry `reason`, a string in the reviewer's words (optional, from 2.3.0). The agent
+is told it, as it is told the reason typed at a terminal; a denied test design goes back with it.
+A file without `reason` behaves as before, and a `reason` on an approval is ignored.
+
 The `approval_requested` ledger event is appended **before** the file is written, so a client that
 stats the file the instant it sees the event will sometimes find nothing. That is not an error.
 

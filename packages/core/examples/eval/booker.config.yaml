@@ -65,8 +65,8 @@ agent:
   scope:
     # Stage-1 context reads are
     # refused for anything outside this list, and reported as refused.
-    # Booker backlog (scripts/ado-seed/booker.json), project attestqa-booker: 88-90 epics, 91-102 stories, 103-104 bugs.
-    work_items: ["88-104"]
+    # Booker backlog (scripts/ado-seed/booker.json), project attestqa-booker: 88-90 epics, 91-102 stories, 103-104 bugs; 176 the stated-limits story added 12 Nov 2026.
+    work_items: ["88-104", "176"]
     repos: [] # repo names the agent may write to (none for slice 1)
     # Azure Test Plans the agent may create cases/suites in. Entries are matched
     # against the argument as passed, and the Azure DevOps MCP server uses the

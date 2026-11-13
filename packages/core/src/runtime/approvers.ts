@@ -81,6 +81,13 @@ export interface FileApprovalRecord {
   decision: "approved" | "denied" | null;
   by?: string;
   at?: string;
+  /**
+   * Optional, with a denial: why the reviewer said no, in their words. Without
+   * it the agent is told only "denied" and submits the same design again —
+   * run 20261112T223242Z was denied three times with a reason written in the
+   * file each time, and the agent never saw one of them.
+   */
+  reason?: string;
 }
 
 export interface FileApproverOptions {
@@ -150,9 +157,13 @@ function readDecision(file: string): ApprovalResult | undefined {
     return undefined; // partial write in progress
   }
   if (rec.decision !== "approved" && rec.decision !== "denied") return undefined;
+  // A reason belongs to a denial; on an approval there is nothing to explain.
+  const reason =
+    rec.decision === "denied" && typeof rec.reason === "string" ? rec.reason.trim() : "";
   return {
     decision: rec.decision,
     by: typeof rec.by === "string" && rec.by ? rec.by : "unknown",
     at: typeof rec.at === "string" && rec.at ? rec.at : new Date().toISOString(),
+    ...(reason ? { reason } : {}),
   };
 }

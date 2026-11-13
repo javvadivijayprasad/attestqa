@@ -109,7 +109,7 @@ export function storyRefusal(
     unboundStepsBeforeScaffold(call, events) ??
     scaffoldWouldOverwrite(call, events, opts.workspaceDir) ??
     rewordsAnotherStory(call, events, opts.workspaceDir) ??
-    dropsAnotherStory(call, events) ??
+    dropsAnotherStory(call, events, opts.workspaceDir) ??
     untaggedScenario(call, events) ??
     missingKindTags(call, events) ??
     untaggedTestCase(call, events) ??
@@ -820,6 +820,16 @@ function scratchInTheSuite(
   );
 }
 
+/** A workspace file as it is on disk; undefined when there is no workspace or no file. */
+function textOnDisk(workspaceDir: string | undefined, path: string): string | undefined {
+  if (!workspaceDir) return undefined;
+  try {
+    return readFileSync(join(workspaceDir, path), "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
 /** The scenarios in a feature file, by the story each is tagged with. */
 function storyOfScenarios(text: string): Map<string, TrackerId[]> {
   return new Map(scenarioStoryTags(text).map((s) => [s.scenario, s.stories]));
@@ -835,11 +845,16 @@ function storyOfScenarios(text: string): Map<string, TrackerId[]> {
 function dropsAnotherStory(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
+  workspaceDir?: string,
 ): string | undefined {
   if (call.toolName !== "fs.write_file") return;
   const path = String(call.args["path"] ?? "");
   if (!/\.feature$/i.test(path)) return;
-  const before = fileTextFromEvents(events, path);
+  // What the run has seen of the file — or, when it has seen nothing, the file
+  // on disk. Run 20261112T224735Z wrote the epic's shared feature file without
+  // ever reading it; with nothing in the events to compare against, this rule
+  // said nothing and story 91's four scenarios were overwritten, twice.
+  const before = fileTextFromEvents(events, path) ?? textOnDisk(workspaceDir, path);
   if (before === undefined) return;
   const mine = normId(storyFacts(events)?.story?.id);
   const next = String(call.args["content"] ?? "");

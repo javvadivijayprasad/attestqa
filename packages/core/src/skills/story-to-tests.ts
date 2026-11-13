@@ -476,7 +476,12 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    nothing more. You cannot operate the application, so you cannot know what
    happens after a click beyond what the design says: do not add checks of the
    address, CSS classes, counts or texts the design does not name — they are
-   guesses, and a guess that fails is reported as a product defect. Where a
+   guesses, and a guess that fails is reported as a product defect. The wording
+   of a message is such a text. Assert a message's exact words only when the
+   story, or a source the design names, quotes them — then use those words
+   exactly. When the story says only what the message tells the user ("a
+   message giving the range 11 to 21"), assert that much — a message is shown
+   and it contains 11 and 21 — and supply no wording of your own. Where a
    state sits (which element carries "active" or aria-current) you read from
    the page snapshot, not assume. When the framework profile names a
    testIdAttribute, prefer page.getByTestId("…") for elements that carry one.
@@ -1469,7 +1474,10 @@ function testDesignStep(types: readonly string[]): string {
    for the placeholders in the steps, the expected message in its own column —
    carrying the item's tags like any other scenario. Keep only the columns the
    steps use; leave _violation and row ids out of the feature file. When the tool
-   is not offered, choose the values yourself as before.
+   is not offered, choose the values yourself as before. A rule on the LENGTH of
+   a text field (11 to 21 characters) is not something the tool reads: for those,
+   work the boundaries out yourself — one below the minimum, the minimum, the
+   maximum, one above the maximum — and state the lengths in the conditions.
 
    Pick the technique from the RULE the criterion states:
      - a field that is required or has limits → boundary-value-analysis

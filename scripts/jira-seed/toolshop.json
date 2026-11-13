@@ -257,6 +257,24 @@
         "AC-2: Searching the admin product list by name shows only products whose names match.",
         "AC-3: A customer account that opens the admin product list address does not see the list."
       ]
+    },
+    {
+      "ref": "registerlimits",
+      "order": 13,
+      "kind": "stated-limits",
+      "epic": "account",
+      "summary": "Registration enforces the age and password limits",
+      "description": [
+        "As the shop I want only adults to register, with a password that is hard to guess.",
+        "The limits are: the customer is at least 18 and younger than 75 on the day of registration; the password has at least 8 characters."
+      ],
+      "acceptance": [
+        "AC-1: A customer aged 18 to 74 can register; a date of birth that makes the customer 17 is refused with a message saying the customer must be 18, and one that makes the customer 75 is refused with a message saying the customer must be younger than 75.",
+        "AC-2: A password of 8 characters that has an uppercase letter, a lowercase letter, a number and a symbol is accepted; the same password one character shorter is refused with a message giving the minimum of 8 characters."
+      ],
+      "verify": [
+        "Limits confirmed against the local application on 12 Nov 2026 (POST /users/register). First Jira story whose limits are stated in the story itself, for the generated-values feature (2.3.0)."
+      ]
     }
   ],
   "bugs": [
