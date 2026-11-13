@@ -158,12 +158,31 @@ function healableFailure(
         ])
       : undefined;
 
+  // A test whose design item changed in this run was written for the earlier
+  // expectation. When it fails on a text that is not on the page, the text is
+  // what is out of date, not a locator that moved: rewriting it is the default
+  // role's work, with the design in front of it (20261113T014353Z — four such
+  // tests were sent here, each got a list of unrelated locators, none was
+  // changed).
+  const reworked = new Set<string>();
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
+    for (const c of asArray(because?.["changed"])) {
+      const s = asRecord(c)?.["scenario"];
+      if (typeof s === "string") reworked.add(s.trim());
+    }
+    break;
+  }
+
   for (const raw of asArray(asRecord(last.result)?.["failures"])) {
     const f = asRecord(raw);
     const title = typeof f?.["title"] === "string" ? f["title"] : "";
     const message = typeof f?.["message"] === "string" ? f["message"] : "";
     if (!title) continue;
     if (otherStory?.has(title)) continue;
+    if (reworked.has(title.trim())) continue;
     if (stuckAction(message)) return { title, why: "locator" };
     // A test that recovers from its own break reports an assertion failure, so
     // the locator error never surfaces. Same job, one step earlier.

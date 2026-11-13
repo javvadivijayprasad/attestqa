@@ -1056,10 +1056,16 @@ export function liveLine(e: AnyRunEvent): string {
         const fresh = Array.isArray(rec["newItems"])
           ? (rec["newItems"] as string[]).length
           : undefined;
-        if (already > 0)
+        const changedN = Array.isArray(rec["changedItems"])
+          ? (rec["changedItems"] as string[]).length
+          : 0;
+        if (already > 0 || changedN > 0)
           return (
             `aqa: test design approved — ${rec["items"]} item(s): ${already} already tested, ` +
-            `${fresh ?? 0} new${fresh === 0 ? " — running the tests that exist" : ""}\n`
+            (changedN > 0 ? `${changedN} changed (their tests are updated first), ` : "") +
+            `${fresh ?? 0} new${
+              fresh === 0 && changedN === 0 ? " — running the tests that exist" : ""
+            }\n`
           );
         return `aqa: test design approved — ${rec["items"]} item(s); tests are written from it\n`;
       }

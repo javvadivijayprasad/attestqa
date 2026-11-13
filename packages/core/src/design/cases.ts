@@ -52,18 +52,13 @@ export function designCases(
   scenarios: readonly StoryScenario[],
   previous?: TestDesign,
 ): CaseLine[] {
-  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
-  const sameAs = (a: DesignItem, b: DesignItem) =>
-    norm(a.expected) === norm(b.expected) &&
-    a.conditions.map(norm).join("|") === b.conditions.map(norm).join("|") &&
-    Boolean(a.expectFail) === Boolean(b.expectFail);
+  const changed = new Set(changedItems(design, covered, previous).map((c) => c.id));
   return design.items.map((it) => {
     const hit = covered.get(it.id);
-    const before = previous?.items.find((p) => p.id === it.id);
     const scripted = hit ? scenarios.find((s) => s.scenario === hit.scenario)?.scripted : false;
     const state: CaseState = !hit
       ? "new"
-      : before && !sameAs(before, it)
+      : changed.has(it.id)
         ? "changed"
         : scripted === false
           ? "exists (no script yet)"
@@ -75,6 +70,50 @@ export function designCases(
       state,
     };
   });
+}
+
+export interface ChangedItem {
+  id: string;
+  /** What the design approved before expected of this item. */
+  was: string;
+  /** What the design in hand expects of it. */
+  now: string;
+  /** The scenario that tests it today — written for `was`. */
+  scenario: string;
+}
+
+/**
+ * The items of a design that already have a test AND whose expectation,
+ * conditions or expect-fail differ from the same id in the design approved
+ * before: the test on disk was written for the earlier wording.
+ *
+ * Until 2.3.0 this was a label in the approval note and nothing else. Run
+ * 20261113T014353Z: the story's criteria had been rewritten to quote the
+ * application's messages, the new design said so under the same ids (D5…D9),
+ * `aqa.test_design` answered "every item is already tested … do not rewrite
+ * the feature file or the spec", the suite failed on the old wording, and the
+ * failures went to the locator healer. `changedItems` is now what the design
+ * tool's result, the second route and the heal role read.
+ */
+export function changedItems(
+  design: TestDesign,
+  covered: ReadonlyMap<string, { scenario: string }>,
+  previous?: TestDesign,
+): ChangedItem[] {
+  if (!previous) return [];
+  const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+  const sameAs = (a: DesignItem, b: DesignItem) =>
+    norm(a.expected) === norm(b.expected) &&
+    a.conditions.map(norm).join("|") === b.conditions.map(norm).join("|") &&
+    Boolean(a.expectFail) === Boolean(b.expectFail);
+  const out: ChangedItem[] = [];
+  for (const it of design.items) {
+    const hit = covered.get(it.id);
+    const before = previous.items.find((p) => p.id === it.id);
+    if (!hit || !before || sameAs(before, it)) continue;
+    out.push({ id: it.id, was: before.expected, now: it.expected, scenario: hit.scenario });
+  }
+  return out;
 }
 
 /** One line per case, aligned, for the terminal and the approval prompt. */

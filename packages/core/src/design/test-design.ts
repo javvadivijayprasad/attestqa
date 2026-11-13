@@ -678,6 +678,25 @@ export function approvedDesign(events: AnyRunEvent[]): TestDesign | undefined {
   return carried ? parseDesign(carried.args) : undefined;
 }
 
+/**
+ * The design approved in the latest earlier run of this story, when the story
+ * has changed since (or cannot be shown unchanged) and its tests are on disk:
+ * what those tests were written for. The first route records it
+ * (`because.previousDesign`), so the comparison with the design approved in
+ * this run is made from the ledger alone.
+ */
+export function previousDesign(
+  events: AnyRunEvent[],
+): { runId: string; design: TestDesign } | undefined {
+  for (const e of events) {
+    if (e.kind !== "route") continue;
+    const p = asRecord(asRecord(asRecord(e.payload as unknown)?.["because"])?.["previousDesign"]);
+    const args = asRecord(p?.["args"]);
+    if (p && args) return { runId: String(p["runId"] ?? ""), design: parseDesign(args) };
+  }
+  return undefined;
+}
+
 /** The design a route carried over from an earlier run of an unchanged story. */
 export function carriedDesign(
   events: AnyRunEvent[],

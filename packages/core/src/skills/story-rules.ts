@@ -2562,13 +2562,20 @@ export function appendOnlyAfterReroute(
     const after = now.get(scenario);
     if (!after || norm(after.body) !== body) changed.push(scenario);
   }
+  // The scenarios of items whose expectation the design approved in this run
+  // changed are not in `locked`: they are this run's to bring into line.
+  const reworked = asArray(because["changed"]).map((c) => String(asRecord(c)?.["id"] ?? ""));
   if (changed.length > 0)
     return (
-      `this run may only ADD scenarios for the new design items (${missing.join(", ")}); ` +
-      `${changed.length} scenario(s) that existed before would change or disappear: ` +
-      `${changed
-        .map((s) => `"${s}"`)
-        .join("; ")}. Keep them exactly as they are and add the new ones after them.`
+      (missing.length > 0
+        ? `this run may only ADD scenarios for the new design items (${missing.join(", ")})`
+        : "this run adds no scenario") +
+      (reworked.length > 0
+        ? ` and change the scenarios of the items whose expectation changed (${reworked.join(", ")})`
+        : "") +
+      `; ${changed.length} other scenario(s) that existed before would change or disappear: ` +
+      `${changed.map((s) => `"${s}"`).join("; ")}. Keep them exactly as they are` +
+      (missing.length > 0 ? " and add the new ones after them." : ".")
     );
 
   // 2. One scenario per new design item — a second is a draft that was not removed.
@@ -2589,7 +2596,9 @@ export function appendOnlyAfterReroute(
   const before = lastKnownContent(path, events, workspaceDir) ?? "";
   const had = scenarioDesignTags(before);
   const allWritten = missing.every((id) => had.some((s) => s.designs.includes(id.toUpperCase())));
-  if (allWritten && !analyzedSinceLastFeatureWrite(events, path))
+  // With nothing to add there is nothing to generate: the write changes the
+  // scenario of a changed item, and the generator is not the next step.
+  if (missing.length > 0 && allWritten && !analyzedSinceLastFeatureWrite(events, path))
     return (
       `the scenario for ${missing.join(
         ", ",
@@ -2776,6 +2785,16 @@ export function appendOnlySpec(
   // carries this story's tag and a design item approved in this run is the
   // run's own, whatever the read order.
   const own = ownTestsOfThisRun(before, events);
+  // The test of an item whose expectation the design approved in this run
+  // changed is the run's to bring into line: its old assertion is the thing
+  // being replaced. 20261113T122522Z: the three tests whose expected text sat
+  // in a data row were corrected; the fourth, whose text sat in the `expect`
+  // line itself, was refused four times as an existing test losing an
+  // assertion, and stayed red.
+  for (const c of asArray(because?.["changed"])) {
+    const s = asRecord(c)?.["scenario"];
+    if (typeof s === "string") own.add(s.trim());
+  }
   const lost: string[] = [];
   const weakened: string[] = [];
   for (const [title, body] of was) {
