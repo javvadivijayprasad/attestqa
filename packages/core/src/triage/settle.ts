@@ -64,6 +64,39 @@ function squash(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+/** Bug states that are done with. A defect that returns after a fix deserves its own record. */
+export const CLOSED_BUG_STATES = new Set(["closed", "done", "removed", "resolved"]);
+
+/**
+ * The open bug that already records this failing test, if one does: a bug
+ * whose title or description names the test.
+ *
+ * Titles do not carry it. Bug #180 was filed as "Contact form accessibility
+ * scan reports unlabeled message field"; the next three runs proposed the same
+ * failure as "…description field has no accessible label", "…message field is
+ * missing an accessible label" and so on (20261113T131724Z, …133431Z,
+ * …134043Z) — no title close enough to the first for `sameDefect`, each
+ * proposal put to the reviewer, and each run blocked when the reviewer said
+ * "duplicate". What every one of them had in common was the test: this
+ * runtime writes the failing test's name into a bug it files.
+ *
+ * The same test can fail for a second reason. The refusal that rests on this
+ * says so, and asks for a title that names what differs.
+ */
+export function openBugAbout<B extends { state: string; title: string; text?: string }>(
+  test: string,
+  filed: readonly B[],
+): B | undefined {
+  const name = squash(test.split(" › ").pop() ?? test);
+  // Too short to identify anything: "Login" is in every bug on a login story.
+  if (name.length < 16) return undefined;
+  return filed.find(
+    (b) =>
+      !CLOSED_BUG_STATES.has(b.state.toLowerCase()) &&
+      squash(`${b.title} ${b.text ?? ""}`).includes(name),
+  );
+}
+
 /** Every test title that failed in ANY run this run made. */
 export function allFailedTitles(events: AnyRunEvent[]): string[] {
   const out = new Set<string>();

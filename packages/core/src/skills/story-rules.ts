@@ -11,7 +11,15 @@ import {
   payloadOf,
   successful,
 } from "../verify/evidence.js";
-import { acLabels, allFailedTitles, lastFullRun, ownTestTitles } from "../triage/settle.js";
+import {
+  acLabels,
+  allFailedTitles,
+  bugIsAbout,
+  CLOSED_BUG_STATES,
+  lastFullRun,
+  openBugAbout,
+  ownTestTitles,
+} from "../triage/settle.js";
 import { droppedClaims, LOCATOR_CALL } from "../design/claims.js";
 import { exhaustedTests, MAX_REPAIRS_PER_TEST, quarantinedTitles } from "../triage/quarantine.js";
 import { missingImports } from "../framework/survey.js";
@@ -1200,7 +1208,7 @@ function duplicateBug(
   if (!title) return;
   const filed = storyFacts(events)?.filedBugs ?? [];
   const open = filed.filter((b) => !CLOSED.has(b.state.toLowerCase()));
-  const hit = open.find((b) => sameDefect(b.title, title));
+  const hit = open.find((b) => sameDefect(b.title, title)) ?? sameFailingTest(call, title, events);
   if (!hit) return;
   return (
     `#${hit.id} [${hit.state}] already says this: "${hit.title}". This proposal reads as the same ` +
@@ -1218,8 +1226,36 @@ function duplicateBug(
   );
 }
 
+type FiledBug = NonNullable<NonNullable<ReturnType<typeof storyFacts>>["filedBugs"]>[number];
+
+/**
+ * An open bug that names the failing test this proposal is about — the same
+ * failure under another title (`openBugAbout`). The proposal's test is read
+ * the way the end-of-run settlement reads it, or from its own repro steps.
+ */
+function sameFailingTest(
+  call: { args: Record<string, unknown> },
+  title: string,
+  events: AnyRunEvent[],
+): FiledBug | undefined {
+  const filed = storyFacts(events)?.filedBugs ?? [];
+  if (filed.length === 0) return undefined;
+  const failing = asArray(asRecord(lastFullRun(events)?.result)?.["failures"])
+    .map((f) => String(asRecord(f)?.["title"] ?? ""))
+    .filter(Boolean);
+  const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const own = flat(`${title} ${fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? ""}`);
+  for (const t of failing) {
+    const name = flat(t.split(" › ").pop() ?? t);
+    if (!bugIsAbout(title, t, failing) && !(name.length >= 16 && own.includes(name))) continue;
+    const hit = openBugAbout(t, filed);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 /** Bug states that are done with. A defect that returns after a fix deserves its own record. */
-const CLOSED = new Set(["closed", "done", "removed", "resolved"]);
+const CLOSED = CLOSED_BUG_STATES;
 
 /**
  * Do two bug titles describe one defect?

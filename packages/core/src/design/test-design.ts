@@ -130,7 +130,20 @@ export interface StoryFacts {
    * third and fourth time. This list exists so `duplicateBug` can refuse that
    * in code. It is never rendered into the prompt.
    */
-  filedBugs?: Array<{ id: TrackerId; state: string; title: string; agent: boolean }>;
+  filedBugs?: Array<{
+    id: TrackerId;
+    state: string;
+    title: string;
+    agent: boolean;
+    /**
+     * The start of the bug's own description (its repro steps). A bug this
+     * runtime files names the failing test there, which is what identifies it
+     * as the record of that failure when a later run words the title another
+     * way (`openBugAbout` in triage/settle.ts). Absent in older ledgers and
+     * where the tracker read does not return it.
+     */
+    text?: string;
+  }>;
   tasks: TrackerId[];
   /** The story itself: tests this run adds are tagged with its id. */
   story?: { id: TrackerId; title: string };
@@ -644,6 +657,7 @@ export function factsFrom(raw: unknown): StoryFacts | undefined {
         state: String(r["state"] ?? ""),
         title: String(r["title"] ?? ""),
         agent: r["agent"] === true,
+        ...(typeof r["text"] === "string" && r["text"] ? { text: r["text"] } : {}),
       };
     }),
     tasks: asArray(f["tasks"]).map(idOf),

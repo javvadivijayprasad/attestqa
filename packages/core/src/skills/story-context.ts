@@ -51,6 +51,8 @@ const RUN_ID = /\b\d{8}T\d{6}Z-[0-9a-f]{8}\b/;
 const DESCRIPTION_CHARS = 700;
 const COMMENT_CHARS = 600;
 const REPRO_CHARS = 600;
+/** How much of a bug's description the duplicate check may read (never rendered). */
+const BUG_TEXT_CHARS = 1500;
 
 export async function gatherStoryContext(
   read: PreflightRead,
@@ -351,6 +353,8 @@ export async function gatherStoryContext(
         state: str(f["System.State"]),
         tags: str(f["System.Tags"]),
         repro: clean(f["Microsoft.VSTS.TCM.ReproSteps"], REPRO_CHARS),
+        // For the rules, not the prompt: long enough to hold the test's name.
+        text: clean(f["Microsoft.VSTS.TCM.ReproSteps"], BUG_TEXT_CHARS),
       };
     });
     const humanBugs = bugs.filter((x) => !isAgentBug(x.tags, x.repro));
@@ -364,6 +368,7 @@ export async function gatherStoryContext(
       state: x.state,
       title: x.title,
       agent: isAgentBug(x.tags, x.repro),
+      ...(x.text ? { text: x.text } : {}),
     }));
     summary["openBugsExcluded"] = bugs.length - humanBugs.length;
     out.push(

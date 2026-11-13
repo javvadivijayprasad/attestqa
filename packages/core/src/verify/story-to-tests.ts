@@ -18,7 +18,7 @@ import {
   traceProblems,
   type TestType,
 } from "../design/test-design.js";
-import { bugIsAbout, lastFullRun, ownTestTitles } from "../triage/settle.js";
+import { bugIsAbout, lastFullRun, openBugAbout, ownTestTitles } from "../triage/settle.js";
 import {
   changedScenariosWithoutATest,
   untouchedChangedItems,
@@ -588,13 +588,32 @@ export class StoryToTestsVerifier implements Verifier {
       // only "suite not green". Narrow: the message must carry axe output and
       // concrete rule ids, so a broken or empty scan (which triage handles) does
       // not qualify.
+      // A failing test that an earlier run of this runtime already filed a bug
+      // about, still open and not yet confirmed by a person. The defect IS
+      // reported; proposing it again gives one finding two records, and the
+      // reviewer's "duplicate" used to end the run blocked (20261113T131724Z
+      // and the two runs after it, all on bug #180). Only agent-filed bugs: one
+      // a person has confirmed is in the story context, and its test is marked
+      // expected-to-fail by the design.
+      const agentBugs = (storyFacts(input.events)?.filedBugs ?? []).filter((b) => b.agent);
+      const alreadyFiled = new Map<string, (typeof agentBugs)[number]>();
+      for (const t of failingTitles) {
+        if (!t || reported.has(t)) continue;
+        const bug = openBugAbout(t, agentBugs);
+        if (bug) alreadyFiled.set(t, bug);
+      }
+      for (const [t, bug] of alreadyFiled)
+        sharedSpecLimitations.push(
+          `"${t}" fails, and bug #${String(bug.id)} [${bug.state}] already records it ("${bug.title}") — ` +
+            "filed by an earlier run and not yet confirmed by a person; no second bug is filed",
+        );
       const a11yViolations = new Map<string, string[]>();
       for (const raw of asArray(r["failures"])) {
         const f = asRecord(raw);
         const title = String(f?.["title"] ?? "");
         if (!title || (mine && !mine.has(title))) continue;
         if (triage.defectCandidates.some((c) => c.endsWith(title) || c.includes(title))) continue;
-        if (exhausted.has(title) || reported.has(title)) continue;
+        if (exhausted.has(title) || reported.has(title) || alreadyFiled.has(title)) continue;
         const rules = axeRuleIds(String(f?.["message"] ?? ""));
         if (rules.length > 0) a11yViolations.set(title, rules);
       }
@@ -613,6 +632,7 @@ export class StoryToTestsVerifier implements Verifier {
             (triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)) ||
               exhausted.has(t) ||
               reported.has(t) ||
+              alreadyFiled.has(t) ||
               a11yViolations.has(t)),
         );
       for (const t of reported)
