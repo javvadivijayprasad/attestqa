@@ -18,7 +18,13 @@ import {
   traceProblems,
   type TestType,
 } from "../design/test-design.js";
-import { bugIsAbout, lastFullRun, openBugAbout, ownTestTitles } from "../triage/settle.js";
+import {
+  bugIsAbout,
+  CLOSED_BUG_STATES,
+  lastFullRun,
+  openBugAbout,
+  ownTestTitles,
+} from "../triage/settle.js";
 import {
   changedScenariosWithoutATest,
   untouchedChangedItems,
@@ -625,7 +631,20 @@ export class StoryToTestsVerifier implements Verifier {
       const alreadyFiled = new Map<string, (typeof agentBugs)[number]>();
       for (const t of failingTitles) {
         if (!t || reported.has(t)) continue;
-        const bug = openBugAbout(t, agentBugs);
+        // By the test's name in the bug's text, where the tracker read
+        // returns it (Azure DevOps). A Jira search returns titles only, so a
+        // second run of TOOL-34 (20261114T144930Z) was blocked on two failing
+        // tests whose bugs, TOOL-36 and TOOL-37, the run before had filed and
+        // the story linked. There the bug's title is read the way a proposal's
+        // is (`bugIsAbout`), and only for a bug the tracker links to this story.
+        const bug =
+          openBugAbout(t, agentBugs) ??
+          agentBugs.find(
+            (b) =>
+              b.linked === true &&
+              !CLOSED_BUG_STATES.has(b.state.toLowerCase()) &&
+              bugIsAbout(b.title, t, failingTitles),
+          );
         if (bug) alreadyFiled.set(t, bug);
       }
       for (const [t, bug] of alreadyFiled)
@@ -689,10 +708,14 @@ export class StoryToTestsVerifier implements Verifier {
           gaps.push(
             gap(
               "suite-not-green",
-              Array.isArray(r["unimplemented"]) && r["unimplemented"].length > 0
-                ? `the suite ran but ${r["unimplemented"].length} test(s) still have steps bdd2pw left as TODO, which ran ` +
+              // Only this story's unfinished tests: 20261114T141230Z (TOOL-34)
+              // was red on its own failing tests and was told to implement
+              // the TODO steps of two TOOL-13 tests, which it may not touch.
+              emptyHere.length > 0
+                ? `the suite ran but ${emptyHere.length} test(s) still have steps bdd2pw left as TODO, which ran ` +
                     "empty and checked nothing: " +
                     (r["unimplemented"] as Array<{ title?: unknown; steps?: unknown }>)
+                      .filter((u) => emptyHere.includes(String(u.title ?? "")))
                       .map(
                         (u) =>
                           `"${String(u.title)}" (${
@@ -707,7 +730,12 @@ export class StoryToTestsVerifier implements Verifier {
                     )} test(s) are still unimplemented (fixme), so nothing was actually verified`
                   : `the suite ran but is not green: ${String(r["passed"] ?? 0)} passed, ${String(
                       r["failed"] ?? 0,
-                    )} failed, ${String(r["skipped"] ?? 0)} skipped`,
+                    )} failed, ${String(r["skipped"] ?? 0)} skipped` +
+                    (mine && failingTitles.length > 0
+                      ? `. Failing and this story's: ${failingTitles
+                          .map((t) => `"${t}"`)
+                          .join(", ")}`
+                      : ""),
               {
                 passed: r["passed"],
                 failed: r["failed"],

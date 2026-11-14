@@ -490,7 +490,31 @@ export function bugIsAbout(title: string, test: string, candidates: string[]): b
 
 function testKeyForTitle(title: string, candidates: string[]): string {
   const labels = acLabels(title);
-  if (labels.length > 0) return labels.sort().join(",");
+  if (labels.length > 0) {
+    // A criterion may have several tests ("AC-1a", "AC-1c"), and a bug says
+    // "AC-1". Read as the label alone, two bugs about two of those tests were
+    // one key: 20261114T141230Z proposed "AC-1: Customer aged exactly 18 is not
+    // accepted" (test AC-1a) and "AC-1: Customer aged exactly 75 is accepted"
+    // (test AC-1c), and the second — a real defect — was dropped as a second
+    // bug for the same test; the verifier could not tie either to its test.
+    // So among the failing tests of that criterion the bug is about the one
+    // its title describes, when one stands out; otherwise the label, as before.
+    const base = (l: string) => l.replace(/[A-Z]$/, "");
+    const ofCriterion = candidates.filter((t) =>
+      acLabels(t).some((f) => labels.some((l) => l === f || base(f) === l || base(l) === f)),
+    );
+    if (ofCriterion.length === 1) return ofCriterion[0] as string;
+    if (ofCriterion.length > 1) {
+      const tokens = (t: string) => new Set(t.toLowerCase().match(/[a-z]{4,}|\d+/g) ?? []);
+      const said = tokens(title);
+      const scored = ofCriterion
+        .map((t) => ({ test: t, score: [...tokens(t)].filter((w) => said.has(w)).length }))
+        .sort((a, b) => b.score - a.score);
+      const [best, second] = scored;
+      if (best && second && best.score > second.score) return best.test;
+    }
+    return labels.sort().join(",");
+  }
 
   // The name the bug puts in front of its colon — "Story-c: …",
   // "AC Story-a: …", "Accessibility: …" — is the test it is about, said

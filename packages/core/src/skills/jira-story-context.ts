@@ -265,11 +265,18 @@ export async function gatherJiraStoryContext(
     summary["openBugsRead"] = humanBugs.length;
     summary["openBugsExcluded"] = open.length - humanBugs.length;
     facts.bugs = humanBugs.map((x) => ({ id: x.id, state: x.state, title: x.title }));
+    // The story's own links say which of the project's bugs are about it.
+    const linkedToStory = new Set(
+      asArray(s["links"])
+        .map((l) => str(asRecord(l)?.["key"]))
+        .filter(Boolean),
+    );
     facts.filedBugs = open.map((x) => ({
       id: x.id,
       state: x.state,
       title: x.title,
       agent: isAgentBug(x.labels, x.title),
+      ...(linkedToStory.has(x.key) ? { linked: true } : {}),
     }));
     if (open.length === 0) out.push("OPEN BUGS: none in this project.");
     else {

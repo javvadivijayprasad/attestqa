@@ -143,6 +143,13 @@ export interface StoryFacts {
      * where the tracker read does not return it.
      */
     text?: string;
+    /**
+     * The tracker links this bug to the run's story. Set on Jira, where the
+     * open bugs come from a search of the whole project and the story's own
+     * links say which of them are about it. A bug's title may be read as
+     * naming one of this story's tests only when the bug is this story's.
+     */
+    linked?: boolean;
   }>;
   tasks: TrackerId[];
   /** The story itself: tests this run adds are tagged with its id. */
@@ -658,6 +665,7 @@ export function factsFrom(raw: unknown): StoryFacts | undefined {
         title: String(r["title"] ?? ""),
         agent: r["agent"] === true,
         ...(typeof r["text"] === "string" && r["text"] ? { text: r["text"] } : {}),
+        ...(r["linked"] === true ? { linked: true } : {}),
       };
     }),
     tasks: asArray(f["tasks"]).map(idOf),
@@ -1089,21 +1097,25 @@ export function traceProblems(
   /** Weaker or broader than the design, but working: one fix attempt, then the reviewer's. */
   reviewShape: string[];
 } {
-  const all = features.flatMap((f) =>
-    scenarioDesignTags(f.text).map((s) => ({ ...s, path: f.path })),
-  );
-  const owner = new Map<string, TrackerId[]>();
-  for (const f of features)
-    for (const s of scenarioStoryTags(f.text)) owner.set(s.scenario, s.stories);
+  // Each scenario with the stories ITS OWN tags name. The two readers walk
+  // the file the same way, so they pair by position. They used to be paired
+  // by title, and two stories of one epic may title a scenario alike: in
+  // 20261114T141230Z TOOL-14 and TOOL-34 both had "AC-accessibility The
+  // registration page passes an automated accessibility scan", the later one's
+  // story stood for both, and TOOL-34's run was blocked for TOOL-14's
+  // @design:D10 — "a scenario with no tag from the approved design".
+  const all = features.flatMap((f) => {
+    const stories = scenarioStoryTags(f.text);
+    return scenarioDesignTags(f.text).map((s, i) => ({
+      ...s,
+      path: f.path,
+      owns: stories[i]?.scenario === s.scenario ? (stories[i]?.stories ?? []) : [],
+    }));
+  });
   // A scenario tagged for ANOTHER story is not this design's business. One
   // with no @story tag at all is nobody's and stays in scope.
   const scenarios =
-    story === undefined
-      ? all
-      : all.filter((s) => {
-          const owns = owner.get(s.scenario) ?? [];
-          return owns.length === 0 || includesId(owns, story);
-        });
+    story === undefined ? all : all.filter((s) => s.owns.length === 0 || includesId(s.owns, story));
   const tagged = new Set(scenarios.flatMap((s) => s.designs));
   const known = new Set(design.items.map((i) => i.id));
   // A design item is tested only when a scenario tags it AND, once the spec
@@ -1852,11 +1864,34 @@ export function fileTextFromEvents(events: AnyRunEvent[], path: string): string 
   return undefined;
 }
 
-/** Did this read ask for, or return, only part of the file? */
+/**
+ * Did this read ask for, or return, only part of the file?
+ *
+ * A range that covers the file is the file. In 20261114T141230Z the spec's only
+ * early read was `fromLine: 1, toLine: 220` of a 198-line file; it counted as a
+ * fragment, the run had no complete view of its spec, `ownTestTitles` knew
+ * nothing, and the run was asked to finish two TODO tests of another story.
+ * The result says what came back (`fromLine`, `toLine`, `lines`): lines 1 to
+ * the last are the whole file, however they were asked for.
+ */
 export function isPartialRead(args: Record<string, unknown>, result: unknown): boolean {
-  if (args["fromLine"] !== undefined || args["toLine"] !== undefined) return true;
   const r = asRecord(result);
-  return r?.["fromLine"] !== undefined || r?.["toLine"] !== undefined;
+  const ranged =
+    args["fromLine"] !== undefined ||
+    args["toLine"] !== undefined ||
+    r?.["fromLine"] !== undefined ||
+    r?.["toLine"] !== undefined;
+  if (!ranged) return false;
+  const total = r?.["lines"];
+  const from = r?.["fromLine"] ?? args["fromLine"] ?? 1;
+  const to = r?.["toLine"];
+  const whole =
+    typeof total === "number" &&
+    typeof to === "number" &&
+    Number(from) <= 1 &&
+    to >= total &&
+    typeof r?.["content"] === "string";
+  return !whole;
 }
 
 /** Each test in a spec, by title, with its body. */
