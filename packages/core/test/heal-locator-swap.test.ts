@@ -184,7 +184,9 @@ describe("a multi-line edit of a file with CRLF line endings", () => {
       [routeB(), ...redSuite()],
       { workspaceDir: dir, workItem: "TOOL-9" },
     );
-    expect(reason).toContain("this run took the execute path");
+    // Refused as another story's test since 20261114T132625Z; before that, by
+    // the execute-path rule. Either way a rule saw the edit.
+    expect(reason).toMatch(/belongs to another story|this run took the execute path/);
   });
 });
 
@@ -233,8 +235,8 @@ describe.skipIf(!existsSync(RUN) || !existsSync(join(WS, PATH)))(
         all().filter((e) => e.eventId < call.eventId - 2),
         { workspaceDir: WS, workItem: "TOOL-9" },
       );
-      expect(reason).toContain("this run took the execute path");
-      expect(reason).toContain("Combination Pliers");
+      expect(reason).toMatch(/belongs to another story|this run took the execute path/);
+      expect(reason).toMatch(/Sorting by name A to Z|Combination Pliers/);
     });
 
     it("does not send TOOL-10's failing test to the heal role", () => {

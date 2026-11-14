@@ -592,7 +592,25 @@ export function triageGaps(events: AnyRunEvent[]): {
   // from a false "the token survived" to an honest URL mismatch, and this gap
   // called it evidence-destruction (20260925T174149Z). A repair that keeps the
   // claims is progress and is recorded as such.
-  const drift = quarantineDrift(history);
+  //
+  // And a failure that changed with NOTHING in the suite written is neither:
+  // no edit can have removed the evidence, and "restore what the test
+  // asserted" names a remedy that does not exist. Since the runtime runs a
+  // first failure again unchanged, this is what an unstable test looks like:
+  // in 20261114T133638Z the home page accessibility scan failed the first run,
+  // was quarantined, passed the second with no file touched, and the run was
+  // blocked for modifying it. It is said to the reviewer as what it is.
+  const allDrift = quarantineDrift(history);
+  const untouched = rerunWithNothingWritten(events) ? allDrift : [];
+  const drift = allDrift.filter((d) => !untouched.includes(d));
+  for (const d of untouched)
+    limitations.push(
+      `${d.test} — failed, was held as a defect candidate, and then ` +
+        (d.now === "no longer failing" ? "passed" : "failed differently") +
+        " when the suite was run again with nothing changed " +
+        `(was: ${signature(d.was).slice(0, 80)}). The test is not stable: its first failure is ` +
+        "not evidence of a defect and its pass is not evidence against one.",
+    );
   const repaired = drift.filter((d) => keptItsClaims(events, d.test));
   const evidenceLost = drift.filter((d) => !keptItsClaims(events, d.test));
   for (const d of repaired)
@@ -744,6 +762,25 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
   // No edit at all: the failure changed on its own, which this function has
   // nothing to say about — the gap should still ask.
   return sawEdit;
+}
+
+/**
+ * Whether the ledger shows the suite run in full more than once with no spec
+ * or page object written in the run. Only then is "nothing was edited" a fact
+ * and not an absence of record.
+ */
+function rerunWithNothingWritten(events: AnyRunEvent[]): boolean {
+  const calls = completedCalls(events).filter((c) => c.ok);
+  const wrote = calls.some(
+    (c) =>
+      (c.toolName === "fs.write_file" ||
+        c.toolName === "fs.replace_in_file" ||
+        c.toolName === "bdd2pw.scaffold") &&
+      (c.toolName === "bdd2pw.scaffold" ||
+        /[.](spec|test|page)[.][cm]?[jt]sx?$/i.test(String(c.args["path"] ?? ""))),
+  );
+  const fullRuns = calls.filter((c) => c.toolName === "pw.run_tests" && isFullRun(c.args));
+  return !wrote && fullRuns.length > 1;
 }
 
 function quarantineDrift(history: TriagePayload[]): Array<{

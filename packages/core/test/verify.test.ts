@@ -1039,7 +1039,7 @@ describe("a page object with the application's address in it is a gap", () => {
     const ws = tmp();
     mkdirSync(join(ws, "tests"), { recursive: true });
     mkdirSync(join(ws, "pages"), { recursive: true });
-    writeFileSync(join(ws, "tests", "a.spec.ts"), "x");
+    writeFileSync(join(ws, "tests", "a.spec.ts"), 'import { Home } from "../pages/home.page";');
     writeFileSync(
       join(ws, "pages", "home.page.ts"),
       'export class Home { async goto() { await this.page.goto("http://localhost:3003"); } }',

@@ -245,9 +245,20 @@ export class StoryToTestsVerifier implements Verifier {
     ];
     const present = specs.filter((p) => fileExists(input.workspaceDir, p));
     // 2a. the application's address comes from .env, not from a test ---------
-    // A spec or page object this run touched, or the page objects beside it,
-    // that navigates to an absolute address tests that address whatever
-    // AQA_APP_URL says (all four evaluation projects, 22 Oct 2026).
+    // A spec this run touched, a page object such a spec imports, or a page
+    // object this run wrote, that navigates to an absolute address tests that
+    // address whatever AQA_APP_URL says (all four evaluation projects, 22 Oct
+    // 2026).
+    //
+    // It used to be every page object in `pages/`. In a workspace with several
+    // epics that made one story answer for the others' files: every Toolshop
+    // run of TOOL-9 and TOOL-34 (13–14 Nov 2026) ended blocked on
+    // pages/cart.page.ts, contact.page.ts and customer-account.page.ts, which
+    // the catalogue spec does not import; the retry could only read them, and
+    // editing another epic's page object is not this run's work. Those are
+    // now named to the reviewer, and are a gap in the run of the story whose
+    // spec uses them.
+    const absoluteElsewhere: string[] = [];
     {
       const pageObjects = (() => {
         try {
@@ -258,9 +269,24 @@ export class StoryToTestsVerifier implements Verifier {
           return [];
         }
       })();
-      const absolute = [...new Set([...present, ...pageObjects])].filter((p) =>
-        (readIfPresent(input.workspaceDir, p) ?? "").split("\n").some((l) => ABSOLUTE_GOTO.test(l)),
+      const navigatesAbsolutely = (p: string) =>
+        (readIfPresent(input.workspaceDir, p) ?? "").split("\n").some((l) => ABSOLUTE_GOTO.test(l));
+      const noExt = (p: string) => p.replace(/\.[cm]?[jt]sx?$/i, "");
+      const used = new Set(
+        present.flatMap((spec) => importsOf(readIfPresent(input.workspaceDir, spec) ?? "", spec)),
       );
+      const wrote = new Set(
+        calls
+          .filter(
+            (c) => c.ok && (c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file"),
+          )
+          .map((c) => String(c.args["path"] ?? "").replace(/\\/g, "/")),
+      );
+      const inScope = pageObjects.filter((p) => used.has(noExt(p)) || wrote.has(p));
+      absoluteElsewhere.push(
+        ...pageObjects.filter((p) => !inScope.includes(p) && navigatesAbsolutely(p)),
+      );
+      const absolute = [...new Set([...present, ...inScope])].filter(navigatesAbsolutely);
       if (absolute.length > 0)
         gaps.push(
           gap(
@@ -784,6 +810,14 @@ export class StoryToTestsVerifier implements Verifier {
 
     // 6. the cases are in a suite -------------------------------------------
     const limitations: string[] = [...sharedSpecLimitations, ...reviewItems];
+    if (absoluteElsewhere.length > 0)
+      limitations.push(
+        `${absoluteElsewhere.join(", ")} navigate${absoluteElsewhere.length === 1 ? "s" : ""} to ` +
+          "an absolute address instead of AQA_APP_URL. No spec of this run imports " +
+          `${absoluteElsewhere.length === 1 ? "it" : "them"}, so this run left ` +
+          `${absoluteElsewhere.length === 1 ? "it" : "them"} alone; the run of a story whose ` +
+          "tests use such a file is asked to correct it",
+      );
     if (this.opts.requireSuiteMembership && created.length > 0) {
       const suiteWrites = successful(calls, "ado.testplan_test_suite_write");
       if (suiteWrites.length === 0) {
@@ -1020,6 +1054,22 @@ function specPathsTouched(calls: CallRecord[]): string[] {
     if (typeof p === "string" && isSpecPath(p)) out.push(p);
   }
   return out;
+}
+
+/**
+ * The workspace files a spec imports by relative path, without extension
+ * (`tests/a.spec.ts` importing `../pages/home.page` gives `pages/home.page`).
+ */
+function importsOf(text: string, specPath: string): string[] {
+  const dir = specPath.replace(/\\/g, "/").split("/").slice(0, -1);
+  return [...text.matchAll(/\b(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)].map((m) => {
+    const parts = [...dir];
+    for (const seg of String(m[1]).split("/")) {
+      if (seg === "..") parts.pop();
+      else if (seg !== "." && seg !== "") parts.push(seg);
+    }
+    return parts.join("/").replace(/\.[cm]?[jt]sx?$/i, "");
+  });
 }
 
 /** File contents, or undefined when it is absent or unreadable. */

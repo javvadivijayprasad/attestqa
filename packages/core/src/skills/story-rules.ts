@@ -2093,8 +2093,11 @@ function staleRerun(
 ): string | undefined {
   if (call.toolName !== "pw.run_tests") return;
   if (!isFullRun(call.args)) return;
-  const { lastFullRun, changed } = suiteChangedSinceLastFullRun(events);
+  const { lastFullRun, changed, retryOwed } = suiteChangedSinceLastFullRun(events);
   if (lastFullRun === undefined || changed.length > 0) return;
+  // The first failure, run again unchanged: what triage asks for, and what the
+  // runtime does itself (`autoRun`). Refusing it here contradicted both.
+  if (retryOwed) return;
   return (
     "the full suite has already run this run, and nothing in the suite has changed since — no " +
     "spec, no page object, no feature. Running it again executes the same code against the same " +
@@ -2330,7 +2333,16 @@ export function editsAPassingTest(
   const failing = tests
     .filter((t) => t["status"] === "failed" || t["status"] === "timedOut")
     .map((t) => String(t["title"] ?? ""));
-  if (passed.length === 0 || failing.length === 0) return;
+  // Another story's test is not this run's to change, passing or failing.
+  // The rule used to look at passing tests only, so a FAILING test of another
+  // story could be edited: 20261114T132625Z (TOOL-9, route B) gave TOOL-6's
+  // home page accessibility scan `.exclude(".checkbox")`, which took the list
+  // violation it had reported out of the scan, and the test passed. The heal
+  // role already leaves such a test alone and the verifier reports its failure
+  // as that story's; the write rule now agrees with both.
+  const own = ownTestTitles(events, workItem);
+  const failingOther = own ? failing.filter((t) => !own.has(t)) : [];
+  if (failing.length === 0 || (passed.length === 0 && failingOther.length === 0)) return;
   // A regeneration since that run is a new file, not an edit of a green test.
   if (
     completedCalls(events).some(
@@ -2363,7 +2375,7 @@ export function editsAPassingTest(
   // old AC-1 test passed, and adding "the confirmation is not shown" to it was
   // then refused here as changing a passing test.
   const reworked = changedScenarioTitles(events);
-  const touched = passed.filter((title) => {
+  const touched = [...passed, ...failingOther].filter((title) => {
     if (reworked.has(title.trim())) return false;
     const a = was.get(title);
     if (a === undefined) return false;
@@ -2379,7 +2391,6 @@ export function editsAPassingTest(
   // earlier stories' passing tests, refused over and over, is what spent a run
   // whose own story was green (W35, F-0155/F-0158). Without a story id the
   // behaviour is unchanged.
-  const own = ownTestTitles(events, workItem);
   const ownFailing = own ? failing.filter((t) => own.has(t)) : failing;
   const touchedOther = own ? touched.filter((t) => !own.has(t)) : [];
   const nextStep =
@@ -2395,7 +2406,11 @@ export function editsAPassingTest(
       touchedOther.length === 1 ? "it" : "them"
     }, so leave ${touchedOther.length === 1 ? "it" : "them"} exactly as ${
       touchedOther.length === 1 ? "it is" : "they are"
-    }. Work only on your own story's tests. ${nextStep}`;
+    }. Work only on your own story's tests.${
+      touchedOther.some((t) => failingOther.includes(t))
+        ? " A failing test of another story is reported with this run as that story's; it is not repaired here."
+        : ""
+    } ${nextStep}`;
   return `${touched.map((t) => `"${t}"`).join(", ")} passed in the last full run, and this write changes ${
     touched.length === 1 ? "it" : "them"
   }. Leave passing tests exactly as they are. ${nextStep}`;

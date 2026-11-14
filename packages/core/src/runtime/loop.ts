@@ -114,6 +114,8 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
   let tokens = 0;
   let approvals = 0;
   let gaps: string[] | undefined;
+  /** What the latest triage asked for, so the next one can replace it in `gaps`. */
+  let triageNotes: string[] = [];
   let retriedAfterGaps = false;
   /**
    * Signatures of calls already executed, and how many cycles have produced
@@ -351,7 +353,13 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
     ledger.append("triage", triaged, clock.now());
     runLevel = triaged.runLevel;
     const action = triageAction(triaged);
-    if (action.notes.length > 0) gaps = [...(gaps ?? []), ...action.notes];
+    // The latest triage is the one that stands. When the runtime runs the
+    // suite twice before the model's turn (the first failure, run again), the
+    // first report's "run it again unchanged" must not sit beside the second
+    // report's verdicts: that run has been made.
+    const kept = (gaps ?? []).filter((g) => !triageNotes.includes(g));
+    triageNotes = action.notes;
+    gaps = kept.length + action.notes.length > 0 ? [...kept, ...action.notes] : undefined;
   }
 
   /**
@@ -749,8 +757,13 @@ export async function runLoop(deps: LoopDeps): Promise<LoopResult> {
       // says WHEN (a design is approved, a spec exists, something changed since
       // the last run); the gate, the approval and the ledger are the same as
       // for any model-proposed call.
-      const auto = skill.autoRun?.(ledger.read());
-      if (auto) {
+      //
+      // Twice at most before a turn: the run itself, and — when it is the
+      // suite's first failure — the same run again, so the model's first look
+      // at a failure is at one that came back.
+      for (let i = 0; i < 2; i++) {
+        const auto = skill.autoRun?.(ledger.read());
+        if (!auto) break;
         await runtimeCall(auto.toolName, auto.args, auto.why);
         // Triage after it, exactly as after a model-proposed run: the verdicts
         // are what the next turn reads.

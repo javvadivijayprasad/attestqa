@@ -1386,7 +1386,7 @@ export function storyToTestsSkill(
       // place so the runtime and the gate can never disagree about whether a
       // run would see anything new. A filtered run belongs to the healer and
       // never counts as "the suite has run".
-      const { lastFullRun, changed } = suiteChangedSinceLastFullRun(events);
+      const { lastFullRun, changed, retryOwed } = suiteChangedSinceLastFullRun(events);
       // Tests written for an expectation the design approved in this run has
       // replaced: running them first only shows the old expectation failing,
       // and a text that is no longer on the page reads as a moved locator
@@ -1396,6 +1396,15 @@ export function storyToTestsSkill(
       if (lastFullRun === undefined && waitingForChangedTests(events)) return undefined;
       if (lastFullRun === undefined)
         return { toolName: "pw.run_tests", args: { spec }, why: "nothing has run yet" };
+      // The suite's first failure is run again as it is, before the model is
+      // asked anything: only a second run tells a flake or a slow start from a
+      // failure that is really there, and running it is not a judgement.
+      if (retryOwed)
+        return {
+          toolName: "pw.run_tests",
+          args: { spec },
+          why: "the first failure is run again unchanged, before anything is judged",
+        };
       if (changed.length === 0) return undefined;
       return {
         toolName: "pw.run_tests",

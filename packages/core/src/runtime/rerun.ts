@@ -52,6 +52,19 @@ export interface RerunState {
   lastFullRun?: number;
   /** Suite files written since that run — the reason another run would differ. */
   changed: string[];
+  /**
+   * The one run of unchanged bytes that IS worth a step: the suite's first
+   * failure, run again before anything is judged.
+   *
+   * Triage answers a first failing report with "run it again unchanged" — a
+   * first failure does not tell a flake or a slow start from a defect — and
+   * `staleRerun` refused exactly that run, in every run that reached it
+   * (20261113T224736Z, …232526Z, 20261114T011832Z: the note at one event, the
+   * refusal four events later). The runtime now makes that run itself, and the
+   * gate lets it through, from this one flag: the latest triage is the run's
+   * first, it found failures, and no full run has happened since.
+   */
+  retryOwed: boolean;
 }
 
 /**
@@ -66,7 +79,7 @@ export function suiteChangedSinceLastFullRun(events: AnyRunEvent[]): RerunState 
   const calls = completedCalls(events);
   const runs = successful(calls, "pw.run_tests").filter((c) => isFullRun(c.args));
   const last = runs[runs.length - 1];
-  if (!last) return { changed: [] };
+  if (!last) return { changed: [], retryOwed: false };
   const changed = calls
     .filter(
       (c) =>
@@ -80,7 +93,17 @@ export function suiteChangedSinceLastFullRun(events: AnyRunEvent[]): RerunState 
   for (const c of calls)
     if (c.ok && c.toolName === "bdd2pw.scaffold" && c.eventId > last.eventId)
       changed.push(`spec regenerated from ${String(c.args["feature"] ?? "the feature file")}`);
-  return { lastFullRun: last.eventId, changed: [...new Set(changed)] };
+  const triage = [...events].reverse().find((e) => e.kind === "triage");
+  const verdict = triage?.payload as
+    { attempt?: number; cleared?: boolean; verdicts?: unknown[] } | undefined;
+  const retryOwed =
+    changed.length === 0 &&
+    triage !== undefined &&
+    triage.eventId > last.eventId &&
+    verdict?.attempt === 1 &&
+    verdict.cleared !== true &&
+    (verdict.verdicts?.length ?? 0) > 0;
+  return { lastFullRun: last.eventId, changed: [...new Set(changed)], retryOwed };
 }
 
 /** "a.spec.ts and 2 more", for a refusal or a why-line. */
