@@ -23,6 +23,7 @@
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { CATCHES, stuckAction } from "../heal/locator.js";
+import { ownTestTitles } from "../triage/settle.js";
 import {
   isPartialRead,
   otherStoryScenarios,
@@ -158,6 +159,11 @@ function healableFailure(
         ])
       : undefined;
 
+  const own =
+    storyId !== undefined && !anySpec && !anyFeature
+      ? ownTestTitles(events, String(storyId))
+      : undefined;
+
   // A test whose design item changed in this run was written for the earlier
   // expectation. When it fails on a text that is not on the page, the text is
   // what is out of date, not a locator that moved: rewriting it is the default
@@ -182,6 +188,10 @@ function healableFailure(
     const message = typeof f?.["message"] === "string" ? f["message"] : "";
     if (!title) continue;
     if (otherStory?.has(title)) continue;
+    // The same, for a run that read neither file (an unchanged story, executed
+    // straight away): the route's own list of the story's tests is what says
+    // whose a failing test is.
+    if (own && !own.has(title.trim())) continue;
     if (reworked.has(title.trim())) continue;
     if (stuckAction(message)) return { title, why: "locator" };
     // A test that recovers from its own break reports an assertion failure, so

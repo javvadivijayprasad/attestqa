@@ -603,8 +603,9 @@ describe("a story that changed, with tests on disk", () => {
     expect(tagged).not.toBe(SPEC);
     expect(write(tagged)).toBeUndefined();
     // A change inside the passing test is still refused.
-    expect(write(SPEC.replace("toHaveTitle(/x/)", "toHaveTitle(/y/)"))).toContain(
-      "passed in the last full run",
+    // (It is story 91's test, which the route's list of this story's cases now says.)
+    expect(write(SPEC.replace("toHaveTitle(/x/)", "toHaveTitle(/y/)"))).toMatch(
+      /passed in the last full run|belongs to another story/,
     );
   });
 

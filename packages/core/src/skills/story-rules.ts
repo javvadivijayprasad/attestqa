@@ -196,7 +196,7 @@ function takenDesignIds(
     const known = lastKnownContent(p, events, workspaceDir);
     if (known !== undefined || !workspaceDir) return known;
     try {
-      return readFileSync(join(workspaceDir, p), "utf8");
+      return lf(readFileSync(join(workspaceDir, p), "utf8"));
     } catch {
       return undefined;
     }
@@ -478,6 +478,20 @@ function expectedFailRemoved(
  * undefined when a scaffold has regenerated it since (its content then is
  * whatever bdd2pw wrote, which the run has not seen).
  */
+/**
+ * Text in the line endings the agent reads and writes.
+ *
+ * `git checkout` on Windows restores a file with CRLF; the agent's view of it
+ * and every edit it sends use LF. The file tool has matched an edit across
+ * line endings since F-0137. The rules did not: `asWrite` looked for the
+ * edit's `old` in the file byte for byte, found a multi-line `old` nowhere in a
+ * CRLF file, and handed the call on as an edit no rule recognises — so on such
+ * a file a multi-line `fs.replace_in_file` was judged by none of the write
+ * rules and then applied by the tool (20261113T232526Z, the edit that swapped
+ * TOOL-10's assertion). Everything a rule compares is brought to LF here.
+ */
+const lf = (text: string): string => text.replace(/\r\n/g, "\n");
+
 function lastKnownContent(
   path: string,
   events: AnyRunEvent[],
@@ -503,21 +517,21 @@ function lastKnownContent(
       const o = c.args["old"];
       const n = c.args["new"];
       if (typeof o === "string" && typeof n === "string")
-        edits.push({ old: o, new: n, all: c.args["all"] === true });
+        edits.push({ old: lf(o), new: lf(n), all: c.args["all"] === true });
       continue;
     }
-    if (c.toolName === "fs.write_file") return replay(String(c.args["content"] ?? ""));
+    if (c.toolName === "fs.write_file") return replay(lf(String(c.args["content"] ?? "")));
     if (c.toolName === "fs.read_file") {
       // A ranged read is a fragment, never the file. See `fileTextFromEvents`.
       if (isPartialRead(c.args, c.result)) continue;
       const content = asRecord(c.result)?.["content"];
-      if (typeof content === "string") return replay(content);
+      if (typeof content === "string") return replay(lf(content));
     }
   }
   // Edits with no full view before them: the disk is the truth.
   if (edits.length > 0 && workspaceDir) {
     try {
-      return readFileSync(join(workspaceDir, path), "utf8");
+      return lf(readFileSync(join(workspaceDir, path), "utf8"));
     } catch {
       return undefined;
     }
@@ -527,7 +541,7 @@ function lastKnownContent(
   // something, and that something is what the rules have to compare against.
   if (workspaceDir) {
     try {
-      return readFileSync(join(workspaceDir, path), "utf8");
+      return lf(readFileSync(join(workspaceDir, path), "utf8"));
     } catch {
       return undefined;
     }
@@ -832,7 +846,7 @@ function scratchInTheSuite(
 function textOnDisk(workspaceDir: string | undefined, path: string): string | undefined {
   if (!workspaceDir) return undefined;
   try {
-    return readFileSync(join(workspaceDir, path), "utf8");
+    return lf(readFileSync(join(workspaceDir, path), "utf8"));
   } catch {
     return undefined;
   }
@@ -1902,9 +1916,11 @@ function asWrite(
 ): { toolName: string; args: Record<string, unknown> } {
   if (call.toolName !== "fs.replace_in_file") return call;
   const path = String(call.args["path"] ?? "");
-  const before = call.args["old"];
-  const after = call.args["new"];
-  if (!path || typeof before !== "string" || typeof after !== "string") return call;
+  const oldArg = call.args["old"];
+  const newArg = call.args["new"];
+  if (!path || typeof oldArg !== "string" || typeof newArg !== "string") return call;
+  const before = lf(oldArg);
+  const after = lf(newArg);
   const text = lastKnownContent(path, events, workspaceDir);
   if (text === undefined) return call;
   const hits = text.split(before).length - 1;
@@ -2016,14 +2032,27 @@ function writeOnExecutePath(
   // deleted on the execute path (20261013T160220Z: the D19 check was rewritten
   // through exactly that gap — faithfully, that time). A removed assertion is
   // allowed only when the same claim, locators set aside, is still there.
-  const claimsAfter = new Set(
-    after
-      .split("\n")
-      .filter((l) => /\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l))
-      .map(claimOf),
-  );
+  //
+  // "Still there" used to mean anywhere in the file, and the locator was set
+  // aside whole. 20261113T232526Z (TOOL-9, route B): the heal step changed
+  // TOOL-10's `expect(page.getByText("Combination Pliers").first()).toBeVisible()`
+  // into `expect(page.getByRole("checkbox", { name: "Pliers" })).toBeVisible()`
+  // — a filter checkbox that is always on the page — and it passed here,
+  // because eleven other lines in the spec read `expect(<locator>.first())
+  // .toBeVisible()`. The suite went green and the report would have said so.
+  // So each assertion taken away needs its OWN replacement among the lines the
+  // write adds, and a replacement must still name what the old one named: the
+  // text, label or accessible name in a locator is what the assertion says is
+  // on the page, not where to look for it.
+  const isAssertion = (l: string) => /\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l);
+  const replacements = removedLines(after, before).filter(isAssertion);
   const unrepairable = gone.filter((l) => {
-    if (/\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l)) return !claimsAfter.has(claimOf(l));
+    if (isAssertion(l)) {
+      const i = replacements.findIndex((r) => claimOf(r) === claimOf(l) && namesTheSame(l, r));
+      if (i < 0) return true;
+      replacements.splice(i, 1);
+      return false;
+    }
     return !LOCATOR_EXPR.test(l) && !CATCHES.test(l) && !SCAN_SCOPE.test(l) && !NAVIGATION.test(l);
   });
   if (unrepairable.length === 0) return;
@@ -2035,6 +2064,8 @@ function writeOnExecutePath(
       .slice(0, 4)
       .map((l) => `    ${l.trim()}`)
       .join("\n") +
+    "\nAn assertion may move to another locator only if it still names the same text, label " +
+    "or name: looking for something else is a different assertion, however the element is found." +
     "\nA test may be strengthened; it may not be softened. If a test asserts the wrong thing, " +
     "that is a conversation with the product owner and not an edit: leave it red and report it. " +
     "If a test is genuinely missing, say so and stop — writing one is authoring, and authoring " +
@@ -2077,6 +2108,24 @@ function staleRerun(
 /** An assertion line with its locators set aside: what it claims, not where it looks. */
 function claimOf(line: string): string {
   return line.replace(LOCATOR_CALL, "<locator>").replace(/["'`]/g, '"').replace(/\s+/g, " ").trim();
+}
+
+/**
+ * What a locator says must be on the page: the text of `getByText`, the label,
+ * placeholder, alt text or title of their locators, and a `name:` or
+ * `hasText:` option. A test id or a CSS selector says only where to look.
+ */
+const NAMED_IN_LOCATOR =
+  /\bgetBy(?:Text|Label|Placeholder|AltText|Title)\(\s*(["'`])((?:\\.|(?!\1).)*)\1|\b(?:name|hasText)\s*:\s*(["'`])((?:\\.|(?!\3).)*)\3/g;
+
+/** Whether `next` still names everything `line` named (letters and digits; case and punctuation aside). */
+function namesTheSame(line: string, next: string): boolean {
+  const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const now = flat(next);
+  return [...line.matchAll(NAMED_IN_LOCATOR)]
+    .map((m) => flat(m[2] ?? m[4] ?? ""))
+    .filter(Boolean)
+    .every((named) => now.includes(named));
 }
 
 const LOCATOR_EXPR = /getBy[A-Z]\w*\s*\(|\.locator\s*\(|frameLocator\s*\(|\$\$?\s*\(/;

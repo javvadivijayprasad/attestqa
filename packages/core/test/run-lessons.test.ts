@@ -1052,9 +1052,16 @@ describe("on the execute path an assertion is a claim, even when it names a loca
     expect(storyRefusal(write(after), events)).toMatch(/execute path/);
   });
 
-  it("still allows moving the locator inside an assertion", () => {
-    const after = BEFORE.replace('getByText("Email must be unique")', 'locator(".error")');
+  it("still allows moving the locator inside an assertion, while it names the same text", () => {
+    const after = BEFORE.replace(
+      'getByText("Email must be unique")',
+      'locator(".error", { hasText: "Email must be unique" })',
+    );
     expect(storyRefusal(write(after), events) ?? "").not.toMatch(/execute path/);
+    // Without the text it is a check that some error is shown, not that this
+    // one is (20261113T232526Z).
+    const anyError = BEFORE.replace('getByText("Email must be unique")', 'locator(".error")');
+    expect(storyRefusal(write(anyError), events)).toMatch(/execute path/);
   });
 });
 

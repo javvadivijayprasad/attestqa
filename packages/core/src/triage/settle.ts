@@ -369,8 +369,36 @@ export function ownTestTitles(events: AnyRunEvent[], workItem?: string): Set<str
   const facts = storyFacts(events);
   const path = facts ? specPathFor(facts) : undefined;
   const text = path ? fileTextFromEvents(events, path) : undefined;
-  if (!text || !hasStoryTag(text)) return undefined;
+  if (!text || !hasStoryTag(text)) return text ? undefined : titlesTheRouteListed(events);
   return storyTestTitles(text, id);
+}
+
+/**
+ * The story's tests as the route listed them, for a run that executes existing
+ * tests and never reads the spec.
+ *
+ * A run of an unchanged story reuses its design and goes straight to the suite:
+ * no file is read, so nothing above can say which tests are this story's. In
+ * 20261113T232526Z (TOOL-9) that left every test in the shared epic spec
+ * "nobody's": TOOL-10's failing test was sent to the heal role, and the first
+ * run of the same story (…224736Z) was blocked on it. The route already knew —
+ * it lists the story's cases with their titles. Only on route B: there the
+ * list is complete, because nothing is authored; on any other route the run
+ * adds tests the list does not have yet.
+ */
+function titlesTheRouteListed(events: AnyRunEvent[]): Set<string> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const payload = asRecord(e.payload as unknown);
+    if (payload?.["path"] !== "B") return undefined;
+    const titles = asArray(asRecord(payload["because"])?.["cases"])
+      .map((c) => asRecord(c))
+      .filter((c) => c?.["state"] === "exists" && typeof c["title"] === "string")
+      .map((c) => String(c?.["title"]).trim());
+    return titles.length > 0 ? new Set(titles) : undefined;
+  }
+  return undefined;
 }
 
 /**
