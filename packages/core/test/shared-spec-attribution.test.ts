@@ -178,3 +178,36 @@ describe.skipIf(!existsSync(RUN2) || !existsSync(WS))("run 20261114T144930Z, rep
     expect((out.limitations ?? []).join("\n")).not.toMatch(/bug #TOOL-3[67]/);
   });
 });
+
+/** A later run of the same story, which proposed TOOL-36's defect again. */
+const RUN3 = join(__dirname, "..", ".aqa", "runs", "20261114T152437Z-158d9145", "events.jsonl");
+describe.skipIf(!existsSync(RUN3) || !existsSync(WS))("run 20261114T152437Z, replayed", () => {
+  it("refuses the bug an open, linked bug already records, and lets the new one through", async () => {
+    const { storyRefusal } = await import("../src/skills/story-rules.js");
+    const events = readFileSync(RUN3, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as AnyRunEvent);
+    const proposals = events.filter(
+      (e) =>
+        e.kind === "inference" &&
+        (e.payload as { toolName?: string | null }).toolName === "jira.create_bug",
+    );
+    const refusalOf = (summary: RegExp) => {
+      const p = proposals.find((e) =>
+        summary.test(String((e.payload as { args?: { summary?: string } }).args?.summary)),
+      );
+      if (!p) throw new Error(`no proposal matching ${String(summary)}`);
+      return storyRefusal(
+        {
+          toolName: "jira.create_bug",
+          args: (p.payload as { args: Record<string, unknown> }).args,
+        },
+        events.filter((e) => e.eventId < p.eventId),
+        { workspaceDir: WS, workItem: "TOOL-34" },
+      );
+    };
+    expect(refusalOf(/aged 18 cannot register/)).toContain("#TOOL-36");
+    expect(refusalOf(/aged 75 is accepted/) ?? "").not.toContain("already says this");
+  });
+});

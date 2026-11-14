@@ -82,19 +82,27 @@ export const CLOSED_BUG_STATES = new Set(["closed", "done", "removed", "resolved
  *
  * The same test can fail for a second reason. The refusal that rests on this
  * says so, and asks for a title that names what differs.
+ *
+ * Where the tracker read returns titles only (a Jira search), the test's name
+ * is in nothing the run has. There a bug the tracker LINKS to the run's story
+ * is read by its title, the way a proposal's is (`bugIsAbout`), against the
+ * tests failing now (`failing`). 20261114T144930Z was blocked on two failing
+ * tests whose bugs TOOL-36 and TOOL-37 were open; 20261114T152437Z proposed
+ * TOOL-36's defect again as "AC-1: customer aged 18 cannot register". A bug
+ * of another story in the same project is never read that way.
  */
-export function openBugAbout<B extends { state: string; title: string; text?: string }>(
-  test: string,
-  filed: readonly B[],
-): B | undefined {
+export function openBugAbout<
+  B extends { state: string; title: string; text?: string; linked?: boolean },
+>(test: string, filed: readonly B[], failing?: readonly string[]): B | undefined {
+  const open = filed.filter((b) => !CLOSED_BUG_STATES.has(b.state.toLowerCase()));
   const name = squash(test.split(" › ").pop() ?? test);
   // Too short to identify anything: "Login" is in every bug on a login story.
-  if (name.length < 16) return undefined;
-  return filed.find(
-    (b) =>
-      !CLOSED_BUG_STATES.has(b.state.toLowerCase()) &&
-      squash(`${b.title} ${b.text ?? ""}`).includes(name),
-  );
+  const named =
+    name.length < 16
+      ? undefined
+      : open.find((b) => squash(`${b.title} ${b.text ?? ""}`).includes(name));
+  if (named || !failing) return named;
+  return open.find((b) => b.linked === true && bugIsAbout(b.title, test, [...failing]));
 }
 
 /** Every test title that failed in ANY run this run made. */

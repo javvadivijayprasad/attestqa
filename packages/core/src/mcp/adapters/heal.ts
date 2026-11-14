@@ -181,6 +181,7 @@ export class HealTools implements ToolClient {
           test: hit.title,
           failedSelector,
           candidates: [],
+          controlOnPage: false,
           verdict:
             "NOTHING CLICKABLE OR TYPEABLE WAS ON THE PAGE when this test failed. The page was probably " +
             "not the one the test expected — check the navigation and the application state before it, " +
@@ -209,6 +210,9 @@ export class HealTools implements ToolClient {
         candidates,
         ...(second ? { secondOpinion: second } : {}),
         ...(alsoFailing.length > 0 ? { alsoFailing } : {}),
+        // Read by `roleFor`: a failure whose control was not there is not one
+        // the heal role can do anything about.
+        controlOnPage: matched === true,
         verdict: matched
           ? `The control this test was looking for IS on the page, as ${best?.role}` +
             (best?.name ? ` "${best.name}"` : "") +

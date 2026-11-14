@@ -1262,7 +1262,7 @@ function sameFailingTest(
   for (const t of failing) {
     const name = flat(t.split(" › ").pop() ?? t);
     if (!bugIsAbout(title, t, failing) && !(name.length >= 16 && own.includes(name))) continue;
-    const hit = openBugAbout(t, filed);
+    const hit = openBugAbout(t, filed, failing);
     if (hit) return hit;
   }
   return undefined;

@@ -111,6 +111,21 @@ export function roleFor(events: AnyRunEvent[], storyId?: TrackerId): Role {
   return { name: "default", tools: [], instructions: "", because: "" };
 }
 
+/**
+ * Whether `aqa.heal_locator` answered that the control the test looked for was
+ * not on the page. The field since 2.3.0; the verdict's wording before it.
+ */
+function controlWasAbsent(result: unknown): boolean {
+  const r = asRecord(result);
+  if (!r) return false;
+  if (typeof r["controlOnPage"] === "boolean") return !r["controlOnPage"];
+  const verdict = String(r["verdict"] ?? "");
+  return (
+    verdict.startsWith("No candidate shares a word") ||
+    verdict.startsWith("NOTHING CLICKABLE OR TYPEABLE")
+  );
+}
+
 function healableFailure(
   events: AnyRunEvent[],
   storyId?: TrackerId,
@@ -182,11 +197,37 @@ function healableFailure(
     break;
   }
 
+  // Failures the healer has already looked at, since that run, and found no
+  // control for. The role used to last as long as the failure did, and a
+  // failure whose control is genuinely absent lasts for ever: in
+  // 20261114T144930Z and …145555Z (TOOL-34) the test for a 75-year-old waited
+  // for a refusal message the application never shows, `aqa.heal_locator`
+  // answered "the control may genuinely be absent — say so in the bug", and
+  // the run stayed in a role with five tools and no bug tool until it was
+  // blocked. The healer's "not there" ends the role for that failure; what is
+  // left is the default role's: a test to correct, or a defect to propose.
+  //
+  // The answer stands for as long as the failure is the same one — the test
+  // still waiting on the selector the healer was asked about. Tied to "since
+  // the last run", it lasted one turn: in 20261114T151820Z the default role
+  // scoped another test's scan, the suite ran again, the same selector failed
+  // the same way, and the run was back in the heal role with the verifier
+  // telling it to propose a bug it had no tool for.
+  const nothingToHeal = successful(calls, "aqa.heal_locator")
+    .filter((c) => controlWasAbsent(c.result))
+    .map((c) => ({
+      test: String(c.args["test"] ?? "").trim(),
+      selector: String(asRecord(c.result)?.["failedSelector"] ?? ""),
+    }))
+    .filter((h) => h.selector !== "" && !h.selector.startsWith("("));
+
   for (const raw of asArray(asRecord(last.result)?.["failures"])) {
     const f = asRecord(raw);
     const title = typeof f?.["title"] === "string" ? f["title"] : "";
     const message = typeof f?.["message"] === "string" ? f["message"] : "";
     if (!title) continue;
+    if (nothingToHeal.some((h) => h.test === title.trim() && message.includes(h.selector)))
+      continue;
     if (otherStory?.has(title)) continue;
     // The same, for a run that read neither file (an unchanged story, executed
     // straight away): the route's own list of the story's tests is what says

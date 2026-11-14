@@ -18,13 +18,7 @@ import {
   traceProblems,
   type TestType,
 } from "../design/test-design.js";
-import {
-  bugIsAbout,
-  CLOSED_BUG_STATES,
-  lastFullRun,
-  openBugAbout,
-  ownTestTitles,
-} from "../triage/settle.js";
+import { bugIsAbout, lastFullRun, openBugAbout, ownTestTitles } from "../triage/settle.js";
 import {
   changedScenariosWithoutATest,
   untouchedChangedItems,
@@ -637,14 +631,7 @@ export class StoryToTestsVerifier implements Verifier {
         // tests whose bugs, TOOL-36 and TOOL-37, the run before had filed and
         // the story linked. There the bug's title is read the way a proposal's
         // is (`bugIsAbout`), and only for a bug the tracker links to this story.
-        const bug =
-          openBugAbout(t, agentBugs) ??
-          agentBugs.find(
-            (b) =>
-              b.linked === true &&
-              !CLOSED_BUG_STATES.has(b.state.toLowerCase()) &&
-              bugIsAbout(b.title, t, failingTitles),
-          );
+        const bug = openBugAbout(t, agentBugs, failingTitles);
         if (bug) alreadyFiled.set(t, bug);
       }
       for (const [t, bug] of alreadyFiled)
@@ -680,6 +667,15 @@ export class StoryToTestsVerifier implements Verifier {
               alreadyFiled.has(t) ||
               a11yViolations.has(t)),
         );
+      const unreported = failingTitles.filter(
+        (t) =>
+          t &&
+          !reported.has(t) &&
+          !alreadyFiled.has(t) &&
+          !exhausted.has(t) &&
+          !a11yViolations.has(t) &&
+          !triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)),
+      );
       for (const t of reported)
         sharedSpecLimitations.push(
           `"${t}" fails, and a bug about it is put to the reviewer at the end of the run`,
@@ -731,10 +727,19 @@ export class StoryToTestsVerifier implements Verifier {
                   : `the suite ran but is not green: ${String(r["passed"] ?? 0)} passed, ${String(
                       r["failed"] ?? 0,
                     )} failed, ${String(r["skipped"] ?? 0)} skipped` +
-                    (mine && failingTitles.length > 0
-                      ? `. Failing and this story's: ${failingTitles
+                    // The ones nothing has been reported for, and the two
+                    // things that can be done about one. A run that had only
+                    // "not green" to go on stopped twice with a real defect in
+                    // front of it and no bug proposed (20261114T145555Z).
+                    (mine && unreported.length > 0
+                      ? `. Failing, this story's, and with no bug: ${unreported
                           .map((t) => `"${t}"`)
-                          .join(", ")}`
+                          .join(", ")}. For each: if the test reads the wrong element, reads too ` +
+                        "early, or asserts something its design item does not say, correct the " +
+                        "test. If it does what its design item says and fails on what the " +
+                        "application shows, that is a defect: propose a bug with the tracker's bug " +
+                        "tool, naming the test, what it expected and what the application did. A " +
+                        "person decides on it at the end of the run"
                       : ""),
               {
                 passed: r["passed"],
