@@ -1621,7 +1621,9 @@ function testDesignStep(types: readonly string[]): string {
    length, a range, an allowed set), call it BEFORE you submit the design: state
    the rules as one small CREATE TABLE, ask for profile "edge" (the valid
    boundaries) and profile "negative" (invalid rows, one broken rule each, named
-   in _violation — the value one outside a range is in this profile). Put the
+   in _violation — the value one above a range's maximum is in this profile; when
+   the value one below the minimum is not among the rows the answer says so, and
+   you add it). Put the
    values it returns into the item's conditions, so the approver sees the exact
    values that will run. After approval, write that item as ONE Scenario Outline
    whose Examples table holds those rows — one row per value, the columns named
