@@ -172,6 +172,34 @@ called for this and the same seed always gives the same rows; the schema and the
 workspace beside the tests. It is off unless you set it. (`SYNTHDATA_CMD` is a different setting:
 your project's own data generator, used for a unique datum per test.)
 
+**Seed data for the application (optional).** Tests often need data that is already in the
+application: customers, their orders. `aqa seed` makes it from your database schema, with the same
+generator and the same `SYNTHDATA_CLI` setting:
+
+```bash
+aqa seed --schema db/schema.sql --workspace ./my-playwright-project --rows 50 --format csv,postgres
+```
+
+It reads the `CREATE TABLE` statements, writes rows for every table (foreign keys point at rows that
+exist, `CHECK` ranges and allowed sets are respected) into `seed-data/` in the workspace, and records
+what it made in `seed-data/seed.json`. No model is called, and the same `--seed` gives the same rows.
+
+| Option | Meaning |
+| --- | --- |
+| `--schema` | The schema file. Required. It may live outside the workspace; a copy is kept beside the data. |
+| `--out` | Folder for the data, inside the workspace. Default `seed-data`. |
+| `--rows` | Rows per table. Default 50. |
+| `--seed` | The seed number. Default 42. |
+| `--profile` | `functional` (ordinary valid data, the default), `edge` (valid data at the limits), `volume`. |
+| `--format` | Any of `csv` (one file per table, the default), `sql` (INSERT statements only), `postgres` and `mysql` (a script that creates the tables and inserts the rows), `sqlite` (a database file). |
+| `--force` | Write into a folder that already holds files `aqa seed` did not make. |
+
+`aqa seed` only writes files. Loading them into the application or its database is a step of your
+project (a script, a fixture, your CI), so attestqa never holds a database password. It is not part
+of `aqa run`, and nothing happens until you run the command yourself. Two kinds of rule are not read
+by synthdata 1.4.0 — a rule on the length of a text, and a range written as two comparisons instead
+of `BETWEEN` — and when the schema has one, the command names it so you can check those rows.
+
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 
 Copy `examples/ai-quality.jira.config.yaml` (Jira) or `examples/ai-quality.config.yaml` (Azure
