@@ -45,6 +45,11 @@ From a user story in **Jira or Azure DevOps** to governed Playwright tests.
   AWS SSO, and Amazon Bedrock as a provider. Each is a plug-in the config names, installed only by
   the projects that need it (`@attestqa/auth-azure`, `@attestqa/auth-aws`,
   `@attestqa/provider-bedrock`).
+- **2.3.0** (15 Nov 2026) — generated test data: for a form field whose limits the story states,
+  the boundary and invalid values come from a generator (`synthdata.examples`) and are written as
+  one Scenario Outline with an Examples table; `aqa seed` generates seed data for the application
+  from its schema (loading it stays a project step). Both are off until `SYNTHDATA_CLI` is set.
+  With it, the fixes found by end-to-end runs on the three test applications.
 
 ### Planned — one feature per minor, on the 15th of the month
 
@@ -54,7 +59,6 @@ date does not move. The near-term sequence below is committed; the technical pla
 
 | Release | Target | Feature |
 | --- | --- | --- |
-| **v2.3.0** | 15 Jan 2027 | **Generated test data (synthdata)** — for a form-field story, the design agent requests boundary and invalid data and bakes it into a Scenario Outline + Examples table; an `aqa seed` subcommand generates application/DB seed data into the workspace (loading stays a project step). Opt-in, off by default. |
 | **v2.4.0** | 15 Feb 2027 | **Project documents** — the agent searches the project's own documents for a value the story does not state, and cites the passage; the citation is checked in code and shown at approval. With it, an evaluation command (`aqa eval`) and a local dashboard page that compare runs with search off and on. Opt-in, no model or key for the search. |
 | **v2.5.0** | 15 Mar 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so Jira runs are governed by the same rules as Azure DevOps (today most tracker-write rules name `ado.*` and Jira runs are under-governed). Behaviour-preserving for ADO. |
 | **v2.6.0** | 15 Apr 2027 | **Approved locator repairs** — a repair the two rankers agree on, or that a person approves, with the before/after evidence. Off by default. |

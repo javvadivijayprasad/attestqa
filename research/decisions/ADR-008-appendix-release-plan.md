@@ -37,6 +37,11 @@ project step. The release is not versioned or tagged until both are done.
 
 **Agreed.** `aqa seed` stays in 2.3.0.
 
+**Shipped on 15 Nov 2026**, two months ahead of the date above. Both halves are in it: the
+end-to-end runs were done on all three test applications (their fixes are in the release), and
+`aqa seed` was built and checked against the generator. Tag `v2.3.0`; npm, the Marketplace and the
+GitHub release carry 2.3.0; Zenodo DOI 10.5281/zenodo.24249907.
+
 ## 2.4.0: document search with its evaluation (15 Feb 2027)
 
 **The problem today.** A story says "a phone number shorter than the allowed length is rejected"
