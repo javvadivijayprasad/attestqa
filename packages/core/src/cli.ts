@@ -48,6 +48,7 @@ import { JiraTools } from "./mcp/adapters/jira.js";
 import { normId, TRACKERS, type Tracker } from "./design/ids.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
+import { generateSeed, renderSeed } from "./seed/seed.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
 import { TestDesignTools } from "./mcp/adapters/test-design.js";
@@ -143,6 +144,19 @@ Usage:
       when every design item has a test that passes or reproduces its known bug, 3
       when anything is missing, failing or not run.
 
+  aqa seed --schema <schema.sql> [--out seed-data] [--rows 50] [--seed 42]
+           [--profile functional|edge|volume] [--format csv,sql,postgres,mysql,sqlite]
+           [--workspace .] [--env .env] [--force]
+      Generate seed data for the application from its schema (CREATE TABLE statements):
+      rows for every table, foreign keys kept, written into a folder in the workspace
+      with a seed.json that records what was made. Runs the synthdata CLI named in
+      SYNTHDATA_CLI (for example "npx synthdata") in its auto mode: no model is called
+      and the same seed gives the same rows. It only writes files — loading them into
+      the application or a database is a step of your project. --format: csv (default,
+      one file per table), sql (INSERTs only), postgres and mysql (tables and rows),
+      sqlite (a database file). A folder aqa seed did not write is left alone unless
+      --force is given.
+
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
       Reads .env for credentials. Makes NO tool calls — listTools() only.
@@ -188,6 +202,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "discover") return await discover(rest, io);
     if (cmd === "check-rules") return await checkRules(rest, io);
     if (cmd === "coverage") return coverage(rest, io);
+    if (cmd === "seed") return await seed(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -1284,6 +1299,59 @@ export function pickTracker(
         "(JIRA_EMAIL + JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center) in the environment or .env.\n",
     };
   return { tracker, explicitRef, jiraRef };
+}
+
+/**
+ * `aqa seed`: application seed data from the project's schema. See USAGE and
+ * seed/seed.ts. Offline apart from the generator itself: no model, no tracker,
+ * no ledger, and nothing is loaded anywhere.
+ */
+export async function seed(
+  args: string[],
+  io: CliIo,
+  runner?: Parameters<typeof generateSeed>[0]["runner"],
+): Promise<number> {
+  const schema = flag(args, "--schema");
+  if (!schema) {
+    io.err("aqa seed: --schema <schema.sql> is required\n");
+    return 1;
+  }
+  loadDotEnv(flag(args, "--env") ?? ".env");
+  const whole = (name: string): number | undefined | null => {
+    const v = flag(args, name);
+    if (v === undefined) return undefined;
+    return /^\d+$/.test(v) ? Number(v) : null;
+  };
+  const rows = whole("--rows");
+  const seedValue = whole("--seed");
+  if (rows === null || seedValue === null) {
+    io.err(`aqa seed: ${rows === null ? "--rows" : "--seed"} must be a whole number\n`);
+    return 1;
+  }
+  const formats = (flag(args, "--format") ?? "csv")
+    .split(",")
+    .map((f) => f.trim().toLowerCase())
+    .filter(Boolean);
+  const out = flag(args, "--out");
+  const profile = flag(args, "--profile");
+  const result = await generateSeed({
+    cli: process.env["SYNTHDATA_CLI"] ?? "",
+    workspace: flag(args, "--workspace") ?? ".",
+    schema,
+    formats,
+    force: args.includes("--force"),
+    ...(out !== undefined ? { out } : {}),
+    ...(profile !== undefined ? { profile } : {}),
+    ...(rows !== undefined ? { rows } : {}),
+    ...(seedValue !== undefined ? { seed: seedValue } : {}),
+    ...(runner ? { runner } : {}),
+  });
+  if (!result.ok) {
+    io.err(`aqa seed: ${result.message}\n`);
+    return 1;
+  }
+  io.out(renderSeed(result, formats));
+  return 0;
 }
 
 /** `aqa check-rules`: today's rules against recorded runs. See USAGE. */
