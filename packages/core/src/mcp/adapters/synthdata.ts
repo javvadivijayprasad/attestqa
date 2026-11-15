@@ -41,6 +41,62 @@ const SHELL_UNSAFE = /[&|<>^"'`$;%\r\n]/;
 const COMPOUND_RANGE_CHECK = /CHECK\s*\([^()]*[<>]=?[^()]*\bAND\b[^()]*[<>]=?[^()]*\)/i;
 
 /**
+ * A rule on the LENGTH of a text column, `CHECK (LENGTH(phone) BETWEEN 11 AND 21)`.
+ *
+ * synthdata 1.4.0 reads a column's maximum from `VARCHAR(n)` and ignores a
+ * length rule altogether. For that phone rule, profile `edge` returned a
+ * one-character value as valid and profile `negative` a 31-character one as the
+ * invalid case, where the boundaries are 10, 11, 21 and 22 (run
+ * 20261112T224735Z). A minimum text length is the commonest form rule there is,
+ * so the wrong rows are refused here; remove this once synthdata reads the rule
+ * (handed to its maintainer on 12 Nov 2026).
+ */
+const LENGTH_CHECK = /\b(?:CHAR_LENGTH|CHARACTER_LENGTH|LENGTH|LEN)\s*\(/i;
+
+/**
+ * A range the tool can read: `col BETWEEN a AND b`.
+ *
+ * synthdata 1.4.0's `negative` profile breaks a range on one side only: the
+ * value one above the maximum. For `age BETWEEN 18 AND 74` it returns 75 and
+ * never 17, on every seed (probe of 14 Nov 2026), and the description of this
+ * tool had promised "the value one outside a range". Half the invalid
+ * boundaries were missing with nothing to say so. `belowMinimumMissing` looks
+ * at the rows that came back, so it goes quiet by itself once synthdata
+ * returns both sides (handed to its maintainer on 14 Nov 2026).
+ */
+const BETWEEN_RANGE = /\b([A-Za-z_]\w*)\s+BETWEEN\s+(-?\d+(?:\.\d+)?)\s+AND\s+(-?\d+(?:\.\d+)?)/gi;
+
+/** The ranges in `ddl` for which no returned row has a value below the minimum. */
+export function belowMinimumMissing(
+  ddl: string,
+  tables: ReadonlyArray<{ columns: string[]; data: string[][] }>,
+): string[] {
+  const out: string[] = [];
+  for (const m of ddl.matchAll(BETWEEN_RANGE)) {
+    const column = m[1] as string;
+    const min = Number(m[2]);
+    const whole = /^-?\d+$/.test(m[2] as string) && /^-?\d+$/.test(m[3] as string);
+    const below = tables.some((t) => {
+      const i = t.columns.findIndex((c) => c.toLowerCase() === column.toLowerCase());
+      return (
+        i >= 0 &&
+        t.data.some((r) => {
+          const v = r[i];
+          return v !== undefined && v.trim() !== "" && Number(v) < min;
+        })
+      );
+    });
+    if (below) continue;
+    out.push(
+      whole
+        ? `${column}: no row is below the minimum ${min}; the value one below it is ${min - 1}`
+        : `${column}: no row is below the minimum ${min}`,
+    );
+  }
+  return out;
+}
+
+/**
  * In-process `synthdata` adapter. Two tools, each behind its own setting:
  *
  * `generate` — the project's own synthetic test-data generator, configured as
@@ -106,8 +162,9 @@ export class SynthdataTools implements ToolClient {
           "length is VARCHAR(n), a range is CHECK (col BETWEEN a AND b), an allowed set is " +
           "CHECK (col IN ('a','b')). Profile 'edge' gives the valid boundaries (minimum, maximum, " +
           "longest string, every allowed value); 'negative' gives invalid rows, one broken rule " +
-          "each, named in a _violation column (the value one outside a range is here, not in " +
-          "'edge'); 'functional' gives ordinary valid rows. The same seed always gives the same " +
+          "each, named in a _violation column (the value one above a range's maximum is here, " +
+          "not in 'edge'; when the value one below the minimum is not among the rows, the answer " +
+          "says so and you add it); 'functional' gives ordinary valid rows. The same seed always gives the same " +
           "rows. Writes CSV into the workspace and returns the rows as a ready Examples table. " +
           "No model is called and no real data is touched.",
         inputSchema: {
@@ -197,6 +254,14 @@ export class SynthdataTools implements ToolClient {
         "write the range as CHECK (col BETWEEN a AND b), not as two comparisons joined by AND: " +
           "synthdata reads only half of the compound form and returns values that are not boundaries",
       );
+    if (LENGTH_CHECK.test(ddl))
+      return fail(
+        "synthdata does not read a rule on the LENGTH of a text column: it returns a one-character " +
+          "value as valid and a far too long one as invalid, whatever the minimum is. Work the " +
+          "length boundaries out yourself — one below the minimum, the minimum, the maximum and " +
+          "one above the maximum — and put those lengths in the item's conditions. Use this tool " +
+          "for number ranges (BETWEEN), allowed sets (IN) and required fields (NOT NULL)",
+      );
 
     const profile = args["profile"] === undefined ? "edge" : args["profile"];
     if (typeof profile !== "string" || !(EXAMPLE_PROFILES as readonly string[]).includes(profile))
@@ -261,9 +326,11 @@ export class SynthdataTools implements ToolClient {
     if (csvFiles.length === 0)
       return fail(`synthdata reported success but wrote no CSV into ${rel}`);
 
+    const read: Array<{ columns: string[]; data: string[][] }> = [];
     const tables = csvFiles.slice(0, MAX_TABLES_REPORTED).map((f) => {
       const parsed = parseCsv(readFileSync(join(outAbs, f), "utf8"));
       const [columns = [], ...data] = parsed;
+      read.push({ columns, data });
       return {
         table: f.replace(/\.csv$/i, ""),
         csv: `${rel}/${f}`,
@@ -272,6 +339,8 @@ export class SynthdataTools implements ToolClient {
         examples: examplesTable(columns, data),
       };
     });
+
+    const missing = profile === "negative" ? belowMinimumMissing(ddl, read) : [];
 
     return {
       ok: true,
@@ -285,7 +354,15 @@ export class SynthdataTools implements ToolClient {
           ? {
               note:
                 "Each row breaks one rule, named in _violation. Use that rule's own error message " +
-                "as the expected result, and leave the _violation column out of the feature file.",
+                "as the expected result, and leave the _violation column out of the feature file." +
+                (missing.length > 0
+                  ? " These rows break a range only above its maximum. The invalid value below " +
+                    "the minimum is NOT among them — add it to the item's conditions and to the " +
+                    "Examples table yourself: " +
+                    missing.join("; ") +
+                    "."
+                  : ""),
+              ...(missing.length > 0 ? { belowMinimumMissing: missing } : {}),
             }
           : {}),
       },

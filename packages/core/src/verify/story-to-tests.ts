@@ -18,7 +18,13 @@ import {
   traceProblems,
   type TestType,
 } from "../design/test-design.js";
-import { bugIsAbout, lastFullRun, ownTestTitles } from "../triage/settle.js";
+import { bugIsAbout, lastFullRun, openBugAbout, ownTestTitles } from "../triage/settle.js";
+import {
+  changedScenariosWithoutATest,
+  untouchedChangedItems,
+  untouchedLine,
+  type ChangedAtSwitch,
+} from "../design/cases.js";
 import { testsPreExisted } from "../route/route.js";
 import {
   artefacts,
@@ -31,6 +37,47 @@ import {
   testedByIds,
   type CallRecord,
 } from "./evidence.js";
+
+/** The changed items of the last route, with their scenario and test as recorded at the switch. */
+function changedAtSwitchOf(events: AnyRunEvent[]): ChangedAtSwitch[] {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
+    return asArray(because?.["changed"]).flatMap((c) => {
+      const r = asRecord(c);
+      const str = (k: string) => (typeof r?.[k] === "string" ? (r[k] as string) : undefined);
+      const id = str("id");
+      const scenario = str("scenario");
+      const body = str("body");
+      if (!id || !scenario || body === undefined) return [];
+      return [
+        {
+          id,
+          scenario,
+          body,
+          test: str("test") ?? "",
+          was: str("was") ?? "",
+          now: str("now") ?? "",
+        },
+      ];
+    });
+  }
+  return [];
+}
+
+/** Ids of the design items the last route marked as changed (`because.changed`). */
+function changedIdsOf(events: AnyRunEvent[]): string[] {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
+    return asArray(because?.["changed"])
+      .map((c) => asRecord(c)?.["id"])
+      .filter((id): id is string => typeof id === "string");
+  }
+  return [];
+}
 
 export interface StoryToTestsOptions {
   /** The work item the tests are for, e.g. "1". */
@@ -94,6 +141,13 @@ export interface StoryToTestsOptions {
    * author from scratch — for the three-runs-per-story consistency measurement.
    */
   fresh?: boolean;
+  /**
+   * `synthdata.examples` is among the tools this run offers (SYNTHDATA_CLI is
+   * set and the server is on). A design that tests a number range its
+   * criterion states is then sent back until the tool has been asked for that
+   * range (`rangeValuesOwed`).
+   */
+  examplesOffered?: boolean;
 }
 
 /**
@@ -130,6 +184,7 @@ export class StoryToTestsVerifier implements Verifier {
     | "tracker"
     | "previousRuns"
     | "fresh"
+    | "examplesOffered"
   > &
     Pick<
       StoryToTestsOptions,
@@ -140,6 +195,7 @@ export class StoryToTestsVerifier implements Verifier {
       | "tracker"
       | "previousRuns"
       | "fresh"
+      | "examplesOffered"
     >;
 
   constructor(options: StoryToTestsOptions) {
@@ -198,9 +254,20 @@ export class StoryToTestsVerifier implements Verifier {
     ];
     const present = specs.filter((p) => fileExists(input.workspaceDir, p));
     // 2a. the application's address comes from .env, not from a test ---------
-    // A spec or page object this run touched, or the page objects beside it,
-    // that navigates to an absolute address tests that address whatever
-    // AQA_APP_URL says (all four evaluation projects, 22 Oct 2026).
+    // A spec this run touched, a page object such a spec imports, or a page
+    // object this run wrote, that navigates to an absolute address tests that
+    // address whatever AQA_APP_URL says (all four evaluation projects, 22 Oct
+    // 2026).
+    //
+    // It used to be every page object in `pages/`. In a workspace with several
+    // epics that made one story answer for the others' files: every Toolshop
+    // run of TOOL-9 and TOOL-34 (13–14 Nov 2026) ended blocked on
+    // pages/cart.page.ts, contact.page.ts and customer-account.page.ts, which
+    // the catalogue spec does not import; the retry could only read them, and
+    // editing another epic's page object is not this run's work. Those are
+    // now named to the reviewer, and are a gap in the run of the story whose
+    // spec uses them.
+    const absoluteElsewhere: string[] = [];
     {
       const pageObjects = (() => {
         try {
@@ -211,9 +278,24 @@ export class StoryToTestsVerifier implements Verifier {
           return [];
         }
       })();
-      const absolute = [...new Set([...present, ...pageObjects])].filter((p) =>
-        (readIfPresent(input.workspaceDir, p) ?? "").split("\n").some((l) => ABSOLUTE_GOTO.test(l)),
+      const navigatesAbsolutely = (p: string) =>
+        (readIfPresent(input.workspaceDir, p) ?? "").split("\n").some((l) => ABSOLUTE_GOTO.test(l));
+      const noExt = (p: string) => p.replace(/\.[cm]?[jt]sx?$/i, "");
+      const used = new Set(
+        present.flatMap((spec) => importsOf(readIfPresent(input.workspaceDir, spec) ?? "", spec)),
       );
+      const wrote = new Set(
+        calls
+          .filter(
+            (c) => c.ok && (c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file"),
+          )
+          .map((c) => String(c.args["path"] ?? "").replace(/\\/g, "/")),
+      );
+      const inScope = pageObjects.filter((p) => used.has(noExt(p)) || wrote.has(p));
+      absoluteElsewhere.push(
+        ...pageObjects.filter((p) => !inScope.includes(p) && navigatesAbsolutely(p)),
+      );
+      const absolute = [...new Set([...present, ...inScope])].filter(navigatesAbsolutely);
       if (absolute.length > 0)
         gaps.push(
           gap(
@@ -388,6 +470,29 @@ export class StoryToTestsVerifier implements Verifier {
                 { items: t.untested },
               ),
             );
+          // A changed item's scenario, rewritten, with no test of its name:
+          // the item's id is still on the old test, so `untested` is silent.
+          const reworked = changedIdsOf(input.events);
+          const orphaned = specTexts.flatMap((s) =>
+            features.flatMap((f) =>
+              changedScenariosWithoutATest(reworked, f.text, s.text, normId(this.opts.workItem)),
+            ),
+          );
+          if (orphaned.length > 0)
+            gaps.push(
+              gap(
+                "design-item-not-tested",
+                `${orphaned.length} scenario(s) of changed design items have no test named after ` +
+                  `them in the spec: ${orphaned
+                    .map((o) => `${o.id} "${o.scenario}"`)
+                    .join("; ")}. ` +
+                  "The scenario was rewritten for what the item expects now and its test was not: " +
+                  "the test that carries the item's id still checks the earlier expectation. Bring " +
+                  "the test into line with the scenario — same title, each step and assertion the " +
+                  "scenario now has — with fs.replace_in_file; nothing is generated for it.",
+                { items: orphaned.map((o) => o.id), scenarios: orphaned.map((o) => o.scenario) },
+              ),
+            );
           if (t.untagged.length > 0)
             gaps.push(
               gap(
@@ -414,8 +519,18 @@ export class StoryToTestsVerifier implements Verifier {
           );
         // Weaker or broader than the design but working: one attempt for the
         // agent, then the reviewer's (isReviewOnly in design/test-design.ts).
-        if (t.reviewShape.length > 0) {
-          const { fresh, forReview } = splitReviewItems(t.reviewShape, input.events);
+        // And the changed items nobody touched: the same one attempt, then the
+        // reviewer — an item may have been reworded only, and its test is right.
+        const untouched = specTexts.flatMap((s) =>
+          features.flatMap((f) =>
+            untouchedChangedItems(changedAtSwitchOf(input.events), f.text, s.text).map(
+              untouchedLine,
+            ),
+          ),
+        );
+        const review = [...t.reviewShape, ...untouched];
+        if (review.length > 0) {
+          const { fresh, forReview } = splitReviewItems(review, input.events);
           for (const x of forReview) reviewItems.push(`for your review — ${x}`);
           if (fresh.length > 0)
             gaps.push(
@@ -508,13 +623,38 @@ export class StoryToTestsVerifier implements Verifier {
       // only "suite not green". Narrow: the message must carry axe output and
       // concrete rule ids, so a broken or empty scan (which triage handles) does
       // not qualify.
+      // A failing test that an earlier run of this runtime already filed a bug
+      // about, still open and not yet confirmed by a person. The defect IS
+      // reported; proposing it again gives one finding two records, and the
+      // reviewer's "duplicate" used to end the run blocked (20261113T131724Z
+      // and the two runs after it, all on bug #180). Only agent-filed bugs: one
+      // a person has confirmed is in the story context, and its test is marked
+      // expected-to-fail by the design.
+      const agentBugs = (storyFacts(input.events)?.filedBugs ?? []).filter((b) => b.agent);
+      const alreadyFiled = new Map<string, (typeof agentBugs)[number]>();
+      for (const t of failingTitles) {
+        if (!t || reported.has(t)) continue;
+        // By the test's name in the bug's text, where the tracker read
+        // returns it (Azure DevOps). A Jira search returns titles only, so a
+        // second run of TOOL-34 (20261114T144930Z) was blocked on two failing
+        // tests whose bugs, TOOL-36 and TOOL-37, the run before had filed and
+        // the story linked. There the bug's title is read the way a proposal's
+        // is (`bugIsAbout`), and only for a bug the tracker links to this story.
+        const bug = openBugAbout(t, agentBugs, failingTitles);
+        if (bug) alreadyFiled.set(t, bug);
+      }
+      for (const [t, bug] of alreadyFiled)
+        sharedSpecLimitations.push(
+          `"${t}" fails, and bug #${String(bug.id)} [${bug.state}] already records it ("${bug.title}") — ` +
+            "filed by an earlier run and not yet confirmed by a person; no second bug is filed",
+        );
       const a11yViolations = new Map<string, string[]>();
       for (const raw of asArray(r["failures"])) {
         const f = asRecord(raw);
         const title = String(f?.["title"] ?? "");
         if (!title || (mine && !mine.has(title))) continue;
         if (triage.defectCandidates.some((c) => c.endsWith(title) || c.includes(title))) continue;
-        if (exhausted.has(title) || reported.has(title)) continue;
+        if (exhausted.has(title) || reported.has(title) || alreadyFiled.has(title)) continue;
         const rules = axeRuleIds(String(f?.["message"] ?? ""));
         if (rules.length > 0) a11yViolations.set(title, rules);
       }
@@ -533,8 +673,18 @@ export class StoryToTestsVerifier implements Verifier {
             (triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)) ||
               exhausted.has(t) ||
               reported.has(t) ||
+              alreadyFiled.has(t) ||
               a11yViolations.has(t)),
         );
+      const unreported = failingTitles.filter(
+        (t) =>
+          t &&
+          !reported.has(t) &&
+          !alreadyFiled.has(t) &&
+          !exhausted.has(t) &&
+          !a11yViolations.has(t) &&
+          !triage.defectCandidates.some((c) => c.endsWith(t) || c.includes(t)),
+      );
       for (const t of reported)
         sharedSpecLimitations.push(
           `"${t}" fails, and a bug about it is put to the reviewer at the end of the run`,
@@ -563,10 +713,14 @@ export class StoryToTestsVerifier implements Verifier {
           gaps.push(
             gap(
               "suite-not-green",
-              Array.isArray(r["unimplemented"]) && r["unimplemented"].length > 0
-                ? `the suite ran but ${r["unimplemented"].length} test(s) still have steps bdd2pw left as TODO, which ran ` +
+              // Only this story's unfinished tests: 20261114T141230Z (TOOL-34)
+              // was red on its own failing tests and was told to implement
+              // the TODO steps of two TOOL-13 tests, which it may not touch.
+              emptyHere.length > 0
+                ? `the suite ran but ${emptyHere.length} test(s) still have steps bdd2pw left as TODO, which ran ` +
                     "empty and checked nothing: " +
                     (r["unimplemented"] as Array<{ title?: unknown; steps?: unknown }>)
+                      .filter((u) => emptyHere.includes(String(u.title ?? "")))
                       .map(
                         (u) =>
                           `"${String(u.title)}" (${
@@ -581,7 +735,21 @@ export class StoryToTestsVerifier implements Verifier {
                     )} test(s) are still unimplemented (fixme), so nothing was actually verified`
                   : `the suite ran but is not green: ${String(r["passed"] ?? 0)} passed, ${String(
                       r["failed"] ?? 0,
-                    )} failed, ${String(r["skipped"] ?? 0)} skipped`,
+                    )} failed, ${String(r["skipped"] ?? 0)} skipped` +
+                    // The ones nothing has been reported for, and the two
+                    // things that can be done about one. A run that had only
+                    // "not green" to go on stopped twice with a real defect in
+                    // front of it and no bug proposed (20261114T145555Z).
+                    (mine && unreported.length > 0
+                      ? `. Failing, this story's, and with no bug: ${unreported
+                          .map((t) => `"${t}"`)
+                          .join(", ")}. For each: if the test reads the wrong element, reads too ` +
+                        "early, or asserts something its design item does not say, correct the " +
+                        "test. If it does what its design item says and fails on what the " +
+                        "application shows, that is a defect: propose a bug with the tracker's bug " +
+                        "tool, naming the test, what it expected and what the application did. A " +
+                        "person decides on it at the end of the run"
+                      : ""),
               {
                 passed: r["passed"],
                 failed: r["failed"],
@@ -684,6 +852,14 @@ export class StoryToTestsVerifier implements Verifier {
 
     // 6. the cases are in a suite -------------------------------------------
     const limitations: string[] = [...sharedSpecLimitations, ...reviewItems];
+    if (absoluteElsewhere.length > 0)
+      limitations.push(
+        `${absoluteElsewhere.join(", ")} navigate${absoluteElsewhere.length === 1 ? "s" : ""} to ` +
+          "an absolute address instead of AQA_APP_URL. No spec of this run imports " +
+          `${absoluteElsewhere.length === 1 ? "it" : "them"}, so this run left ` +
+          `${absoluteElsewhere.length === 1 ? "it" : "them"} alone; the run of a story whose ` +
+          "tests use such a file is asked to correct it",
+      );
     if (this.opts.requireSuiteMembership && created.length > 0) {
       const suiteWrites = successful(calls, "ado.testplan_test_suite_write");
       if (suiteWrites.length === 0) {
@@ -920,6 +1096,22 @@ function specPathsTouched(calls: CallRecord[]): string[] {
     if (typeof p === "string" && isSpecPath(p)) out.push(p);
   }
   return out;
+}
+
+/**
+ * The workspace files a spec imports by relative path, without extension
+ * (`tests/a.spec.ts` importing `../pages/home.page` gives `pages/home.page`).
+ */
+function importsOf(text: string, specPath: string): string[] {
+  const dir = specPath.replace(/\\/g, "/").split("/").slice(0, -1);
+  return [...text.matchAll(/\b(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+)["']/g)].map((m) => {
+    const parts = [...dir];
+    for (const seg of String(m[1]).split("/")) {
+      if (seg === "..") parts.pop();
+      else if (seg !== "." && seg !== "") parts.push(seg);
+    }
+    return parts.join("/").replace(/\.[cm]?[jt]sx?$/i, "");
+  });
 }
 
 /** File contents, or undefined when it is absent or unreadable. */

@@ -76,11 +76,27 @@ export interface FileApprovalRecord {
   approvalId: string;
   summary: string;
   calls: ApprovalRequest["calls"];
+  /**
+   * What the runtime tells the reviewer about this request, as the terminal
+   * prompt prints it: for a test design, the cases and their state, which
+   * items are already tested, and which changed since the design approved
+   * before, with both wordings. Until 2.3.0 it was shown at the terminal only,
+   * so a reviewer deciding through this file never saw it
+   * (20261113T131724Z). Absent when there is nothing to say.
+   */
+  note?: string;
   requestedAt: string;
   /** Filled in by the platform (handoff B4). `null` until decided. */
   decision: "approved" | "denied" | null;
   by?: string;
   at?: string;
+  /**
+   * Optional, with a denial: why the reviewer said no, in their words. Without
+   * it the agent is told only "denied" and submits the same design again —
+   * run 20261112T223242Z was denied three times with a reason written in the
+   * file each time, and the agent never saw one of them.
+   */
+  reason?: string;
 }
 
 export interface FileApproverOptions {
@@ -124,6 +140,7 @@ export class FileApprover implements Approver {
       approvalId: request.approvalId,
       summary: request.summary,
       calls: request.calls,
+      ...(request.note ? { note: request.note } : {}),
       requestedAt: new Date(this.now()).toISOString(),
       decision: null,
     };
@@ -150,9 +167,13 @@ function readDecision(file: string): ApprovalResult | undefined {
     return undefined; // partial write in progress
   }
   if (rec.decision !== "approved" && rec.decision !== "denied") return undefined;
+  // A reason belongs to a denial; on an approval there is nothing to explain.
+  const reason =
+    rec.decision === "denied" && typeof rec.reason === "string" ? rec.reason.trim() : "";
   return {
     decision: rec.decision,
     by: typeof rec.by === "string" && rec.by ? rec.by : "unknown",
     at: typeof rec.at === "string" && rec.at ? rec.at : new Date().toISOString(),
+    ...(reason ? { reason } : {}),
   };
 }

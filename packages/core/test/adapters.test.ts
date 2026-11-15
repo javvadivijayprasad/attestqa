@@ -624,6 +624,33 @@ describe("synthdata examples", () => {
     expect(ran).toBe(0);
   });
 
+  it("refuses a rule on the length of a text column, which synthdata 1.4.0 ignores", async () => {
+    // Run 20261112T224735Z: for a phone of 11 to 21 characters, profile edge
+    // returned "A" as a valid value and profile negative a 31-character one.
+    const ws = tmp();
+    let ran = 0;
+    const t = new SynthdataTools("", ws, {
+      examplesCli: "synthdata",
+      runner: async () => {
+        ran++;
+        return { code: 0, stdout: "", stderr: "" };
+      },
+    });
+    for (const rule of [
+      "CHECK (LENGTH(phone) BETWEEN 11 AND 21)",
+      "CHECK (char_length(phone) >= 11)",
+      "CHECK (LEN (phone) BETWEEN 11 AND 21)",
+    ]) {
+      const r = await t.call("synthdata", "examples", {
+        ddl: `CREATE TABLE f (phone VARCHAR(21) ${rule});`,
+        out: "d",
+      });
+      expect(r.ok).toBe(false);
+      expect(JSON.stringify(r.result)).toContain("one below the minimum");
+    }
+    expect(ran).toBe(0);
+  });
+
   it("reports a failed run and a run that wrote nothing", async () => {
     const ws = tmp();
     const boom: CommandRunner = async () => ({

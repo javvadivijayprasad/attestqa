@@ -1,4 +1,4 @@
-import { asRecord } from "../verify/evidence.js";
+import { asArray, asRecord, completedCalls } from "../verify/evidence.js";
 import { coverageOfStory, renderCoverage, storyScenarios } from "../design/coverage-map.js";
 import { routePathOf } from "../route/route.js";
 import type { AnyRunEvent, Skill } from "../types.js";
@@ -10,7 +10,7 @@ import { lockedScenarios, makeStoryRefusal } from "./story-rules.js";
 import { composeRunReport } from "../mcp/adapters/summary.js";
 import { composeQaRecord } from "../report/qa-record.js";
 import { readSourceFiles } from "../report/coverage.js";
-import { chooseRoute } from "../route/route.js";
+import { AUTHORING_TOOLS, chooseRoute } from "../route/route.js";
 import {
   approvedDesign,
   coverageOf,
@@ -22,9 +22,16 @@ import { nameChanged, suiteChangedSinceLastFullRun } from "../runtime/rerun.js";
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { factsFrom, storyFacts, traceProblems } from "../design/test-design.js";
+import { factsFrom, previousDesign, storyFacts, traceProblems } from "../design/test-design.js";
 import { latestPriorDesign, priorDesignState, storyFingerprint } from "../design/fingerprint.js";
-import { caseTally, designCases, existingCases, renderCases } from "../design/cases.js";
+import {
+  caseTally,
+  changedAtSwitch,
+  changedItems,
+  designCases,
+  existingCases,
+  renderCases,
+} from "../design/cases.js";
 import { surveyFramework } from "../framework/survey.js";
 
 type RouteResult = ReturnType<NonNullable<Skill["route"]>>;
@@ -476,7 +483,12 @@ ${design}2. ONE FEATURE FILE PER EPIC — ADD TO IT, DO NOT REPLACE IT.
    nothing more. You cannot operate the application, so you cannot know what
    happens after a click beyond what the design says: do not add checks of the
    address, CSS classes, counts or texts the design does not name — they are
-   guesses, and a guess that fails is reported as a product defect. Where a
+   guesses, and a guess that fails is reported as a product defect. The wording
+   of a message is such a text. Assert a message's exact words only when the
+   story, or a source the design names, quotes them — then use those words
+   exactly. When the story says only what the message tells the user ("a
+   message giving the range 11 to 21"), assert that much — a message is shown
+   and it contains 11 and 21 — and supply no wording of your own. Where a
    state sits (which element carries "active" or aria-current) you read from
    the page snapshot, not assume. When the framework profile names a
    testIdAttribute, prefer page.getByTestId("…") for elements that carry one.
@@ -932,6 +944,37 @@ function lastRoutePayload(events: AnyRunEvent[]): Record<string, unknown> | unde
   return undefined;
 }
 
+/** Turns the agent gets to update the tests of changed design items before the suite runs anyway. */
+export const TURNS_TO_UPDATE_CHANGED = 6;
+
+/**
+ * True while the run has switched to bringing changed items' tests into line
+ * (`because.changed` on the last route) and the agent has neither written to
+ * the suite since nor used up its turns.
+ */
+export function waitingForChangedTests(events: AnyRunEvent[]): boolean {
+  let at = -1;
+  for (let i = events.length - 1; i >= 0; i--)
+    if (events[i]?.kind === "route") {
+      at = i;
+      break;
+    }
+  const route = at >= 0 ? events[at] : undefined;
+  const because = asRecord(asRecord(route?.payload as unknown)?.["because"]);
+  if (asArray(because?.["changed"]).length === 0) return false;
+  const since = events.slice(at + 1);
+  const wrote = completedCalls(since).some(
+    (c) =>
+      c.ok &&
+      (c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") &&
+      /\.(feature|(spec|test|page)\.[cm]?[jt]sx?)$/i.test(String(c.args["path"] ?? "")),
+  );
+  if (wrote) return false;
+  // One `context` event per turn; a turn that proposes two calls records two
+  // `inference` events, so those would count a single turn twice.
+  return since.filter((e) => e.kind === "context").length < TURNS_TO_UPDATE_CHANGED;
+}
+
 export function storyToTestsSkill(
   input: StoryToTestsOptions & {
     /** Azure DevOps project, passed on every preflight read. */
@@ -1028,6 +1071,12 @@ export function storyToTestsSkill(
       ...(unverified ? { unverifiedTests: { runId: state.runId } } : {}),
     };
     const unchanged = prior !== undefined && prior.fingerprint === fingerprint;
+    // Everything the earlier run DID record is the same, and it recorded no
+    // wording: the difference is only that this run knows more.
+    const wordingUnknown =
+      prior !== undefined &&
+      !prior.textRecorded &&
+      prior.fingerprint === storyFingerprint(facts, types, false);
     if (unverified)
       return {
         ...plain,
@@ -1039,10 +1088,31 @@ export function storyToTestsSkill(
     if (!unchanged || d.path !== "B" || types.length === 0 || !options.workspaceDir)
       return {
         ...plain,
-        because,
+        // The tests on disk were written for the design approved in that run.
+        // Recorded so the design approved in THIS run can be compared with it
+        // (design/cases.ts `changedItems`) from the ledger alone.
+        //
+        // Only when the story is KNOWN to have changed. A design is worded
+        // afresh every run, so against an unchanged story the comparison finds
+        // differences that are only wording — and acting on them lets working
+        // tests be rewritten. 20261113T130619Z (AB#109, earlier run recorded
+        // before the wording was kept, story not changed): four items were
+        // called changed, one of them by an id the two designs used for
+        // different things, and a passing test lost its URL assertion because
+        // the new wording of its item no longer mentioned the address.
+        because:
+          prior && !unchanged && !wordingUnknown && d.path === "B"
+            ? { ...because, previousDesign: { runId: prior.runId, args: prior.args } }
+            : because,
         ...(prior && !unchanged
           ? {
-              reason: `${d.reason} — the story changed since run ${prior.runId}, so it is designed again`,
+              // A run recorded before the wording was part of the facts cannot
+              // say whether the wording changed; claiming it did would be a guess.
+              reason: !wordingUnknown
+                ? `${d.reason} — the story changed since run ${prior.runId}, so it is designed again`
+                : `${d.reason} — run ${prior.runId} was recorded before a story's wording was kept ` +
+                  "with its fingerprint, so whether the story changed since cannot be known and it " +
+                  "is designed again (once)",
             }
           : {}),
       };
@@ -1129,6 +1199,7 @@ export function storyToTestsSkill(
       // So the edit-surface rule can tell this story's own tests from the
       // neighbours' in a shared epic file (W35).
       ...(options.workItem ? { workItem: options.workItem } : {}),
+      ...(options.examplesOffered ? { examplesOffered: true } : {}),
     }),
     // ADR-004: once the design is approved, its test cases go to the story's
     // QA sub-task straight away — covered by that approval, not asked again.
@@ -1246,19 +1317,48 @@ export function storyToTestsSkill(
         ([id, hit]) => `  ${id} → "${hit.scenario}" (matched on ${hit.how})`,
       );
       const fresh = parsed.items.length - covered.size;
+      // Items whose expectation differs from the design approved before: their
+      // tests exist but check the earlier expectation, and this run changes them.
+      const reworked = cases.filter((c) => c.state === "changed").map((c) => c.design);
+      // Both wordings, so the reviewer can tell a new expectation from the same
+      // one said differently.
+      const wordings = changedItems(parsed, covered, prior ? parseDesign(prior.args) : undefined)
+        .filter((c) => reworked.includes(c.id))
+        .flatMap((c) => [
+          `  ${c.id}  before: ${c.was}`,
+          `  ${" ".repeat(c.id.length)}  now:    ${c.now}`,
+        ]);
       const note = [
         ...caseBlock,
-        `${covered.size} of these ${parsed.items.length} item(s) are ALREADY TESTED — the tests exist ` +
-          "in this epic's spec and this run will execute them, not rewrite them:",
+        reworked.length > 0
+          ? `${covered.size} of these ${parsed.items.length} item(s) ALREADY HAVE A TEST in this ` +
+            "epic's spec — executed as they are, except the changed ones named below:"
+          : `${covered.size} of these ${parsed.items.length} item(s) are ALREADY TESTED — the tests exist ` +
+            "in this epic's spec and this run will execute them, not rewrite them:",
         ...lines,
         "",
-        fresh === 0
-          ? "NOTHING HERE IS NEW. Approving records what this run will check; it does not ask for a " +
-            "test to be written. What you are agreeing to is that these are the right checks for " +
-            "this story — the tests already exist and the run will execute them as they are."
-          : `What is NEW: ${fresh} item(s) — read ${
-              fresh === 1 ? "that one" : "those"
-            } most closely, ${fresh === 1 ? "it is" : "they are"} the work this run will do.`,
+        ...(reworked.length > 0
+          ? [
+              `CHANGED since the design approved in run ${prior?.runId ?? "?"}: ${reworked.join(
+                ", ",
+              )}. ` +
+                "Their tests were written for what those items expected then. Approving lets this run " +
+                "change those scenarios and tests — and only those — to what the items expect now. " +
+                "Read them most closely; where the two wordings say the same thing, the test needs " +
+                "no change:",
+              ...wordings,
+              "",
+            ]
+          : []),
+        reworked.length > 0 && fresh === 0
+          ? "No new test is written."
+          : fresh === 0
+            ? "NOTHING HERE IS NEW. Approving records what this run will check; it does not ask for a " +
+              "test to be written. What you are agreeing to is that these are the right checks for " +
+              "this story — the tests already exist and the run will execute them as they are."
+            : `What is NEW: ${fresh} item(s) — read ${
+                fresh === 1 ? "that one" : "those"
+              } most closely, ${fresh === 1 ? "it is" : "they are"} the work this run will do.`,
         ...(jiraLine ? ["", jiraLine] : []),
       ].join("\n");
       return { note, covered };
@@ -1287,9 +1387,25 @@ export function storyToTestsSkill(
       // place so the runtime and the gate can never disagree about whether a
       // run would see anything new. A filtered run belongs to the healer and
       // never counts as "the suite has run".
-      const { lastFullRun, changed } = suiteChangedSinceLastFullRun(events);
+      const { lastFullRun, changed, retryOwed } = suiteChangedSinceLastFullRun(events);
+      // Tests written for an expectation the design approved in this run has
+      // replaced: running them first only shows the old expectation failing,
+      // and a text that is no longer on the page reads as a moved locator
+      // (20261113T014353Z). The agent gets its turns to change them — until it
+      // writes to the suite, or has had `TURNS_TO_UPDATE_CHANGED` turns and
+      // changed nothing, which is its answer that nothing needed changing.
+      if (lastFullRun === undefined && waitingForChangedTests(events)) return undefined;
       if (lastFullRun === undefined)
         return { toolName: "pw.run_tests", args: { spec }, why: "nothing has run yet" };
+      // The suite's first failure is run again as it is, before the model is
+      // asked anything: only a second run tells a flake or a slow start from a
+      // failure that is really there, and running it is not a judgement.
+      if (retryOwed)
+        return {
+          toolName: "pw.run_tests",
+          args: { spec },
+          why: "the first failure is run again unchanged, before anything is judged",
+        };
       if (changed.length === 0) return undefined;
       return {
         toolName: "pw.run_tests",
@@ -1343,28 +1459,72 @@ export function storyToTestsSkill(
         ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
       });
       const missing = design.items.filter((it) => !covered.has(it.id)).map((it) => it.id);
-      if (missing.length === 0) return undefined;
+      // Items that HAVE a test, written for what the design approved in an
+      // earlier run expected (design/cases.ts). The story changed, a person
+      // approved the new expectation, so those tests are this run's to bring
+      // into line — and nothing else is. Decided once, when the run switches.
+      // Each with its scenario and test as they stand, so the verifier can
+      // tell at the end which were never touched (`untouchedChangedItems`).
+      const changed = completing
+        ? []
+        : changedAtSwitch(
+            changedItems(design, covered, previousDesign(events)?.design),
+            featureText ?? "",
+            specText ?? "",
+          );
+      if (missing.length === 0 && changed.length === 0) return undefined;
       if (completing) {
         const before = new Set((last?.["missing"] as string[] | undefined) ?? []);
+        // A changed item whose scenario the run is rewriting has, for a moment,
+        // no test under its new title. That is the rewrite in progress, not a
+        // new item to add: 20261113T131724Z split D5's scenario in two, was
+        // re-routed to "adds 1 item (D5)", and went looking for the generator.
+        // The verifier still reports the item if it ends without a test.
+        for (const c of asArray(last?.["changed"])) {
+          const id = asRecord(c)?.["id"];
+          if (typeof id === "string") before.add(id);
+        }
         // Items finishing one by one shrink the list; only a NEW number is a new plan.
         if (missing.every((id) => before.has(id))) return undefined;
       }
+      const unlocked = new Set(changed.map((c) => c.scenario));
+      const adds =
+        `the approved design adds ${missing.length} item(s) no scenario covers yet ` +
+        `(${missing.join(", ")}) — add their scenarios and scaffold`;
+      const changes =
+        `the approved design changes ${changed.length} item(s) that already have a test ` +
+        `(${changed
+          .map((c) => c.id)
+          .join(", ")}) — their scenarios and tests are brought into line with it`;
       return {
         path: "A2",
         reason:
-          `the approved design adds ${missing.length} item(s) no scenario covers yet ` +
-          `(${missing.join(
-            ", ",
-          )}) — add their scenarios and scaffold; every existing scenario stays as it is`,
+          (missing.length > 0 && changed.length > 0
+            ? `${adds}; and ${changes}`
+            : missing.length > 0
+              ? adds
+              : changes) + "; every other scenario stays as it is",
         // What is locked is what existed at THIS moment. Scenarios the run
-        // adds afterwards for the new items stay its own to correct.
+        // adds afterwards for the new items stay its own to correct — and so
+        // do the scenarios of the changed items, which are left out of it.
         because: {
           from: "B",
           appendOnly: true,
           missing,
-          locked: completing ? (last?.["locked"] ?? []) : lockedScenarios(featureText ?? ""),
+          ...(completing
+            ? last?.["changed"] !== undefined
+              ? { changed: last["changed"] }
+              : {}
+            : changed.length > 0
+              ? { changed }
+              : {}),
+          locked: completing
+            ? (last?.["locked"] ?? [])
+            : lockedScenarios(featureText ?? "").filter((l) => !unlocked.has(l.scenario)),
         },
-        deny: [],
+        // Nothing is generated for a changed item: its scenario and its test
+        // exist and are edited where they stand.
+        deny: missing.length > 0 ? [] : [...AUTHORING_TOOLS],
       };
     },
     instructions: storyToTestsInstructions(
@@ -1459,17 +1619,24 @@ function testDesignStep(types: readonly string[]): string {
    Take a form field's values from its rules, not from memory. If a
    synthdata.examples tool is offered and an item is boundary-value-analysis or
    equivalence-partitioning on a field with stated limits (required, a maximum
-   length, a range, an allowed set), call it BEFORE you submit the design: state
+   length, a range, an allowed set), call it BEFORE you submit the design (for a
+   number range a criterion states, a design submitted without those calls is
+   sent back): state
    the rules as one small CREATE TABLE, ask for profile "edge" (the valid
    boundaries) and profile "negative" (invalid rows, one broken rule each, named
-   in _violation — the value one outside a range is in this profile). Put the
+   in _violation — the value one above a range's maximum is in this profile; when
+   the value one below the minimum is not among the rows the answer says so, and
+   you add it). Put the
    values it returns into the item's conditions, so the approver sees the exact
    values that will run. After approval, write that item as ONE Scenario Outline
    whose Examples table holds those rows — one row per value, the columns named
    for the placeholders in the steps, the expected message in its own column —
    carrying the item's tags like any other scenario. Keep only the columns the
    steps use; leave _violation and row ids out of the feature file. When the tool
-   is not offered, choose the values yourself as before.
+   is not offered, choose the values yourself as before. A rule on the LENGTH of
+   a text field (11 to 21 characters) is not something the tool reads: for those,
+   work the boundaries out yourself — one below the minimum, the minimum, the
+   maximum, one above the maximum — and state the lengths in the conditions.
 
    Pick the technique from the RULE the criterion states:
      - a field that is required or has limits → boundary-value-analysis

@@ -6,6 +6,8 @@ import {
   isAgentBug,
 } from "../src/skills/story-context.js";
 import type { PreflightRead } from "../src/types.js";
+import type { StoryFacts } from "../src/design/test-design.js";
+import { storyFingerprint } from "../src/design/fingerprint.js";
 
 /**
  * Shapes taken from a real ledger (run 20260921T133607Z-1470601c): the Azure
@@ -202,6 +204,42 @@ describe("gatherStoryContext — stage 1, done by the runtime", () => {
     ]);
     // Every read carries the project.
     for (const a of asked) expect(a.args["project"]).toBe("sandbox");
+  });
+
+  it("records a hash of the story's wording, so a reworded criterion is a changed story", async () => {
+    // Run 20261112T232301Z: all three criteria of AB#176 were rewritten to
+    // quote the application's messages. The labels (AC-1…AC-3) were the same,
+    // the labels were all the fingerprint read, and the old design was reused.
+    const withAc = (ac: string, description = "") => ({
+      ...STORY,
+      fields: {
+        ...STORY.fields,
+        "Microsoft.VSTS.Common.AcceptanceCriteria": ac,
+        "System.Description": description,
+      },
+    });
+    const facts = async (story: unknown) =>
+      (await gatherStoryContext(fakeRead({ "get:1": story }).read, { workItem: "1" }))
+        .facts as StoryFacts;
+    const before = await facts(withAc("<div>AC-1: a message giving the range 11 to 21</div>"));
+    const after = await facts(
+      withAc('<div>AC-1: the message "Phone must be between 11 and 21 characters."</div>'),
+    );
+    expect(before.acceptanceCriteria).toEqual(after.acceptanceCriteria); // the labels alone
+    expect(before.textHash).toMatch(/^[0-9a-f]{12}$/);
+    expect(after.textHash).not.toBe(before.textHash);
+    expect(storyFingerprint(after, ["functional"])).not.toBe(
+      storyFingerprint(before, ["functional"]),
+    );
+    // Markup and spacing are not wording.
+    const same = await facts(withAc("<p>AC-1:   a message giving the range 11 to 21</p>"));
+    expect(same.textHash).toBe(before.textHash);
+    // A story designed from its description changes when the description does —
+    // also beyond the 700 characters the prompt shows.
+    const long = "x".repeat(900);
+    const d1 = await facts(withAc("", `<p>${long} phone 11 to 21</p>`));
+    const d2 = await facts(withAc("", `<p>${long} phone 11 to 22</p>`));
+    expect(d2.textHash).not.toBe(d1.textHash);
   });
 
   it("carries the facts that live outside the acceptance criteria", async () => {

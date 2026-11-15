@@ -30,7 +30,8 @@ import {
 } from "./patterns.js";
 import { readFailures, reportFingerprint, reportMtimeMs, reportPath } from "./report.js";
 import { analyzeReport, merge, type ServiceOptions } from "./service.js";
-import { testsByTitle } from "../design/test-design.js";
+import { testBody } from "../design/test-design.js";
+import { applyEdit } from "../design/edits.js";
 import { droppedClaims } from "../design/claims.js";
 import { asRecord, completedCalls } from "../verify/evidence.js";
 import { isFullRun } from "../runtime/rerun.js";
@@ -592,7 +593,32 @@ export function triageGaps(events: AnyRunEvent[]): {
   // from a false "the token survived" to an honest URL mismatch, and this gap
   // called it evidence-destruction (20260925T174149Z). A repair that keeps the
   // claims is progress and is recorded as such.
-  const drift = quarantineDrift(history);
+  //
+  // And a failure that changed with NOTHING in the suite written is neither:
+  // no edit can have removed the evidence, and "restore what the test
+  // asserted" names a remedy that does not exist. Since the runtime runs a
+  // first failure again unchanged, this is what an unstable test looks like:
+  // in 20261114T133638Z the home page accessibility scan failed the first run,
+  // was quarantined, passed the second with no file touched, and the run was
+  // blocked for modifying it. It is said to the reviewer as what it is.
+  //
+  // Asked of each test, between the two runs where its failure changed — not
+  // of the run as a whole. In 20261115T004103Z "password 8 characters" failed
+  // the first run and passed the second with nothing written between them;
+  // two runs later another test's scan was edited, "a file was written in
+  // this run" became true, and the run was blocked for modifying a test
+  // nobody had touched.
+  const allDrift = quarantineDrift(history);
+  const untouched = allDrift.filter((d) => changedWithNothingWritten(events, d.test));
+  const drift = allDrift.filter((d) => !untouched.includes(d));
+  for (const d of untouched)
+    limitations.push(
+      `${d.test} — failed, was held as a defect candidate, and then ` +
+        (d.now === "no longer failing" ? "passed" : "failed differently") +
+        " when the suite was run again with nothing changed " +
+        `(was: ${signature(d.was).slice(0, 80)}). The test is not stable: its first failure is ` +
+        "not evidence of a defect and its pass is not evidence against one.",
+    );
   const repaired = drift.filter((d) => keptItsClaims(events, d.test));
   const evidenceLost = drift.filter((d) => !keptItsClaims(events, d.test));
   for (const d of repaired)
@@ -719,9 +745,12 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
     // all and reported a kept claim as lost (20261018T125846Z).
     const edited =
       c.toolName === "fs.replace_in_file" && previous !== undefined
-        ? c.args["all"] === true
-          ? previous.split(String(c.args["old"] ?? "")).join(String(c.args["new"] ?? ""))
-          : previous.replace(String(c.args["old"] ?? ""), String(c.args["new"] ?? ""))
+        ? (applyEdit(
+            previous,
+            String(c.args["old"] ?? ""),
+            String(c.args["new"] ?? ""),
+            c.args["all"] === true,
+          ) ?? previous)
         : undefined;
     const text =
       c.toolName === "fs.write_file"
@@ -735,8 +764,8 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
     const isWrite = c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file";
     if (isWrite && previous !== undefined && previous !== text) {
       sawEdit = true;
-      const was = testsByTitle(previous).get(title) ?? "";
-      const now = testsByTitle(text).get(title) ?? "";
+      const was = testBody(previous, title) ?? "";
+      const now = testBody(text, title) ?? "";
       if (droppedClaims(was, now, events).length > 0) return false;
     }
     previous = text;
@@ -744,6 +773,49 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
   // No edit at all: the failure changed on its own, which this function has
   // nothing to say about — the gap should still ask.
   return sawEdit;
+}
+
+/**
+ * Whether this test's failure changed — went away, or became another failure —
+ * between two full runs with no spec or page object written between them.
+ * Only then is "nothing was edited" a fact about that change and not an
+ * absence of record.
+ *
+ * Read between triage events: there is one after each full run. From the
+ * triage that first held the test, forward through those that saw the same
+ * failure, to the first that did not.
+ */
+function changedWithNothingWritten(events: AnyRunEvent[], test: string): boolean {
+  const title = titleOf(test);
+  let heldAt = -1;
+  let was = "";
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e?.kind !== "triage") continue;
+    const p = e.payload as unknown as TriagePayload;
+    const v = p.verdicts.find((x) => titleOf(x.test) === title);
+    if (heldAt < 0) {
+      if (v && (p.quarantined ?? []).some((q) => titleOf(q) === title)) {
+        heldAt = i;
+        was = v.evidence;
+      }
+      continue;
+    }
+    if (v && signature(v.evidence) === signature(was)) {
+      heldAt = i;
+      continue;
+    }
+    const between = completedCalls(events.slice(heldAt, i)).filter((c) => c.ok);
+    const wrote = between.some(
+      (c) =>
+        c.toolName === "bdd2pw.scaffold" ||
+        ((c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") &&
+          /[.](spec|test|page)[.][cm]?[jt]sx?$/i.test(String(c.args["path"] ?? ""))),
+    );
+    const ran = between.some((c) => c.toolName === "pw.run_tests" && isFullRun(c.args));
+    return !wrote && ran;
+  }
+  return false;
 }
 
 function quarantineDrift(history: TriagePayload[]): Array<{

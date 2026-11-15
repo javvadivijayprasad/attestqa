@@ -795,6 +795,12 @@ async function live(
     // Stage 2 — the ISTQB test types a design must cover. Validated by the
     // config loader; empty means no design stage.
     const testTypes = (config.test_types ?? []) as TestType[];
+    // Whether the examples generator is really among this run's tools: a rule
+    // that sends a design back for not calling it must not ask for a tool the
+    // run does not have.
+    const examplesOffered = (await mcpTools.listTools()).some(
+      (t) => t.server === "synthdata" && t.name === "examples",
+    );
     const skill =
       skillName === "defect-profile"
         ? defectProfileSkill({ project: adoProject ?? "" })
@@ -813,6 +819,7 @@ async function live(
             previousRuns: () => readRuns(resolve(flag(args, "--ledger") ?? ".aqa")),
             // Evaluation only: ignore earlier runs and existing coverage.
             ...(args.includes("--fresh") ? { fresh: true } : {}),
+            ...(examplesOffered ? { examplesOffered: true } : {}),
             // Failure triage runs in-process by default and sends nothing
             // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
             // value comes from the environment and nowhere else, so that no
@@ -1056,10 +1063,16 @@ export function liveLine(e: AnyRunEvent): string {
         const fresh = Array.isArray(rec["newItems"])
           ? (rec["newItems"] as string[]).length
           : undefined;
-        if (already > 0)
+        const changedN = Array.isArray(rec["changedItems"])
+          ? (rec["changedItems"] as string[]).length
+          : 0;
+        if (already > 0 || changedN > 0)
           return (
             `aqa: test design approved — ${rec["items"]} item(s): ${already} already tested, ` +
-            `${fresh ?? 0} new${fresh === 0 ? " — running the tests that exist" : ""}\n`
+            (changedN > 0 ? `${changedN} changed (their tests are updated first), ` : "") +
+            `${fresh ?? 0} new${
+              fresh === 0 && changedN === 0 ? " — running the tests that exist" : ""
+            }\n`
           );
         return `aqa: test design approved — ${rec["items"]} item(s); tests are written from it\n`;
       }

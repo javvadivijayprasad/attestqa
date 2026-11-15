@@ -224,6 +224,25 @@
         "AC-2: After the refusal the room's existing booking is unchanged in the report.",
         "AC-3: Booking the same room for free nights straight after the existing booking succeeds."
       ]
+    },
+    {
+      "ref": "contactlimits",
+      "order": 13,
+      "kind": "stated-limits",
+      "epic": "guest",
+      "summary": "The contact form accepts and refuses input at its stated lengths",
+      "description": [
+        "As the owner I want messages of a sensible size only, so that the inbox stays readable.",
+        "The limits are: phone 11 to 21 characters, subject 5 to 100 characters, message 20 to 2000 characters."
+      ],
+      "acceptance": [
+        "AC-1: A phone number of 11 to 21 characters is accepted; one of 10 or of 22 characters is refused with the message \"Phone must be between 11 and 21 characters.\"",
+        "AC-2: A message of 20 to 2000 characters is accepted; one of 19 characters is refused with the message \"Message must be between 20 and 2000 characters.\"",
+        "AC-3: A subject of 5 to 100 characters is accepted; one of 4 or of 101 characters is refused with the message \"Subject must be between 5 and 100 characters.\""
+      ],
+      "verify": [
+        "Limits and message wording confirmed against the local application on 12 Nov 2026 (the contact form on the home page). First story whose limits and messages are stated in the story itself, for the generated-values feature (2.3.0)."
+      ]
     }
   ],
   "bugs": [

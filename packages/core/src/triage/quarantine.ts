@@ -3,6 +3,8 @@ import { join } from "node:path";
 import type { AnyRunEvent, TriagePayload } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { isPartialRead, testsByTitle } from "../design/test-design.js";
+import { applyEdit } from "../design/edits.js";
+import { TitleSet } from "../design/titles.js";
 
 /**
  * Quarantine: the ONE definition, used by triage, the write guard and the
@@ -153,7 +155,8 @@ export function fullRunsWithChanges(
   events: AnyRunEvent[],
 ): Array<{ passed: Set<string>; failed: Set<string>; changedBefore: Set<string> }> {
   const out: Array<{ passed: Set<string>; failed: Set<string>; changedBefore: Set<string> }> = [];
-  let touched = new Set<string>();
+  // Written titles, asked about reported ones (design/titles.ts).
+  let touched: Set<string> = new TitleSet();
   const content = new Map<string, string>();
   const isSpec = (p: string) => /\.(spec|test)\.[cm]?[jt]sx?$/.test(p);
   const diff = (before: string | undefined, after: string): string[] | undefined => {
@@ -184,7 +187,7 @@ export function fullRunsWithChanges(
         const o = c.args["old"];
         const n = c.args["new"];
         if (before !== undefined && typeof o === "string" && typeof n === "string")
-          next = c.args["all"] === true ? before.split(o).join(n) : before.replace(o, () => n);
+          next = applyEdit(before, o, n, c.args["all"] === true) ?? before;
       }
       const recorded = asArray(result?.["changedTests"]).filter(
         (t): t is string => typeof t === "string",
@@ -216,7 +219,7 @@ export function fullRunsWithChanges(
       else if (r["status"] === "failed" || r["status"] === "timedOut") failed.add(title);
     }
     out.push({ passed, failed, changedBefore: touched });
-    touched = new Set();
+    touched = new TitleSet();
   }
   return out;
 }
