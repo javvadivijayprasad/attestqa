@@ -104,7 +104,13 @@ steps complete.
 The provider and sign-in plug-ins — `@attestqa/provider-bedrock`, `@attestqa/auth-aws`,
 `@attestqa/auth-azure` — ship from the same workflow but **version independently** of the engine:
 they are not in the `fixed` set in `.changeset/config.json`, so `changeset version` bumps each only
-when a changeset names it, and the tag-match check ignores them. The *Plug-in packages* steps in
+when a changeset names it, and the tag-match check ignores them. Each plug-in names the engine as
+a peer dependency (`attestqa >=2.2.0`), and Changesets by default gives every such package a MAJOR
+bump when the engine gets a minor one — on 15 Nov 2026, preparing 2.3.0, `changeset status` showed
+all three going from 0.1.0 to 1.0.0 with no change in them. `onlyUpdatePeerDependentsWhenOutOfRange`
+in `.changeset/config.json` stops that: a plug-in is bumped for the engine only when the new engine
+version falls outside its peer range. Run `npx changeset status --verbose` before step 2 and check
+that only the packages you mean to release are listed. The *Plug-in packages* steps in
 `release.yml` publish each one idempotently (skip if that version is already on npm), so a release
 only ships the ones whose version moved.
 
