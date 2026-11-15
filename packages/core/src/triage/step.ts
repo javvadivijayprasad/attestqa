@@ -30,7 +30,8 @@ import {
 } from "./patterns.js";
 import { readFailures, reportFingerprint, reportMtimeMs, reportPath } from "./report.js";
 import { analyzeReport, merge, type ServiceOptions } from "./service.js";
-import { testsByTitle } from "../design/test-design.js";
+import { testBody } from "../design/test-design.js";
+import { applyEdit } from "../design/edits.js";
 import { droppedClaims } from "../design/claims.js";
 import { asRecord, completedCalls } from "../verify/evidence.js";
 import { isFullRun } from "../runtime/rerun.js";
@@ -600,8 +601,15 @@ export function triageGaps(events: AnyRunEvent[]): {
   // in 20261114T133638Z the home page accessibility scan failed the first run,
   // was quarantined, passed the second with no file touched, and the run was
   // blocked for modifying it. It is said to the reviewer as what it is.
+  //
+  // Asked of each test, between the two runs where its failure changed — not
+  // of the run as a whole. In 20261115T004103Z "password 8 characters" failed
+  // the first run and passed the second with nothing written between them;
+  // two runs later another test's scan was edited, "a file was written in
+  // this run" became true, and the run was blocked for modifying a test
+  // nobody had touched.
   const allDrift = quarantineDrift(history);
-  const untouched = rerunWithNothingWritten(events) ? allDrift : [];
+  const untouched = allDrift.filter((d) => changedWithNothingWritten(events, d.test));
   const drift = allDrift.filter((d) => !untouched.includes(d));
   for (const d of untouched)
     limitations.push(
@@ -737,9 +745,12 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
     // all and reported a kept claim as lost (20261018T125846Z).
     const edited =
       c.toolName === "fs.replace_in_file" && previous !== undefined
-        ? c.args["all"] === true
-          ? previous.split(String(c.args["old"] ?? "")).join(String(c.args["new"] ?? ""))
-          : previous.replace(String(c.args["old"] ?? ""), String(c.args["new"] ?? ""))
+        ? (applyEdit(
+            previous,
+            String(c.args["old"] ?? ""),
+            String(c.args["new"] ?? ""),
+            c.args["all"] === true,
+          ) ?? previous)
         : undefined;
     const text =
       c.toolName === "fs.write_file"
@@ -753,8 +764,8 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
     const isWrite = c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file";
     if (isWrite && previous !== undefined && previous !== text) {
       sawEdit = true;
-      const was = testsByTitle(previous).get(title) ?? "";
-      const now = testsByTitle(text).get(title) ?? "";
+      const was = testBody(previous, title) ?? "";
+      const now = testBody(text, title) ?? "";
       if (droppedClaims(was, now, events).length > 0) return false;
     }
     previous = text;
@@ -765,22 +776,46 @@ function keptItsClaims(events: AnyRunEvent[], test: string): boolean {
 }
 
 /**
- * Whether the ledger shows the suite run in full more than once with no spec
- * or page object written in the run. Only then is "nothing was edited" a fact
- * and not an absence of record.
+ * Whether this test's failure changed — went away, or became another failure —
+ * between two full runs with no spec or page object written between them.
+ * Only then is "nothing was edited" a fact about that change and not an
+ * absence of record.
+ *
+ * Read between triage events: there is one after each full run. From the
+ * triage that first held the test, forward through those that saw the same
+ * failure, to the first that did not.
  */
-function rerunWithNothingWritten(events: AnyRunEvent[]): boolean {
-  const calls = completedCalls(events).filter((c) => c.ok);
-  const wrote = calls.some(
-    (c) =>
-      (c.toolName === "fs.write_file" ||
-        c.toolName === "fs.replace_in_file" ||
-        c.toolName === "bdd2pw.scaffold") &&
-      (c.toolName === "bdd2pw.scaffold" ||
-        /[.](spec|test|page)[.][cm]?[jt]sx?$/i.test(String(c.args["path"] ?? ""))),
-  );
-  const fullRuns = calls.filter((c) => c.toolName === "pw.run_tests" && isFullRun(c.args));
-  return !wrote && fullRuns.length > 1;
+function changedWithNothingWritten(events: AnyRunEvent[], test: string): boolean {
+  const title = titleOf(test);
+  let heldAt = -1;
+  let was = "";
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (e?.kind !== "triage") continue;
+    const p = e.payload as unknown as TriagePayload;
+    const v = p.verdicts.find((x) => titleOf(x.test) === title);
+    if (heldAt < 0) {
+      if (v && (p.quarantined ?? []).some((q) => titleOf(q) === title)) {
+        heldAt = i;
+        was = v.evidence;
+      }
+      continue;
+    }
+    if (v && signature(v.evidence) === signature(was)) {
+      heldAt = i;
+      continue;
+    }
+    const between = completedCalls(events.slice(heldAt, i)).filter((c) => c.ok);
+    const wrote = between.some(
+      (c) =>
+        c.toolName === "bdd2pw.scaffold" ||
+        ((c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") &&
+          /[.](spec|test|page)[.][cm]?[jt]sx?$/i.test(String(c.args["path"] ?? ""))),
+    );
+    const ran = between.some((c) => c.toolName === "pw.run_tests" && isFullRun(c.args));
+    return !wrote && ran;
+  }
+  return false;
 }
 
 function quarantineDrift(history: TriagePayload[]): Array<{

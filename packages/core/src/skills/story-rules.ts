@@ -22,6 +22,7 @@ import {
 } from "../triage/settle.js";
 import { droppedClaims, LOCATOR_CALL } from "../design/claims.js";
 import { rangeValuesOwed } from "../design/stated-ranges.js";
+import { applyEdit, editHits } from "../design/edits.js";
 import { exhaustedTests, MAX_REPAIRS_PER_TEST, quarantinedTitles } from "../triage/quarantine.js";
 import { missingImports } from "../framework/survey.js";
 import {
@@ -29,6 +30,8 @@ import {
   isPartialRead,
   scenarioDesignTags,
   testsByTitle,
+  testBody,
+  otherStoryTestTitles,
 } from "../design/test-design.js";
 import { CATCHES, stuckAction } from "../heal/locator.js";
 import { routePathOf, testsPreExisted } from "../route/route.js";
@@ -515,10 +518,7 @@ function lastKnownContent(
   // (20261013T011552Z).
   const edits: Array<{ old: string; new: string; all: boolean }> = [];
   const replay = (base: string): string =>
-    edits.reduceRight(
-      (text, e) => (e.all ? text.split(e.old).join(e.new) : text.replace(e.old, e.new)),
-      base,
-    );
+    edits.reduceRight((text, e) => applyEdit(text, e.old, e.new, e.all) ?? text, base);
   for (let i = calls.length - 1; i >= 0; i--) {
     const c = calls[i];
     if (!c || !c.ok) continue;
@@ -1457,7 +1457,7 @@ function swallowedFailure(
 
   const swallowing = [...failing].filter((t) =>
     specs.some(({ text }) => {
-      const body = testsByTitle(text).get(t);
+      const body = testBody(text, t);
       if (body === undefined) return false;
       // The fallback may sit in the test or in a helper it calls, so both count.
       return CATCHES.test(body) || CATCHES.test(helperBodies(text));
@@ -1630,7 +1630,7 @@ function latestFailures(events: AnyRunEvent[]): Array<{ title: string; message: 
 /** One test's body, from whichever spec the run has seen. */
 function bodyFor(title: string, specs: Array<{ path: string; text: string }>): string | undefined {
   for (const { text } of specs) {
-    const body = testsByTitle(text).get(title);
+    const body = testBody(text, title);
     if (body !== undefined) return body;
   }
   return undefined;
@@ -1930,16 +1930,16 @@ function asWrite(
   const oldArg = call.args["old"];
   const newArg = call.args["new"];
   if (!path || typeof oldArg !== "string" || typeof newArg !== "string") return call;
-  const before = lf(oldArg);
-  const after = lf(newArg);
   const text = lastKnownContent(path, events, workspaceDir);
   if (text === undefined) return call;
-  const hits = text.split(before).length - 1;
+  // Read as the tool reads it (design/edits.ts): an edit the tool will apply
+  // and this cannot turn into a write is an edit no rule looks at.
+  const every = call.args["all"] === true;
+  const hits = editHits(text, oldArg, newArg);
   // `all: true` changes every occurrence, and is judged as the write it amounts to.
-  if (call.args["all"] === true && hits > 0)
-    return { toolName: "fs.write_file", args: { path, content: text.split(before).join(after) } };
-  if (hits !== 1) return call;
-  return { toolName: "fs.write_file", args: { path, content: text.replace(before, after) } };
+  if (hits === 0 || (hits > 1 && !every)) return call;
+  const content = applyEdit(text, oldArg, newArg, every);
+  return content === undefined ? call : { toolName: "fs.write_file", args: { path, content } };
 }
 
 /** Every spec file this run read or wrote, with its latest content. */
@@ -1966,11 +1966,9 @@ function specTextsFromEvents(events: AnyRunEvent[]): Array<{ path: string; text:
       const before = c.args["old"];
       const after = c.args["new"];
       if (text === undefined || typeof before !== "string" || typeof after !== "string") continue;
-      const hits = text.split(before).length - 1;
-      if (hits === 0) out.delete(path);
-      else if (c.args["all"] === true) out.set(path, text.split(before).join(after));
-      else if (hits === 1) out.set(path, text.replace(before, after));
-      else out.delete(path);
+      const next = applyEdit(text, before, after, c.args["all"] === true);
+      if (next === undefined) out.delete(path);
+      else out.set(path, next);
     }
   }
   return [...out].map(([path, text]) => ({ path, text }));
@@ -2353,7 +2351,7 @@ export function editsAPassingTest(
   // as that story's; the write rule now agrees with both.
   const own = ownTestTitles(events, workItem);
   const failingOther = own ? failing.filter((t) => !own.has(t)) : [];
-  if (failing.length === 0 || (passed.length === 0 && failingOther.length === 0)) return;
+  if (failing.length === 0) return;
   // A regeneration since that run is a new file, not an edit of a green test.
   if (
     completedCalls(events).some(
@@ -2363,6 +2361,15 @@ export function editsAPassingTest(
     return;
   const before = lastKnownContent(path, events, workspaceDir);
   if (before === undefined) return;
+  // And so is a test of another story that neither passed nor failed: one that
+  // is skipped because its steps were never written. 20261115T124325Z (TOOL-34,
+  // route B): the suite result listed two unfinished tests of TOOL-13, the run
+  // wrote their steps for them — eight edits, all let through, because "passed
+  // or failing" did not describe a skipped test — and was then blocked on the
+  // one line of each it was not allowed to remove.
+  const storyId = normId(workItem);
+  const otherTagged = storyId === undefined ? [] : [...otherStoryTestTitles(before, storyId)];
+  if (passed.length === 0 && failingOther.length === 0 && otherTagged.length === 0) return;
   const was = testsByTitle(before);
   const now = testsByTitle(String(call.args["content"] ?? ""));
   // A test's text runs to the start of the next test, so it ends with the tag
@@ -2386,7 +2393,7 @@ export function editsAPassingTest(
   // old AC-1 test passed, and adding "the confirmation is not shown" to it was
   // then refused here as changing a passing test.
   const reworked = changedScenarioTitles(events);
-  const touched = [...passed, ...failingOther].filter((title) => {
+  const touched = [...new Set([...passed, ...failingOther, ...otherTagged])].filter((title) => {
     if (reworked.has(title.trim())) return false;
     const a = was.get(title);
     if (a === undefined) return false;

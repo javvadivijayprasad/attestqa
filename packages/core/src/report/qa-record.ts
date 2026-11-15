@@ -1,12 +1,8 @@
-import { forReviewer } from "../design/test-design.js";
+import { forReviewer, testBody } from "../design/test-design.js";
+import { shownTitle } from "../design/titles.js";
 import { createHash } from "node:crypto";
 import type { AnyRunEvent } from "../types.js";
-import {
-  approvedDesign,
-  assertionsOf,
-  carriedDesign,
-  testsByTitle,
-} from "../design/test-design.js";
+import { approvedDesign, assertionsOf, carriedDesign } from "../design/test-design.js";
 import { caseId } from "../design/cases.js";
 import { storyCoverage, type ItemState, type SourceFile } from "./coverage.js";
 import type { TrackerId } from "../design/ids.js";
@@ -119,7 +115,7 @@ export function composeQaRecord(
       text:
         `${caseId(key, it.id)} · covers ${it.covers} · ${it.type} / ${it.technique}` +
         (it.expectFail ? " · known bug: expected to fail until fixed" : "") +
-        (c?.test ? ` · automated by "${c.test.title}"` : ""),
+        (c?.test ? ` · automated by "${shownTitle(c.test.title)}"` : ""),
     });
     const gherkin = c?.scenario
       ? scenarioGherkin(
@@ -178,7 +174,7 @@ export function composeQaRecord(
       header: ["ID", "Test", "Result", "Run"],
       rows: story.items.map((i) => [
         caseId(key, i.id),
-        i.test?.title ?? "—",
+        i.test ? shownTitle(i.test.title) : "—",
         RESULT[i.state],
         i.result?.runId ?? "—",
       ]),
@@ -198,7 +194,7 @@ export function composeQaRecord(
             i.test?.file.endsWith(sp.path),
         )
       : undefined;
-    const body = spec && i.test ? testsByTitle(spec.text).get(i.test.title) : undefined;
+    const body = spec && i.test ? testBody(spec.text, i.test.title) : undefined;
     // The test's own Then/And steps read as sentences; the assertion code is
     // the fallback when a test has no such steps.
     const steps = body

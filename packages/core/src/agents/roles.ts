@@ -28,8 +28,9 @@ import {
   isPartialRead,
   otherStoryScenarios,
   otherStoryTestTitles,
-  testsByTitle,
+  testBody,
 } from "../design/test-design.js";
+import { TitleSet } from "../design/titles.js";
 import type { TrackerId } from "../design/ids.js";
 
 export type RoleName = "heal" | "default";
@@ -168,10 +169,13 @@ function healableFailure(
   // and stays in scope.
   const otherStory =
     storyId !== undefined
-      ? new Set<string>([
-          ...(anyFeature ? otherStoryScenarios(anyFeature, storyId) : []),
-          ...(anySpec ? otherStoryTestTitles(anySpec, storyId) : []),
-        ])
+      ? new TitleSet(
+          [
+            ...(anyFeature ? otherStoryScenarios(anyFeature, storyId) : []),
+            ...(anySpec ? otherStoryTestTitles(anySpec, storyId) : []),
+          ],
+          true,
+        )
       : undefined;
 
   const own =
@@ -242,7 +246,7 @@ function healableFailure(
     // a pop-up with `.catch(() => {})` (run 20261012T001248Z): an assertion
     // failure was "healed" with five tools and no way to add the design's new
     // scenario.
-    const body = anySpec ? (testsByTitle(anySpec).get(title) ?? "") : "";
+    const body = anySpec ? (testBody(anySpec, title) ?? "") : "";
     if (body && CATCHES.test(body)) return { title, why: "fallback" };
   }
   return undefined;

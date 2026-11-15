@@ -10,6 +10,8 @@ import {
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { acLabels } from "../triage/settle.js";
+import { applyEdit } from "./edits.js";
+import { sameTest, TitleSet } from "./titles.js";
 import type { FrameworkProfile } from "../framework/survey.js";
 
 /**
@@ -1755,7 +1757,9 @@ export function storiesIn(feature: string): Set<TrackerId> {
  * comment above its test, so the tag survives into the spec.
  */
 export function storyTestTitles(spec: string, storyId: TrackerId): Set<string> {
-  const out = new Set<string>();
+  // A title may be a template (`… age ${example.age}`): the set answers for
+  // the titles such a test is reported under (design/titles.ts).
+  const out = new TitleSet();
   let current: TrackerId[] = [];
   for (const line of spec.split("\n")) {
     if (/^\s*\/\//.test(line)) {
@@ -1779,7 +1783,7 @@ export function storyTestTitles(spec: string, storyId: TrackerId): Set<string> {
  * NOT returned here.
  */
 export function otherStoryTestTitles(spec: string, storyId: TrackerId): Set<string> {
-  const out = new Set<string>();
+  const out = new TitleSet();
   let current: TrackerId[] = [];
   for (const line of spec.split("\n")) {
     if (/^\s*\/\//.test(line)) {
@@ -1804,7 +1808,8 @@ export function otherStoryTestTitles(spec: string, storyId: TrackerId): Set<stri
  * with no @story tag is nobody's and is not returned.
  */
 export function otherStoryScenarios(feature: string, storyId: TrackerId): Set<string> {
-  const out = new Set<string>();
+  // Scenario names: an outline's tests carry the row's value after the name.
+  const out = new TitleSet([], true);
   for (const s of scenarioStoryTags(feature))
     if (s.stories.length > 0 && !includesId(s.stories, storyId)) out.add(s.scenario);
   return out;
@@ -1825,8 +1830,10 @@ export function fileTextFromEvents(events: AnyRunEvent[], path: string): string 
     let text = base;
     for (let k = edits.length - 1; k >= 0; k--) {
       const e = edits[k]!;
-      if (!text.includes(e.old)) return undefined;
-      text = e.all ? text.split(e.old).join(e.new) : text.replace(e.old, e.new);
+      // As the tool applied it, across line endings (design/titles.ts).
+      const next = applyEdit(text, e.old, e.new, e.all);
+      if (next === undefined) return undefined;
+      text = next;
     }
     return text;
   };
@@ -1912,6 +1919,18 @@ export function testsByTitle(spec: string): Map<string, string> {
     out.set(here.title, spec.slice(here.at, end));
   }
   return out;
+}
+
+/**
+ * The body of the test a run reported under this title: the test with that
+ * title, or the one whose template title prints it.
+ */
+export function testBody(spec: string, reported: string): string | undefined {
+  const tests = testsByTitle(spec);
+  const exact = tests.get(reported) ?? tests.get(reported.trim());
+  if (exact !== undefined) return exact;
+  for (const [title, body] of tests) if (sameTest(title, reported)) return body;
+  return undefined;
 }
 
 /**

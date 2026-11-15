@@ -14,6 +14,7 @@ import {
   storyFacts,
   storyTestTitles,
 } from "../design/test-design.js";
+import { TitleSet } from "../design/titles.js";
 
 /**
  * Which proposed bugs survive to be put to a human, decided AFTER execution
@@ -404,7 +405,9 @@ function titlesTheRouteListed(events: AnyRunEvent[]): Set<string> | undefined {
       .map((c) => asRecord(c))
       .filter((c) => c?.["state"] === "exists" && typeof c["title"] === "string")
       .map((c) => String(c?.["title"]).trim());
-    return titles.length > 0 ? new Set(titles) : undefined;
+    // The route lists scenario names. The tests of a Scenario Outline are
+    // named after the scenario with the row's value after it ("… age 75").
+    return titles.length > 0 ? new TitleSet(titles, true) : undefined;
   }
   return undefined;
 }

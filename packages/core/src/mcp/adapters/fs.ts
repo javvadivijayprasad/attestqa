@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
+import { unmask } from "../../design/edits.js";
 import type { ToolClient, ToolDescriptor, ToolResult } from "../../runtime/tools.js";
 import { testsByTitle } from "../../design/test-design.js";
 
@@ -429,59 +430,8 @@ export function changedTests(rel: string, before: string, after: string): string
   return out;
 }
 
-/** Mask tokens the scrub writes into what the model sees, and what each stands for. */
-const MASK_PATTERNS: Array<[string, string]> = [
-  ["[EMAIL]", "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"],
-  ["[IP]", "(?:\\d{1,3}\\.){3}\\d{1,3}"],
-];
-
-/**
- * `old` with mask tokens resolved against the file: the one place in the file
- * that matches `old` with each token read as the value it hides. Returns the
- * literal `old` and `new` to use, or undefined when `old` has no token, matches
- * the file as it is, or matches it in no place or in several.
- */
-export function unmask(
-  text: string,
-  before: string,
-  after: string,
-): { before: string; after: string } | undefined {
-  const used = MASK_PATTERNS.filter(([token]) => before.includes(token));
-  if (used.length === 0 || text.includes(before)) return undefined;
-  let source = "";
-  let rest = before;
-  const order: string[] = [];
-  while (rest.length > 0) {
-    let at = -1;
-    let hit: [string, string] | undefined;
-    for (const m of used) {
-      const i = rest.indexOf(m[0]);
-      if (i >= 0 && (at < 0 || i < at)) {
-        at = i;
-        hit = m;
-      }
-    }
-    if (!hit) {
-      source += escapeRegExp(rest);
-      break;
-    }
-    source += escapeRegExp(rest.slice(0, at)) + "(" + hit[1] + ")";
-    order.push(hit[0]);
-    rest = rest.slice(at + hit[0].length);
-  }
-  const matches = [...text.matchAll(new RegExp(source, "g"))];
-  if (matches.length !== 1) return undefined;
-  const m = matches[0]!;
-  // Each token in `new` becomes the value its first occurrence in `old` stood for.
-  const values = new Map<string, string>();
-  order.forEach((token, i) => {
-    if (!values.has(token)) values.set(token, m[i + 1] ?? token);
-  });
-  let next = after;
-  for (const [token, value] of values) next = next.split(token).join(value);
-  return { before: m[0], after: next };
-}
-
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+export { unmask };
