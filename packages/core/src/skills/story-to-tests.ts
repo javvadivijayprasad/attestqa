@@ -1199,6 +1199,7 @@ export function storyToTestsSkill(
       // So the edit-surface rule can tell this story's own tests from the
       // neighbours' in a shared epic file (W35).
       ...(options.workItem ? { workItem: options.workItem } : {}),
+      ...(options.examplesOffered ? { examplesOffered: true } : {}),
     }),
     // ADR-004: once the design is approved, its test cases go to the story's
     // QA sub-task straight away — covered by that approval, not asked again.
@@ -1618,7 +1619,9 @@ function testDesignStep(types: readonly string[]): string {
    Take a form field's values from its rules, not from memory. If a
    synthdata.examples tool is offered and an item is boundary-value-analysis or
    equivalence-partitioning on a field with stated limits (required, a maximum
-   length, a range, an allowed set), call it BEFORE you submit the design: state
+   length, a range, an allowed set), call it BEFORE you submit the design (for a
+   number range a criterion states, a design submitted without those calls is
+   sent back): state
    the rules as one small CREATE TABLE, ask for profile "edge" (the valid
    boundaries) and profile "negative" (invalid rows, one broken rule each, named
    in _violation — the value one above a range's maximum is in this profile; when

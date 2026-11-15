@@ -141,6 +141,13 @@ export interface StoryToTestsOptions {
    * author from scratch — for the three-runs-per-story consistency measurement.
    */
   fresh?: boolean;
+  /**
+   * `synthdata.examples` is among the tools this run offers (SYNTHDATA_CLI is
+   * set and the server is on). A design that tests a number range its
+   * criterion states is then sent back until the tool has been asked for that
+   * range (`rangeValuesOwed`).
+   */
+  examplesOffered?: boolean;
 }
 
 /**
@@ -177,6 +184,7 @@ export class StoryToTestsVerifier implements Verifier {
     | "tracker"
     | "previousRuns"
     | "fresh"
+    | "examplesOffered"
   > &
     Pick<
       StoryToTestsOptions,
@@ -187,6 +195,7 @@ export class StoryToTestsVerifier implements Verifier {
       | "tracker"
       | "previousRuns"
       | "fresh"
+      | "examplesOffered"
     >;
 
   constructor(options: StoryToTestsOptions) {

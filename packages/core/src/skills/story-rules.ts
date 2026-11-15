@@ -21,6 +21,7 @@ import {
   ownTestTitles,
 } from "../triage/settle.js";
 import { droppedClaims, LOCATOR_CALL } from "../design/claims.js";
+import { rangeValuesOwed } from "../design/stated-ranges.js";
 import { exhaustedTests, MAX_REPAIRS_PER_TEST, quarantinedTitles } from "../triage/quarantine.js";
 import { missingImports } from "../framework/survey.js";
 import {
@@ -131,7 +132,13 @@ export function storyRefusal(
  * before anyone is asked to approve it.
  */
 export function makeStoryRefusal(
-  opts: { testTypes?: readonly TestType[]; workspaceDir?: string; workItem?: string } = {},
+  opts: {
+    testTypes?: readonly TestType[];
+    workspaceDir?: string;
+    workItem?: string;
+    /** `synthdata.examples` is among the tools this run offers. */
+    examplesOffered?: boolean;
+  } = {},
 ) {
   const types = opts.testTypes;
   const where = {
@@ -145,7 +152,7 @@ export function makeStoryRefusal(
     call: { toolName: string; args: Record<string, unknown> },
     events: AnyRunEvent[],
   ): string | undefined =>
-    invalidDesign(call, events, types, opts.workspaceDir) ??
+    invalidDesign(call, events, types, opts.workspaceDir, opts.examplesOffered === true) ??
     designFirst(call, events) ??
     storyRefusal(call, events, where);
 }
@@ -156,6 +163,7 @@ function invalidDesign(
   events: AnyRunEvent[],
   types: readonly TestType[],
   workspaceDir?: string,
+  examplesOffered = false,
 ): string | undefined {
   if (call.toolName !== "aqa.test_design") return;
   const facts = storyFacts(events);
@@ -165,6 +173,9 @@ function invalidDesign(
   const problems = [
     ...validateDesign(design, facts, types),
     ...takenDesignIds(design, facts, events, workspaceDir),
+    // Only where the generator is offered: without it the values are the
+    // agent's own, as they always were.
+    ...(examplesOffered ? rangeValuesOwed(design, events) : []),
   ];
   if (problems.length === 0) return;
   return `the test design has ${
