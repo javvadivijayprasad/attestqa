@@ -19,8 +19,8 @@ authors:
     orcid: "https://orcid.org/0009-0004-1192-6906"
     affiliation: "Independent Researcher, Plainsboro, NJ, USA"
     email: vijay@vijayjavvadiresearch.ai
-version: 2.2.0
-date-released: "2026-11-10"
+version: 2.3.0
+date-released: "2026-11-15"
 license: MIT
 repository-code: "https://github.com/javvadivijayprasad/attestqa"
 url: "https://github.com/javvadivijayprasad/attestqa#readme"
