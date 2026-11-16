@@ -977,6 +977,54 @@ export function waitingForChangedTests(events: AnyRunEvent[]): boolean {
   return since.filter((e) => e.kind === "context").length < TURNS_TO_UPDATE_CHANGED;
 }
 
+/**
+ * True while approved design items have no test yet and the agent has not said
+ * it has finished: the suite's first run waits.
+ *
+ * In an epic file other stories share, the spec exists before this story has
+ * a single test in it. The runtime used to run it the moment the design was
+ * approved ("nothing has run yet"): a run of the neighbours' tests, twice when
+ * one of them failed, that says nothing about this story. In 20261116T145534Z
+ * (Booker #92) the agent's first turn after the design was a suite that had
+ * already run, with story 176's contact-form tests in it; it took them for its
+ * own, reported the story done without writing a line, and the run ended
+ * blocked on `design-item-not-tested`. Five earlier runs on the same route
+ * show the same early run. On a new feature file this cannot happen — there
+ * is no spec until the scaffold — so this makes the shared file behave the
+ * same way.
+ *
+ * `untested` is what the caller found on disk: the approved items with no
+ * test. The wait ends when that list is empty, or when the agent ends a turn
+ * with no call — it says it has finished, and the verifier is consulted
+ * (a `verify` event). The suite then runs, so a run that stops short still
+ * ends with results for the tests that exist.
+ *
+ * Not a count of turns. The first version waited six turns without a write to
+ * the suite; in 20261116T155959Z (Booker #93) the agent wrote the feature at
+ * its fifth turn and then explored the admin pages to write the spec, and the
+ * runtime asked to run the suite in the middle of that. Reading the page is
+ * the work; only the agent stopping is the signal.
+ */
+export function waitingForNewTests(events: AnyRunEvent[], untested: readonly string[]): boolean {
+  if (untested.length === 0) return false;
+  // From the design's approval in this run, or the route when the design was
+  // carried from an earlier run (it is approved before this run starts).
+  let from = -1;
+  const designCalls = new Set<number>();
+  events.forEach((e, i) => {
+    if (e.kind === "route") from = i;
+    if (e.kind === "call") {
+      const p = e.payload as { server: string; toolName: string };
+      if (p.server === "aqa" && p.toolName === "test_design") designCalls.add(e.eventId);
+    }
+    if (e.kind === "observation") {
+      const o = e.payload as { eventIdOfCall: number; ok: boolean };
+      if (o.ok && designCalls.has(o.eventIdOfCall)) from = i;
+    }
+  });
+  return !events.slice(from + 1).some((e) => e.kind === "verify");
+}
+
 export function storyToTestsSkill(
   input: StoryToTestsOptions & {
     /** Azure DevOps project, passed on every preflight read. */
@@ -986,6 +1034,29 @@ export function storyToTestsSkill(
   const { project, ...options } = input;
   const tracker: Tracker = options.tracker ?? "ado";
   const canCreatePlans = tracker === "ado" && options.requireSuiteMembership !== false;
+  /**
+   * The approved design items that have no test on disk: no scenario of this
+   * story tagged for them, or a scenario with no test in the spec. Read the way
+   * `reroute` reads it, so the two cannot disagree about what is missing.
+   */
+  const untestedItems = (events: AnyRunEvent[]): string[] => {
+    const design = approvedDesign(events);
+    const facts = storyFacts(events);
+    if (!design || !facts || !options.workspaceDir) return [];
+    const read = (p?: string): string | undefined => {
+      if (!p) return undefined;
+      const full = join(options.workspaceDir as string, p);
+      return existsSync(full) ? readFileSync(full, "utf8") : undefined;
+    };
+    const featureText = read(featurePathFor(facts));
+    const specText = read(specPathFor(facts));
+    const covered = coverageOf(design, {
+      ...(featureText !== undefined ? { featureText } : {}),
+      ...(specText !== undefined ? { specText } : {}),
+      ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
+    });
+    return design.items.filter((it) => !covered.has(it.id)).map((it) => it.id);
+  };
   /** The `jira.record_qa` call for this run (ADR-004), or undefined with nothing to record. */
   const qaRecordCall = (
     events: AnyRunEvent[],
@@ -1397,6 +1468,10 @@ export function storyToTestsSkill(
       // writes to the suite, or has had `TURNS_TO_UPDATE_CHANGED` turns and
       // changed nothing, which is its answer that nothing needed changing.
       if (lastFullRun === undefined && waitingForChangedTests(events)) return undefined;
+      // Nor before this story has its tests: in a file other stories share,
+      // a run now is a run of the neighbours' tests (`waitingForNewTests`).
+      if (lastFullRun === undefined && waitingForNewTests(events, untestedItems(events)))
+        return undefined;
       if (lastFullRun === undefined)
         return { toolName: "pw.run_tests", args: { spec }, why: "nothing has run yet" };
       // The suite's first failure is run again as it is, before the model is
