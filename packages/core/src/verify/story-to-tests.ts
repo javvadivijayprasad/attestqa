@@ -13,6 +13,7 @@ import type {
 import { runTriage, triageGaps } from "../triage/step.js";
 import {
   approvedDesign,
+  previousDesign,
   featurePathFor,
   storyFacts,
   traceProblems,
@@ -20,6 +21,7 @@ import {
 } from "../design/test-design.js";
 import { bugIsAbout, lastFullRun, openBugAbout, ownTestTitles } from "../triage/settle.js";
 import {
+  changedItems,
   changedScenariosWithoutATest,
   untouchedChangedItems,
   untouchedLine,
@@ -38,13 +40,34 @@ import {
   type CallRecord,
 } from "./evidence.js";
 
+/**
+ * Of the items a route recorded as changed, the ids that are STILL changed
+ * under the design approved last.
+ *
+ * The route records them when the run switches, from the design approved at
+ * that moment. A design can be approved again in the same run, and the later
+ * one may put an item back to what its test was written for. Booker #176,
+ * 20261115T142723Z: the first design gave five items in looser words than the
+ * design of the earlier run, the verifier pointed that out, the corrected
+ * design was approved — and the run still ended with all five "for your
+ * review", each saying its item had changed, comparing two designs of which
+ * the second was no longer in force.
+ */
+function stillChanged(events: AnyRunEvent[], recorded: Array<{ id: string; scenario: string }>) {
+  const design = approvedDesign(events);
+  const before = previousDesign(events)?.design;
+  if (!design || !before || recorded.length === 0) return new Set(recorded.map((c) => c.id));
+  const covered = new Map(recorded.map((c) => [c.id, { scenario: c.scenario }]));
+  return new Set(changedItems(design, covered, before).map((c) => c.id));
+}
+
 /** The changed items of the last route, with their scenario and test as recorded at the switch. */
-function changedAtSwitchOf(events: AnyRunEvent[]): ChangedAtSwitch[] {
+export function changedAtSwitchOf(events: AnyRunEvent[]): ChangedAtSwitch[] {
   for (let i = events.length - 1; i >= 0; i--) {
     const e = events[i];
     if (e?.kind !== "route") continue;
     const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
-    return asArray(because?.["changed"]).flatMap((c) => {
+    const recorded = asArray(because?.["changed"]).flatMap((c) => {
       const r = asRecord(c);
       const str = (k: string) => (typeof r?.[k] === "string" ? (r[k] as string) : undefined);
       const id = str("id");
@@ -62,6 +85,16 @@ function changedAtSwitchOf(events: AnyRunEvent[]): ChangedAtSwitch[] {
         },
       ];
     });
+    const still = stillChanged(events, recorded);
+    // "now" is what the design in force expects, not what the design at the
+    // switch did.
+    const inForce = approvedDesign(events);
+    return recorded
+      .filter((c) => still.has(c.id))
+      .map((c) => {
+        const now = inForce?.items.find((it) => it.id === c.id)?.expected;
+        return now === undefined ? c : { ...c, now };
+      });
   }
   return [];
 }
@@ -72,9 +105,14 @@ function changedIdsOf(events: AnyRunEvent[]): string[] {
     const e = events[i];
     if (e?.kind !== "route") continue;
     const because = asRecord(asRecord(e.payload as unknown)?.["because"]);
-    return asArray(because?.["changed"])
-      .map((c) => asRecord(c)?.["id"])
-      .filter((id): id is string => typeof id === "string");
+    const recorded = asArray(because?.["changed"]).flatMap((c) => {
+      const r = asRecord(c);
+      return typeof r?.["id"] === "string"
+        ? [{ id: r["id"], scenario: typeof r["scenario"] === "string" ? r["scenario"] : "" }]
+        : [];
+    });
+    const still = stillChanged(events, recorded);
+    return recorded.map((c) => c.id).filter((id) => still.has(id));
   }
   return [];
 }

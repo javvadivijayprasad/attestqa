@@ -253,6 +253,25 @@ export function settleBugs(
       continue;
     }
 
+    // So is what it says about the OTHER cases. A bug isolates a defect by
+    // saying what worked: "the accepted cases for ages 18 and 74 passed". In
+    // 20261115T124325Z two bugs said that of cases that had failed in the same
+    // runs — the application was answering slowly and nothing registered —
+    // and the isolation they claimed was the whole argument.
+    const contradicted = contradictedPassClaims(bugText(call), stillFailing, title);
+    if (contradicted.length > 0) {
+      const c = contradicted[0]!;
+      drop.push({
+        call,
+        reason:
+          `it says a case passed that failed in this run: "${c.sentence}" — and "${c.test}" ` +
+          "failed in the final run. A bug that rests on what else worked has to be right about " +
+          "it. If that case failing changes what this failure means, say so; otherwise take " +
+          "the statement out, then propose it again",
+      });
+      continue;
+    }
+
     // A bug whose own reasoning doubts the test is not evidence about the
     // product. 20260923T235843Z filed four bugs for one failing test, and the
     // first said in as many words that "the locator may not match the actual
@@ -460,6 +479,61 @@ export function falseClaims(
   ];
   for (const [claimed, inSpec, said] of claims) {
     if (claimed.test(text) && !inSpec.test(spec)) out.push(said);
+  }
+  return out;
+}
+
+/** The text of a bug, whichever tracker it is for. */
+function bugText(call: ProposedCall): string {
+  return stripHtml(fieldValue(asAdoBug(call), "Microsoft.VSTS.TCM.ReproSteps") ?? "");
+}
+
+const SAYS_PASSED = /\b(?:pass(?:ed|es|ing)?|succeed(?:ed|s|ing)?)\b/i;
+const NOT_PASSED =
+  /\b(?:not|never|no longer|fail(?:ed|s|ing)? to|without|neither|nor|none)\b[^.]{0,40}\b(?:pass|succeed)|\b(?:did|does|do|could|would)n['’]t\b/i;
+/** Words by which a bug speaks of a case other than its own. */
+const OTHER_CASE =
+  /\b(?:companion|other|others|sibling|neighbou?ring|accepted|valid|remaining|rest of|same (?:data|helper|form|values?))\b/i;
+
+/**
+ * Sentences in a bug that say another case passed, where a test of this story
+ * that names that case failed in the final run.
+ *
+ * A sentence is tied to a failing test by what the test's title says and the
+ * criterion label does not: a number in it ("age 18", "8 characters"), or
+ * three of its longer words. Nothing is read into a sentence that names no
+ * case, and a statement that something did NOT pass is left alone. Neither is
+ * the case the bug itself is about, which its title names ("a 17-year-old
+ * customer"): that one is supposed to be failing.
+ */
+export function contradictedPassClaims(
+  text: string,
+  failingTitles: readonly string[],
+  bugTitle = "",
+): Array<{ sentence: string; test: string }> {
+  if (!text || failingTitles.length === 0) return [];
+  const tokens = (s: string) => s.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const own = new Set(tokens(bugTitle.replace(/^\s*AC[- ]?\S+\s*/i, "")));
+  const tests = failingTitles.map((title) => {
+    const t = tokens(title.replace(/^\s*AC[- ]?\S+\s*/i, ""));
+    return {
+      title,
+      numbers: new Set(t.filter((x) => /^\d+$/.test(x))),
+      words: new Set(t.filter((x) => x.length >= 5 && !/^\d+$/.test(x))),
+    };
+  });
+  const out: Array<{ sentence: string; test: string }> = [];
+  for (const raw of text.split(/(?<=[.;!?])\s+|\r?\n/)) {
+    const sentence = raw.replace(/^[-•*\s]+/, "").trim();
+    if (!SAYS_PASSED.test(sentence) || !OTHER_CASE.test(sentence) || NOT_PASSED.test(sentence))
+      continue;
+    const said = new Set(tokens(sentence));
+    const hit = tests.find(
+      (t) =>
+        [...t.numbers].some((n) => said.has(n) && !own.has(n)) ||
+        [...t.words].filter((w) => said.has(w)).length >= 3,
+    );
+    if (hit) out.push({ sentence: sentence.slice(0, 220), test: hit.title });
   }
   return out;
 }

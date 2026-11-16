@@ -7,7 +7,6 @@ import {
   scenarioDesignTags,
   scenarioStoryTags,
   storyFacts,
-  testsByTitle,
   type DesignItem,
 } from "../design/test-design.js";
 import { includesId, normId, sameId, storyTagIds, type TrackerId } from "../design/ids.js";
@@ -100,11 +99,16 @@ export function specTests(
 ): Array<{ title: string; stories: TrackerId[]; designs: string[] }> {
   const lines = spec.split("\n");
   const out: Array<{ title: string; stories: TrackerId[]; designs: string[] }> = [];
-  for (const title of testsByTitle(spec).keys()) {
-    const at = lines.findIndex(
-      (l) => /^\s*test(?:\.(?:only|skip|fixme|fail|slow))?\s*\(/.test(l) && l.includes(title),
+  // Each test where it stands, with the tags above THAT line. Looking a title
+  // up — "the first test line that contains it" — gave two tests of one title
+  // the first one's tags, and a title that is the start of another's the
+  // wrong line altogether.
+  for (let at = 0; at < lines.length; at++) {
+    const m = /^\s*test(?:\.(?:only|skip|fixme|fail|slow))?\s*\(\s*(["'`])([\s\S]*?)\1/.exec(
+      lines[at] ?? "",
     );
-    if (at < 0) continue;
+    if (!m) continue;
+    const title = (m[2] ?? "").trim();
     const tags = tagsAbove(lines, at);
     out.push({
       title,
@@ -206,14 +210,22 @@ export function storyCoverage(
     const design = run ? approvedDesign(run.events) : undefined;
 
     const scenarios = files.features.flatMap((f) => {
+      // Both lists hold one entry per scenario, in the order of the file, so a
+      // scenario's design tags are the entry at its own position. They were
+      // looked up by TITLE, and two scenarios of one title got the first one's
+      // tags: in Toolshop's customer-account feature TOOL-14 and TOOL-34 each
+      // have "AC-accessibility The registration page passes an automated
+      // accessibility scan", and TOOL-34's design item D19 was recorded as
+      // "not written yet" on every run (20261115T130446Z, 20261115T145727Z).
       const designs = scenarioDesignTags(f.text);
       return scenarioStoryTags(f.text)
-        .filter((s) => includesId(s.stories, id))
-        .map((s) => ({
+        .map((s, i) => ({
           title: s.scenario,
           file: f.path,
-          designs: designs.find((d) => d.scenario === s.scenario)?.designs ?? [],
-        }));
+          stories: s.stories,
+          designs: designs[i]?.scenario === s.scenario ? (designs[i]?.designs ?? []) : [],
+        }))
+        .filter((s) => includesId(s.stories, id));
     });
     const tests = files.specs.flatMap((f) =>
       specTests(f.text)

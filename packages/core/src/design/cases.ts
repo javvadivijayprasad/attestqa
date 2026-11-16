@@ -265,6 +265,15 @@ export function untouchedChangedItems(
 
 /** The line a changed, untouched item is reported with — the same words every time it is checked. */
 export function untouchedLine(c: ChangedAtSwitch): string {
+  // The expected result reads the same and the item is still "changed": then
+  // it is the values in its conditions that differ (`changedItems`).
+  if (squeeze(c.was) === squeeze(c.now))
+    return (
+      `${c.id}: the approved design states other values in this item's conditions than the ` +
+      "design its test was written for, and neither its scenario nor its test was changed " +
+      `(the expected result is the same: ${squeeze(c.now)}). If the test already uses the ` +
+      "values the item states now, leave it; otherwise bring the scenario and the test into line"
+    );
   return (
     `${c.id}: the approved design changed what this item expects and neither its scenario nor ` +
     `its test was changed — before: ${squeeze(c.was)} | now: ${squeeze(c.now)}. If the test ` +
