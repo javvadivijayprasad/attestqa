@@ -63,9 +63,24 @@ export interface RerunState {
    * refusal four events later). The runtime now makes that run itself, and the
    * gate lets it through, from this one flag: the latest triage is the run's
    * first, it found failures, and no full run has happened since.
+   *
+   * And once more for a test that failed for the FIRST time in that re-run. In
+   * 20261115T144048Z (TOOL-9, the application just started) one test failed
+   * the first run and passed the second, and two others passed the first and
+   * failed the second. Those two had failed once — exactly what the re-run
+   * exists to look at again — but the re-run had been spent: each passed when
+   * run alone, a full run was refused as "nothing has changed", and the story
+   * was blocked on a suite that four runs in a row then passed. Bounded by
+   * `MAX_UNCHANGED_RERUNS`: an application that fails a different test every
+   * time is not something more runs settle.
    */
   retryOwed: boolean;
+  /** Tests whose first failure in this run is in the latest report; why a second re-run is owed. */
+  newFailures: string[];
 }
+
+/** Full runs of unchanged bytes the runtime makes on its own, after the first. */
+export const MAX_UNCHANGED_RERUNS = 2;
 
 /**
  * What has happened to the suite since it last ran in full.
@@ -79,7 +94,7 @@ export function suiteChangedSinceLastFullRun(events: AnyRunEvent[]): RerunState 
   const calls = completedCalls(events);
   const runs = successful(calls, "pw.run_tests").filter((c) => isFullRun(c.args));
   const last = runs[runs.length - 1];
-  if (!last) return { changed: [], retryOwed: false };
+  if (!last) return { changed: [], retryOwed: false, newFailures: [] };
   const changed = calls
     .filter(
       (c) =>
@@ -93,17 +108,46 @@ export function suiteChangedSinceLastFullRun(events: AnyRunEvent[]): RerunState 
   for (const c of calls)
     if (c.ok && c.toolName === "bdd2pw.scaffold" && c.eventId > last.eventId)
       changed.push(`spec regenerated from ${String(c.args["feature"] ?? "the feature file")}`);
-  const triage = [...events].reverse().find((e) => e.kind === "triage");
-  const verdict = triage?.payload as
-    { attempt?: number; cleared?: boolean; verdicts?: unknown[] } | undefined;
-  const retryOwed =
+  type Triage = { attempt?: number; cleared?: boolean; verdicts?: Array<{ test?: unknown }> };
+  const triages = events.filter((e) => e.kind === "triage");
+  const triage = triages[triages.length - 1];
+  const verdict = triage?.payload as Triage | undefined;
+  const failed = (t: Triage | undefined) =>
+    (t?.verdicts ?? []).map((v) => String(v?.test ?? "")).filter(Boolean);
+  const before = new Set(triages.slice(0, -1).flatMap((t) => failed(t.payload as Triage)));
+  const newFailures = failed(verdict).filter((t) => !before.has(t));
+  // Full runs so far that executed the same bytes as the run before them.
+  const wroteBetween = (from: number, to: number) =>
+    calls.some(
+      (c) =>
+        c.ok &&
+        c.eventId > from &&
+        c.eventId < to &&
+        (c.toolName === "bdd2pw.scaffold" ||
+          ((c.toolName === "fs.write_file" || c.toolName === "fs.replace_in_file") &&
+            SUITE_FILE.test(String(c.args["path"] ?? "")))),
+    );
+  const unchangedReruns = runs.filter(
+    (r, i) => i > 0 && !wroteBetween((runs[i - 1] as typeof r).eventId, r.eventId),
+  ).length;
+  const judged =
     changed.length === 0 &&
     triage !== undefined &&
     triage.eventId > last.eventId &&
-    verdict?.attempt === 1 &&
-    verdict.cleared !== true &&
-    (verdict.verdicts?.length ?? 0) > 0;
-  return { lastFullRun: last.eventId, changed: [...new Set(changed)], retryOwed };
+    verdict?.cleared !== true &&
+    failed(verdict).length > 0;
+  const first = judged && verdict?.attempt === 1;
+  const again =
+    judged &&
+    (verdict?.attempt ?? 0) > 1 &&
+    newFailures.length > 0 &&
+    unchangedReruns < MAX_UNCHANGED_RERUNS;
+  return {
+    lastFullRun: last.eventId,
+    changed: [...new Set(changed)],
+    retryOwed: first || again,
+    newFailures: again ? newFailures : [],
+  };
 }
 
 /** "a.spec.ts and 2 more", for a refusal or a why-line. */
