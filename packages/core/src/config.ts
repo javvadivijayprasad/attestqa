@@ -4,6 +4,7 @@ import { extname, resolve } from "node:path";
 import type {
   AgentConfig,
   CapabilitiesConfig,
+  KnowledgeConfig,
   ModelAuth,
   ModelConfig,
   ModelProvider,
@@ -13,6 +14,7 @@ import type {
 } from "./types.js";
 import { DEFAULT_CAPABILITIES, DEFAULT_POLICY, POLICY_CLASSES } from "./types.js";
 import { isRegisteredProvider, registeredProviderNames } from "./runtime/registry.js";
+import { knowledgePathProblem } from "./knowledge/paths.js";
 
 /**
  * Loads the `agent:` section of `ai-quality.config.yaml` (PLAN §0.3). JSON is
@@ -159,6 +161,8 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
     approve_execution = agent["approve_execution"];
   }
 
+  const knowledge = knowledgeConfig(agent["knowledge"], `${source}: agent.knowledge`);
+
   return {
     model,
     prompt_version,
@@ -169,7 +173,30 @@ export function agentConfigFromObject(raw: unknown, source = "<config>"): AgentC
     ...(test_types ? { test_types } : {}),
     ...(llm_fallback ? { llm_fallback } : {}),
     ...(approve_execution !== undefined ? { approve_execution } : {}),
+    // Only when set, like the keys above: a config without it hashes as before.
+    ...(knowledge ? { knowledge } : {}),
   };
+}
+
+/**
+ * `agent.knowledge`: where the project's own documents are (ADR-008). Its own
+ * function because `aqa index` reads this one key and needs no model, so it
+ * must not have to load a provider plug-in to validate the rest.
+ */
+export function knowledgeConfig(raw: unknown, where: string): KnowledgeConfig | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (!isObject(raw)) throw new ConfigError(`${where} must be a mapping with a "paths" list`);
+  for (const key of Object.keys(raw)) {
+    if (key !== "paths") throw new ConfigError(`${where} has unknown key "${key}"`);
+  }
+  const paths = strList(raw["paths"], `${where}.paths`).map((p) => p.trim());
+  if (paths.length === 0)
+    throw new ConfigError(`${where}.paths names no folder — list one, or remove agent.knowledge`);
+  for (const p of paths) {
+    const bad = knowledgePathProblem(p);
+    if (bad) throw new ConfigError(`${where}.paths: "${p}" ${bad}`);
+  }
+  return { paths };
 }
 
 /**

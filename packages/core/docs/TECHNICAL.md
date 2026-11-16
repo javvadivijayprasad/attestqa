@@ -53,6 +53,10 @@ src/
     servers.ts        azureDevOpsServer(), playwrightServer()
     discover.ts       buildReport for `aqa discover`
     adapters/         fs, bdd2pw, pw, tcg, synthdata, summary, process
+  knowledge/
+    passages.ts       a document cut into passages; the passage id
+    bm25.ts           keyword ranking (BM25), tokeniser, query stop words
+    build.ts          aqa index: collect, write, read back, staleness
   skills/
     story-to-tests.ts instructions, allowedTools, sourceTools, verifier
   verify/
@@ -162,6 +166,18 @@ agent:
 JSON is accepted with the same shape, so a generator need not depend on a YAML library.
 `agent.scope` is required; everything else has a default. An unknown key under `policy` or
 `capabilities` is an error rather than a silent no-op.
+
+`agent.knowledge` is optional and absent by default:
+
+```yaml
+agent:
+  knowledge:
+    paths: ["docs/requirements", "docs/validation-rules.md"] # folders or files, inside the workspace
+```
+
+It names the project's own documents for `aqa index`. A path must be relative and stay inside
+the workspace; an unknown key under `knowledge` is an error. Like every optional key, it is part
+of the loaded config only when set, so a config without it keeps the `configHash` it had.
 
 `configHash` in the `request` event is `sha256(JSON.stringify(config))` — so any config change is
 visible in the ledger, and the golden fixture fails on drift.
@@ -320,10 +336,17 @@ attempted" from "attempted and refused" from "attempted and failed".
 ```
 aqa replay <path> [--out <file>]
 aqa discover [--servers …] [--out docs/tools-observed.md] [--workspace .]
+aqa index --config <file> [--workspace .] [--ledger .aqa]
 aqa run "<request>" --config <file> [--ledger .aqa] [--workspace .] [--env .env]
         [--approval terminal|file] [--approval-timeout <seconds>]
         [--work-item <id>] [--servers …] [--dry-run]
 ```
+
+`aqa index` writes `<ledger>/knowledge/`: `passages.jsonl` (one passage per line: `id`, `file`,
+`heading`, `lines`, `modified`, `hash`, `text`), `keywords.json` (the BM25 postings) and
+`manifest.json` (file hashes, chunker version, build time, the attestqa version, and a hash of
+the other two files — an index whose files do not match its manifest is refused). It exits 0, or
+1 with the reason. The exit codes below are those of `aqa run`.
 
 | exit | status    | meaning                                                 |
 | ---- | --------- | ------------------------------------------------------- |

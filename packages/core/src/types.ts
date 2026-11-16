@@ -516,6 +516,16 @@ export interface AgentConfig {
    * the suite runs without asking, as before.
    */
   approve_execution?: boolean;
+  /**
+   * The project's own documents the agent may search (ADR-008): folders or
+   * files, relative to the workspace. Absent: no search, and a config without
+   * the key hashes as it always did.
+   */
+  knowledge?: KnowledgeConfig;
+}
+
+export interface KnowledgeConfig {
+  paths: string[];
 }
 
 export const DEFAULT_POLICY: PolicyTable = {

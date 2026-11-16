@@ -135,6 +135,7 @@ The full walk-through, for Jira and Azure DevOps, is the [user guide](docs/USAGE
 aqa coverage --workspace ./my-playwright-project   # each story: design, tests, last result
 aqa replay .aqa                                    # what happened in the latest run
 aqa seed --schema db/schema.sql                    # optional: seed data for the app, from its schema
+aqa index --config ai-quality.config.yaml          # optional: index your project's documents (agent.knowledge.paths)
 ```
 
 ## What it does today

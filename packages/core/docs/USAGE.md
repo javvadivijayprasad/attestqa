@@ -200,6 +200,33 @@ of `aqa run`, and nothing happens until you run the command yourself. Two kinds 
 by synthdata 1.4.0 — a rule on the length of a text, and a range written as two comparisons instead
 of `BETWEEN` — and when the schema has one, the command names it so you can check those rows.
 
+**An index of your project's documents (optional, 2.4.0).** A story often names a rule without
+its value: "a phone number shorter than the allowed length is refused". When the value is in a
+document of yours — a specification, a list of validation rules — you can name the folder in
+the config and build a search index of it:
+
+```yaml
+agent:
+  knowledge:
+    paths: ["docs/requirements"] # folders or files, inside the workspace
+```
+
+```bash
+aqa index --config ai-quality.config.yaml --workspace ./my-playwright-project
+```
+
+It reads Markdown (`.md`, `.markdown`) and plain text (`.txt`), cuts each file into passages at
+its headings, and writes the index to `.aqa/knowledge/`. No model is called and nothing leaves
+your machine. It prints the files it indexed and any it left out, with the reason.
+
+- **Run it again when the documents change.** The index is never rebuilt by itself, so what a
+  run was told always has a record.
+- **Never indexed:** run reports and anything else attestqa wrote, Playwright's failure
+  snapshots, `node_modules`, and credential files. Naming one of those folders is an error.
+- **In this version the index is only built.** The search the agent makes during test design,
+  and the check on what it cites, arrive in the following changes of 2.4.0. Until then a run is
+  the same with or without the setting.
+
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 
 Copy `examples/ai-quality.jira.config.yaml` (Jira) or `examples/ai-quality.config.yaml` (Azure
