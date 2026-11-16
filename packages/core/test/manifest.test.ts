@@ -7,6 +7,7 @@ import { Bdd2PwTools } from "../src/mcp/adapters/bdd2pw.js";
 import { PwTools } from "../src/mcp/adapters/pw.js";
 import { TcgTools } from "../src/mcp/adapters/tcg.js";
 import { SynthdataTools } from "../src/mcp/adapters/synthdata.js";
+import { DocsTools } from "../src/mcp/adapters/docs.js";
 import { qualify, type ToolClient, type ToolDescriptor } from "../src/runtime/tools.js";
 import { McpToolClient } from "../src/mcp/client.js";
 import { ScopedGate } from "../src/governance/policy.js";
@@ -117,6 +118,7 @@ describe("in-process adapters agree with the manifest", () => {
     new PwTools("/tmp"),
     new TcgTools("http://example.invalid/generate"),
     new SynthdataTools("true", "/tmp", { examplesCli: "synthdata" }),
+    new DocsTools("/tmp", "/tmp/.aqa"),
   ];
 
   it("declares the same class in the adapter and in the manifest", async () => {
