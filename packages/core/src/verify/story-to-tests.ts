@@ -186,6 +186,12 @@ export interface StoryToTestsOptions {
    * range (`rangeValuesOwed`).
    */
   examplesOffered?: boolean;
+  /**
+   * `docs.search` is among the tools this run offers (`agent.knowledge.paths`
+   * is set and the server is on). The stage-2 text about searching the
+   * project's documents is in the prompt only then.
+   */
+  docsOffered?: boolean;
 }
 
 /**
@@ -223,6 +229,7 @@ export class StoryToTestsVerifier implements Verifier {
     | "previousRuns"
     | "fresh"
     | "examplesOffered"
+    | "docsOffered"
   > &
     Pick<
       StoryToTestsOptions,
@@ -234,6 +241,7 @@ export class StoryToTestsVerifier implements Verifier {
       | "previousRuns"
       | "fresh"
       | "examplesOffered"
+      | "docsOffered"
     >;
 
   constructor(options: StoryToTestsOptions) {

@@ -49,6 +49,7 @@ import { JiraTools } from "./mcp/adapters/jira.js";
 import { normId, TRACKERS, type Tracker } from "./design/ids.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
+import { DocsTools } from "./mcp/adapters/docs.js";
 import { generateSeed, renderSeed } from "./seed/seed.js";
 import { buildIndex, renderIndex } from "./knowledge/build.js";
 import { HealTools } from "./mcp/adapters/heal.js";
@@ -107,7 +108,7 @@ declare const __AQA_COMMIT__: string | undefined;
 export const COMMIT = typeof __AQA_COMMIT__ === "string" ? __AQA_COMMIT__ : "unknown";
 
 /** In-process adapters, by `--servers` name. */
-export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira"];
+export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira", "docs"];
 /**
  * `tcg` and `synthdata` are site-specific (they need TCG_URL, and SYNTHDATA_CMD
  * or SYNTHDATA_CLI), so they are opt-in rather than on by default.
@@ -408,6 +409,12 @@ async function buildTooling(
   llmFallback?: AgentConfig["llm_fallback"],
   /** Servers when --servers is not given: DEFAULT_SERVERS, or JIRA_SERVERS for a Jira story. */
   defaultServers: string = DEFAULT_SERVERS,
+  /**
+   * `agent.knowledge` from the config. `docs` is offered only when --servers
+   * names it AND this is set: the same two-key pattern as synthdata, so a
+   * project that has not asked for document search never gets the tool.
+   */
+  knowledge?: AgentConfig["knowledge"],
 ): Promise<{
   specs: ServerSpec[];
   tools: ToolClient;
@@ -447,6 +454,10 @@ async function buildTooling(
     else if (w === "synthdata" && !env.synthdataCmd && !env.synthdataCli)
       throw new ConfigError(
         "--servers includes synthdata but neither SYNTHDATA_CMD nor SYNTHDATA_CLI is set",
+      );
+    else if (w === "docs" && !knowledge)
+      throw new ConfigError(
+        "--servers includes docs but agent.knowledge.paths is not set in the config",
       );
     else if (w === "jira" && !env.jira)
       throw new ConfigError(
@@ -520,6 +531,8 @@ async function buildTooling(
               env.synthdataCli ? { examplesCli: env.synthdataCli } : {},
             ),
           );
+        if (wanted.includes("docs") && knowledge)
+          clients.push(new DocsTools(workspace, resolve(flag(args, "--ledger") ?? ".aqa")));
         return { tools: new CompositeTools(clients), close: () => mcp.close() };
       })();
   return { specs, ...built, workspace };
@@ -614,6 +627,7 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
     config.scope.urls,
     config.llm_fallback,
     picked.tracker === "jira" ? JIRA_SERVERS : DEFAULT_SERVERS,
+    config.knowledge,
   );
   try {
     const list = await tools.listTools();
@@ -811,6 +825,7 @@ async function live(
     config.scope.urls,
     config.llm_fallback,
     tracker === "jira" ? JIRA_SERVERS : DEFAULT_SERVERS,
+    config.knowledge,
   );
   try {
     const planName = config.scope.test_plans[0];
@@ -826,6 +841,11 @@ async function live(
     // run does not have.
     const examplesOffered = (await mcpTools.listTools()).some(
       (t) => t.server === "synthdata" && t.name === "examples",
+    );
+    // The same for document search: the skill text about it is only in the
+    // prompt of a run that has the tool, so a run without it reads as before.
+    const docsOffered = (await mcpTools.listTools()).some(
+      (t) => t.server === "docs" && t.name === "search",
     );
     const skill =
       skillName === "defect-profile"
@@ -846,6 +866,7 @@ async function live(
             // Evaluation only: ignore earlier runs and existing coverage.
             ...(args.includes("--fresh") ? { fresh: true } : {}),
             ...(examplesOffered ? { examplesOffered: true } : {}),
+            ...(docsOffered ? { docsOffered: true } : {}),
             // Failure triage runs in-process by default and sends nothing
             // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
             // value comes from the environment and nowhere else, so that no

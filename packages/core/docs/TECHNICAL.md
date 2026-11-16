@@ -52,7 +52,7 @@ src/
     manifest.ts       DEFAULT_MANIFEST — the governance classification table
     servers.ts        azureDevOpsServer(), playwrightServer()
     discover.ts       buildReport for `aqa discover`
-    adapters/         fs, bdd2pw, pw, tcg, synthdata, summary, process
+    adapters/         fs, bdd2pw, pw, tcg, synthdata, docs, summary, process
   knowledge/
     passages.ts       a document cut into passages; the passage id
     bm25.ts           keyword ranking (BM25), tokeniser, query stop words
@@ -175,7 +175,9 @@ agent:
     paths: ["docs/requirements", "docs/validation-rules.md"] # folders or files, inside the workspace
 ```
 
-It names the project's own documents for `aqa index`. A path must be relative and stay inside
+It names the project's own documents for `aqa index` and, with `docs` among `--servers`, switches
+on the `docs.search` tool (at most five passages per call, each with its id, file, heading, line
+range and date; a search is an ordinary `call` and `observation` in the ledger). A path must be relative and stay inside
 the workspace; an unknown key under `knowledge` is an error. Like every optional key, it is part
 of the loaded config only when set, so a config without it keeps the `configHash` it had.
 
@@ -265,6 +267,7 @@ A `ToolClient` is anything with `listTools()` and `call(server, name, args)`. Tw
 | `tcg`       | `generate_cases`                      | POSTs to `TCG_URL`; the one adapter that leaves the box |
 | `synthdata` | `generate`                            | opt-in via `SYNTHDATA_CMD` (the project's own generator) |
 | `synthdata` | `examples`                            | opt-in via `SYNTHDATA_CLI` (the synthdata CLI, `auto` mode) |
+| `docs`      | `search`                              | opt-in via `agent.knowledge.paths` and `--servers …,docs`; reads the index `aqa index` built |
 | `aqa`       | `run_summary`                         | counts this run's report from the ledger                |
 
 `pw.run_tests` returns `{ passed, failed, skipped, flaky, green, failures[], exitCode }`. Note that

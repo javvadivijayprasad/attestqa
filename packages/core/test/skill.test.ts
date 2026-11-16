@@ -41,7 +41,10 @@ describe("story-to-tests skill", () => {
         (s) => STORY_TO_TESTS_TOOLS.includes(s) || runtimeProduced.has(s),
       ),
     ).toBe(true);
-    expect(skill.sourceTools).toEqual(STORY_TO_TESTS_SOURCES);
+    // Plus the project's documents (2.4.0): a tool the skill allows, and one
+    // that reaches the model only when the project has configured it.
+    expect(skill.sourceTools).toEqual([...STORY_TO_TESTS_SOURCES, "docs.search"]);
+    expect(skill.allowedTools).toContain("docs.search");
   });
 
   it("tells the model the verifier decides done, and names every check", () => {

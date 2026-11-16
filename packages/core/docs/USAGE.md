@@ -223,9 +223,20 @@ your machine. It prints the files it indexed and any it left out, with the reaso
   run was told always has a record.
 - **Never indexed:** run reports and anything else attestqa wrote, Playwright's failure
   snapshots, `node_modules`, and credential files. Naming one of those folders is an error.
-- **In this version the index is only built.** The search the agent makes during test design,
-  and the check on what it cites, arrive in the following changes of 2.4.0. Until then a run is
-  the same with or without the setting.
+- **Turning the search on for a run.** Add `docs` to the servers:
+  `aqa run "…" --config ai-quality.config.yaml --servers ado,playwright,fs,bdd2pw,pw,docs`
+  (for Jira, `jira` in place of `ado`). During test design the agent then searches your documents
+  when a criterion names a rule without its value, and names the passage it used in the item's
+  source (`AC-2; doc:docs/requirements/contact.md#phone@1a2b3c4d`), so you can open it. When
+  the story states the value, the story is used. When no document has it, the item says "not
+  found in the project documents". Without `docs` in `--servers`, a run is the same as before.
+- **What the agent is given is on record.** Each search and the passages it returned are in the
+  run's ledger (`aqa replay`). A passage is shown to the agent as a quotation, with the date its
+  file was last changed; nothing written in a document can make the agent do something the
+  rules would otherwise refuse. If the documents changed after the index was built, the search
+  says so and still answers from the index as built.
+- **Not yet checked in code.** That a cited passage really holds the quoted value is checked by
+  the next change of 2.4.0; until it ships, read the cited passage when you approve a design.
 
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 

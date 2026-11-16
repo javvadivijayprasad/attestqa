@@ -79,6 +79,10 @@ export const DEFAULT_MANIFEST: Manifest = {
   "synthdata.generate": { policyClass: "write_workspace" },
   "synthdata.examples": { policyClass: "write_workspace" },
 
+  // ---------------------------------------------------------------- docs (in-process)
+  // Reads the index `aqa index` built and returns passages. Writes nothing.
+  "docs.search": { policyClass: "read" },
+
   // ---------------------------------------------------------------- Azure DevOps: work items
   "ado.wit_work_item": {
     policyClass: "read",
