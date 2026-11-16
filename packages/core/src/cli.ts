@@ -20,6 +20,7 @@ import { readRuns } from "./design/fingerprint.js";
 import { renderMarkdown } from "./ledger/replay.js";
 import {
   ConfigError,
+  knowledgeConfig,
   loadAgentConfig,
   loadDotEnv,
   parseConfigText,
@@ -49,6 +50,7 @@ import { normId, TRACKERS, type Tracker } from "./design/ids.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
 import { generateSeed, renderSeed } from "./seed/seed.js";
+import { buildIndex, renderIndex } from "./knowledge/build.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
 import { TestDesignTools } from "./mcp/adapters/test-design.js";
@@ -157,6 +159,14 @@ Usage:
       sqlite (a database file). A folder aqa seed did not write is left alone unless
       --force is given.
 
+  aqa index --config <ai-quality.config.yaml> [--workspace .] [--ledger .aqa]
+      Build the search index of the project's own documents: the folders and files named
+      in agent.knowledge.paths (Markdown and plain text), cut into passages at their
+      headings and written to <ledger>/knowledge/. No model is called and nothing leaves
+      the machine. Run it again after the documents change — the index is never rebuilt
+      by itself, so what a run was told always has a record. Run reports, failure
+      snapshots, credential files and node_modules are never indexed.
+
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
       Reads .env for credentials. Makes NO tool calls — listTools() only.
@@ -203,6 +213,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "check-rules") return await checkRules(rest, io);
     if (cmd === "coverage") return coverage(rest, io);
     if (cmd === "seed") return await seed(rest, io);
+    if (cmd === "index") return await index(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -1351,6 +1362,40 @@ export async function seed(
     return 1;
   }
   io.out(renderSeed(result, formats));
+  return 0;
+}
+
+/**
+ * `aqa index`: the search index of the project's documents. See USAGE and
+ * knowledge/build.ts. Offline: no model, no tracker, no browser — and it reads
+ * one key of the config, so a provider plug-in need not be installed to run it.
+ */
+export async function index(args: string[], io: CliIo): Promise<number> {
+  const file = flag(args, "--config");
+  if (!file) {
+    io.err("aqa index: --config <ai-quality.config.yaml> is required\n");
+    return 1;
+  }
+  const path = resolve(file);
+  if (!existsSync(path)) {
+    io.err(`aqa index: config file not found: ${path}\n`);
+    return 1;
+  }
+  const raw = (await parseConfigText(readFileSync(path, "utf8"), extname(path))) as {
+    agent?: { knowledge?: unknown };
+  } | null;
+  const knowledge = knowledgeConfig(raw?.agent?.knowledge, `${path}: agent.knowledge`);
+  const result = buildIndex({
+    workspace: flag(args, "--workspace") ?? ".",
+    ledgerRoot: flag(args, "--ledger") ?? ".aqa",
+    paths: knowledge?.paths ?? [],
+    version: packageVersion(),
+  });
+  if (!result.ok) {
+    io.err(`aqa index: ${result.message}\n`);
+    return 1;
+  }
+  io.out(renderIndex(result));
   return 0;
 }
 

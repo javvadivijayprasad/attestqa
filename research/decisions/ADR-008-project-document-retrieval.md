@@ -1,6 +1,6 @@
 # ADR-008 — Retrieval over project documents, its evaluation, and the roadmap from 2.4.0
 
-Date: 2026-11-12 · Status: accepted (design and plan; nothing built)
+Date: 2026-11-12 · Status: accepted (design and plan; building started 16 Nov 2026 — see §13)
 
 ## Context
 
@@ -362,6 +362,40 @@ turn comes. The fuller account of every release, as discussed, is in
 **A rule for every new kind of test.** A kind is a feature, not a label. Each needs its own
 validity rules for a design item, a required source, and a verifier check that the test does what
 the kind claims.
+
+### 13. Corrections from the check against the code (16 Nov 2026)
+
+Before the first slice was built, this record was checked against the code of 2.3.0. The design
+holds. Five points are corrected or added; where they differ from the text above, these apply.
+
+1. **Where the citation check runs (§6).** `validateDesign` (`design/test-design.ts`) sees the
+   design and the story, not the run's events. The check needs the run's search results, so it
+   is a separate function called from `invalidDesign` (`skills/story-rules.ts`), beside
+   `takenDesignIds` and `rangeValuesOwed`, which already read events.
+2. **Masked text (§6).** The model sees a passage after the scrubber has replaced emails, IP
+   addresses and tokens; the ledger keeps the original. A quote copied by the model is therefore
+   compared through `unmask` (`design/edits.ts`, 2.3.0), and against the recorded observation,
+   not against the index on disk.
+3. **The fence (§5).** The untrusted-content fence is added by the external tracker server, not
+   by the in-process adapters, so there is no helper to reuse. The `docs` adapter writes its own
+   header.
+4. **A carried design (§6).** The story fingerprint is left as it is. A passage id ends in its
+   content hash, so when a design is reused, each passage it cites is looked up in the current
+   index; one that is no longer there means the document changed. Changing the fingerprint
+   would also have sent every existing story back to design once, as the 2.3.0 change did.
+   Open, for the maintainer: what a reused design that cites a document does when the index is
+   missing or search is off (recommended: it is designed again).
+5. **Function words in a query (§4).** Built as designed, the ranking put a passage with two
+   "the"s above the phone rule for "allowed length of the phone number": in a set of tens of
+   passages a function word is rare enough to outweigh the word that matters. A fixed list of
+   English function words is dropped from the QUERY; documents are indexed whole. No stemming is
+   done ("booking" does not match "bookings"); whether it is needed is a question for the
+   retrieval-level evaluation, not a guess made now.
+
+Two details the first slice settled: the keyword index file is `keywords.json`, and the manifest
+also holds a hash of the two files beside it, so a half-written index is refused. Naming a folder
+that attestqa or the test runner writes (`.aqa`, `test-results`, …) is an error, not a silent
+skip.
 
 ## Alternatives considered
 
