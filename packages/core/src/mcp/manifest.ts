@@ -77,6 +77,7 @@ export const DEFAULT_MANIFEST: Manifest = {
 
   // ---------------------------------------------------------------- synthdata (in-process)
   "synthdata.generate": { policyClass: "write_workspace" },
+  "synthdata.examples": { policyClass: "write_workspace" },
 
   // ---------------------------------------------------------------- Azure DevOps: work items
   "ado.wit_work_item": {

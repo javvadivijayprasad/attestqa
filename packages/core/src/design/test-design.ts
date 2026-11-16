@@ -10,6 +10,8 @@ import {
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
 import { acLabels } from "../triage/settle.js";
+import { applyEdit } from "./edits.js";
+import { sameTest, TitleSet } from "./titles.js";
 import type { FrameworkProfile } from "../framework/survey.js";
 
 /**
@@ -108,7 +110,16 @@ export interface TestDesign {
 
 /** What stage 1 established about the story — the ground a design is checked against. */
 export interface StoryFacts {
+  /** The criteria's LABELS ("AC-1", "AC-2"), which is what a design item cites. */
   acceptanceCriteria: string[];
+  /**
+   * A hash of what the story SAYS — its acceptance criteria and description,
+   * in full (`storyTextHash` in design/fingerprint.ts). The labels above do
+   * not change when a criterion is reworded, so without this a corrected
+   * requirement read as an unchanged story (run 20261112T232301Z). Absent in
+   * ledgers recorded before it existed.
+   */
+  textHash?: string;
   bugs: Array<{ id: TrackerId; state: string; title: string }>;
   /**
    * EVERY bug already on this story, including the ones this runtime filed —
@@ -121,7 +132,27 @@ export interface StoryFacts {
    * third and fourth time. This list exists so `duplicateBug` can refuse that
    * in code. It is never rendered into the prompt.
    */
-  filedBugs?: Array<{ id: TrackerId; state: string; title: string; agent: boolean }>;
+  filedBugs?: Array<{
+    id: TrackerId;
+    state: string;
+    title: string;
+    agent: boolean;
+    /**
+     * The start of the bug's own description (its repro steps). A bug this
+     * runtime files names the failing test there, which is what identifies it
+     * as the record of that failure when a later run words the title another
+     * way (`openBugAbout` in triage/settle.ts). Absent in older ledgers and
+     * where the tracker read does not return it.
+     */
+    text?: string;
+    /**
+     * The tracker links this bug to the run's story. Set on Jira, where the
+     * open bugs come from a search of the whole project and the story's own
+     * links say which of them are about it. A bug's title may be read as
+     * naming one of this story's tests only when the bug is this story's.
+     */
+    linked?: boolean;
+  }>;
   tasks: TrackerId[];
   /** The story itself: tests this run adds are tagged with its id. */
   story?: { id: TrackerId; title: string };
@@ -619,6 +650,7 @@ export function factsFrom(raw: unknown): StoryFacts | undefined {
   if (!f) return undefined;
   return {
     acceptanceCriteria: asArray(f["acceptanceCriteria"]).map(String),
+    ...(typeof f["textHash"] === "string" && f["textHash"] ? { textHash: f["textHash"] } : {}),
     bugs: asArray(f["bugs"]).map((b) => {
       const r = asRecord(b) ?? {};
       return {
@@ -634,6 +666,8 @@ export function factsFrom(raw: unknown): StoryFacts | undefined {
         state: String(r["state"] ?? ""),
         title: String(r["title"] ?? ""),
         agent: r["agent"] === true,
+        ...(typeof r["text"] === "string" && r["text"] ? { text: r["text"] } : {}),
+        ...(r["linked"] === true ? { linked: true } : {}),
       };
     }),
     tasks: asArray(f["tasks"]).map(idOf),
@@ -666,6 +700,25 @@ export function approvedDesign(events: AnyRunEvent[]): TestDesign | undefined {
   // came from, so the approval it rests on is one click away in the ledger.
   const carried = carriedDesign(events);
   return carried ? parseDesign(carried.args) : undefined;
+}
+
+/**
+ * The design approved in the latest earlier run of this story, when the story
+ * has changed since (or cannot be shown unchanged) and its tests are on disk:
+ * what those tests were written for. The first route records it
+ * (`because.previousDesign`), so the comparison with the design approved in
+ * this run is made from the ledger alone.
+ */
+export function previousDesign(
+  events: AnyRunEvent[],
+): { runId: string; design: TestDesign } | undefined {
+  for (const e of events) {
+    if (e.kind !== "route") continue;
+    const p = asRecord(asRecord(asRecord(e.payload as unknown)?.["because"])?.["previousDesign"]);
+    const args = asRecord(p?.["args"]);
+    if (p && args) return { runId: String(p["runId"] ?? ""), design: parseDesign(args) };
+  }
+  return undefined;
 }
 
 /** The design a route carried over from an earlier run of an unchanged story. */
@@ -1046,21 +1099,25 @@ export function traceProblems(
   /** Weaker or broader than the design, but working: one fix attempt, then the reviewer's. */
   reviewShape: string[];
 } {
-  const all = features.flatMap((f) =>
-    scenarioDesignTags(f.text).map((s) => ({ ...s, path: f.path })),
-  );
-  const owner = new Map<string, TrackerId[]>();
-  for (const f of features)
-    for (const s of scenarioStoryTags(f.text)) owner.set(s.scenario, s.stories);
+  // Each scenario with the stories ITS OWN tags name. The two readers walk
+  // the file the same way, so they pair by position. They used to be paired
+  // by title, and two stories of one epic may title a scenario alike: in
+  // 20261114T141230Z TOOL-14 and TOOL-34 both had "AC-accessibility The
+  // registration page passes an automated accessibility scan", the later one's
+  // story stood for both, and TOOL-34's run was blocked for TOOL-14's
+  // @design:D10 — "a scenario with no tag from the approved design".
+  const all = features.flatMap((f) => {
+    const stories = scenarioStoryTags(f.text);
+    return scenarioDesignTags(f.text).map((s, i) => ({
+      ...s,
+      path: f.path,
+      owns: stories[i]?.scenario === s.scenario ? (stories[i]?.stories ?? []) : [],
+    }));
+  });
   // A scenario tagged for ANOTHER story is not this design's business. One
   // with no @story tag at all is nobody's and stays in scope.
   const scenarios =
-    story === undefined
-      ? all
-      : all.filter((s) => {
-          const owns = owner.get(s.scenario) ?? [];
-          return owns.length === 0 || includesId(owns, story);
-        });
+    story === undefined ? all : all.filter((s) => s.owns.length === 0 || includesId(s.owns, story));
   const tagged = new Set(scenarios.flatMap((s) => s.designs));
   const known = new Set(design.items.map((i) => i.id));
   // A design item is tested only when a scenario tags it AND, once the spec
@@ -1700,7 +1757,9 @@ export function storiesIn(feature: string): Set<TrackerId> {
  * comment above its test, so the tag survives into the spec.
  */
 export function storyTestTitles(spec: string, storyId: TrackerId): Set<string> {
-  const out = new Set<string>();
+  // A title may be a template (`… age ${example.age}`): the set answers for
+  // the titles such a test is reported under (design/titles.ts).
+  const out = new TitleSet();
   let current: TrackerId[] = [];
   for (const line of spec.split("\n")) {
     if (/^\s*\/\//.test(line)) {
@@ -1724,7 +1783,7 @@ export function storyTestTitles(spec: string, storyId: TrackerId): Set<string> {
  * NOT returned here.
  */
 export function otherStoryTestTitles(spec: string, storyId: TrackerId): Set<string> {
-  const out = new Set<string>();
+  const out = new TitleSet();
   let current: TrackerId[] = [];
   for (const line of spec.split("\n")) {
     if (/^\s*\/\//.test(line)) {
@@ -1749,7 +1808,8 @@ export function otherStoryTestTitles(spec: string, storyId: TrackerId): Set<stri
  * with no @story tag is nobody's and is not returned.
  */
 export function otherStoryScenarios(feature: string, storyId: TrackerId): Set<string> {
-  const out = new Set<string>();
+  // Scenario names: an outline's tests carry the row's value after the name.
+  const out = new TitleSet([], true);
   for (const s of scenarioStoryTags(feature))
     if (s.stories.length > 0 && !includesId(s.stories, storyId)) out.add(s.scenario);
   return out;
@@ -1770,8 +1830,10 @@ export function fileTextFromEvents(events: AnyRunEvent[], path: string): string 
     let text = base;
     for (let k = edits.length - 1; k >= 0; k--) {
       const e = edits[k]!;
-      if (!text.includes(e.old)) return undefined;
-      text = e.all ? text.split(e.old).join(e.new) : text.replace(e.old, e.new);
+      // As the tool applied it, across line endings (design/titles.ts).
+      const next = applyEdit(text, e.old, e.new, e.all);
+      if (next === undefined) return undefined;
+      text = next;
     }
     return text;
   };
@@ -1809,11 +1871,34 @@ export function fileTextFromEvents(events: AnyRunEvent[], path: string): string 
   return undefined;
 }
 
-/** Did this read ask for, or return, only part of the file? */
+/**
+ * Did this read ask for, or return, only part of the file?
+ *
+ * A range that covers the file is the file. In 20261114T141230Z the spec's only
+ * early read was `fromLine: 1, toLine: 220` of a 198-line file; it counted as a
+ * fragment, the run had no complete view of its spec, `ownTestTitles` knew
+ * nothing, and the run was asked to finish two TODO tests of another story.
+ * The result says what came back (`fromLine`, `toLine`, `lines`): lines 1 to
+ * the last are the whole file, however they were asked for.
+ */
 export function isPartialRead(args: Record<string, unknown>, result: unknown): boolean {
-  if (args["fromLine"] !== undefined || args["toLine"] !== undefined) return true;
   const r = asRecord(result);
-  return r?.["fromLine"] !== undefined || r?.["toLine"] !== undefined;
+  const ranged =
+    args["fromLine"] !== undefined ||
+    args["toLine"] !== undefined ||
+    r?.["fromLine"] !== undefined ||
+    r?.["toLine"] !== undefined;
+  if (!ranged) return false;
+  const total = r?.["lines"];
+  const from = r?.["fromLine"] ?? args["fromLine"] ?? 1;
+  const to = r?.["toLine"];
+  const whole =
+    typeof total === "number" &&
+    typeof to === "number" &&
+    Number(from) <= 1 &&
+    to >= total &&
+    typeof r?.["content"] === "string";
+  return !whole;
 }
 
 /** Each test in a spec, by title, with its body. */
@@ -1834,6 +1919,18 @@ export function testsByTitle(spec: string): Map<string, string> {
     out.set(here.title, spec.slice(here.at, end));
   }
   return out;
+}
+
+/**
+ * The body of the test a run reported under this title: the test with that
+ * title, or the one whose template title prints it.
+ */
+export function testBody(spec: string, reported: string): string | undefined {
+  const tests = testsByTitle(spec);
+  const exact = tests.get(reported) ?? tests.get(reported.trim());
+  if (exact !== undefined) return exact;
+  for (const [title, body] of tests) if (sameTest(title, reported)) return body;
+  return undefined;
 }
 
 /**

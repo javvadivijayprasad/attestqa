@@ -11,8 +11,18 @@ import {
   payloadOf,
   successful,
 } from "../verify/evidence.js";
-import { acLabels, allFailedTitles, lastFullRun, ownTestTitles } from "../triage/settle.js";
+import {
+  acLabels,
+  allFailedTitles,
+  bugIsAbout,
+  CLOSED_BUG_STATES,
+  lastFullRun,
+  openBugAbout,
+  ownTestTitles,
+} from "../triage/settle.js";
 import { droppedClaims, LOCATOR_CALL } from "../design/claims.js";
+import { rangeValuesOwed } from "../design/stated-ranges.js";
+import { applyEdit, editHits } from "../design/edits.js";
 import { exhaustedTests, MAX_REPAIRS_PER_TEST, quarantinedTitles } from "../triage/quarantine.js";
 import { missingImports } from "../framework/survey.js";
 import {
@@ -20,6 +30,8 @@ import {
   isPartialRead,
   scenarioDesignTags,
   testsByTitle,
+  testBody,
+  otherStoryTestTitles,
 } from "../design/test-design.js";
 import { CATCHES, stuckAction } from "../heal/locator.js";
 import { routePathOf, testsPreExisted } from "../route/route.js";
@@ -109,7 +121,7 @@ export function storyRefusal(
     unboundStepsBeforeScaffold(call, events) ??
     scaffoldWouldOverwrite(call, events, opts.workspaceDir) ??
     rewordsAnotherStory(call, events, opts.workspaceDir) ??
-    dropsAnotherStory(call, events) ??
+    dropsAnotherStory(call, events, opts.workspaceDir) ??
     untaggedScenario(call, events) ??
     missingKindTags(call, events) ??
     untaggedTestCase(call, events) ??
@@ -123,7 +135,13 @@ export function storyRefusal(
  * before anyone is asked to approve it.
  */
 export function makeStoryRefusal(
-  opts: { testTypes?: readonly TestType[]; workspaceDir?: string; workItem?: string } = {},
+  opts: {
+    testTypes?: readonly TestType[];
+    workspaceDir?: string;
+    workItem?: string;
+    /** `synthdata.examples` is among the tools this run offers. */
+    examplesOffered?: boolean;
+  } = {},
 ) {
   const types = opts.testTypes;
   const where = {
@@ -137,7 +155,7 @@ export function makeStoryRefusal(
     call: { toolName: string; args: Record<string, unknown> },
     events: AnyRunEvent[],
   ): string | undefined =>
-    invalidDesign(call, events, types, opts.workspaceDir) ??
+    invalidDesign(call, events, types, opts.workspaceDir, opts.examplesOffered === true) ??
     designFirst(call, events) ??
     storyRefusal(call, events, where);
 }
@@ -148,6 +166,7 @@ function invalidDesign(
   events: AnyRunEvent[],
   types: readonly TestType[],
   workspaceDir?: string,
+  examplesOffered = false,
 ): string | undefined {
   if (call.toolName !== "aqa.test_design") return;
   const facts = storyFacts(events);
@@ -157,6 +176,9 @@ function invalidDesign(
   const problems = [
     ...validateDesign(design, facts, types),
     ...takenDesignIds(design, facts, events, workspaceDir),
+    // Only where the generator is offered: without it the values are the
+    // agent's own, as they always were.
+    ...(examplesOffered ? rangeValuesOwed(design, events) : []),
   ];
   if (problems.length === 0) return;
   return `the test design has ${
@@ -188,7 +210,7 @@ function takenDesignIds(
     const known = lastKnownContent(p, events, workspaceDir);
     if (known !== undefined || !workspaceDir) return known;
     try {
-      return readFileSync(join(workspaceDir, p), "utf8");
+      return lf(readFileSync(join(workspaceDir, p), "utf8"));
     } catch {
       return undefined;
     }
@@ -470,6 +492,20 @@ function expectedFailRemoved(
  * undefined when a scaffold has regenerated it since (its content then is
  * whatever bdd2pw wrote, which the run has not seen).
  */
+/**
+ * Text in the line endings the agent reads and writes.
+ *
+ * `git checkout` on Windows restores a file with CRLF; the agent's view of it
+ * and every edit it sends use LF. The file tool has matched an edit across
+ * line endings since F-0137. The rules did not: `asWrite` looked for the
+ * edit's `old` in the file byte for byte, found a multi-line `old` nowhere in a
+ * CRLF file, and handed the call on as an edit no rule recognises — so on such
+ * a file a multi-line `fs.replace_in_file` was judged by none of the write
+ * rules and then applied by the tool (20261113T232526Z, the edit that swapped
+ * TOOL-10's assertion). Everything a rule compares is brought to LF here.
+ */
+const lf = (text: string): string => text.replace(/\r\n/g, "\n");
+
 function lastKnownContent(
   path: string,
   events: AnyRunEvent[],
@@ -482,10 +518,7 @@ function lastKnownContent(
   // (20261013T011552Z).
   const edits: Array<{ old: string; new: string; all: boolean }> = [];
   const replay = (base: string): string =>
-    edits.reduceRight(
-      (text, e) => (e.all ? text.split(e.old).join(e.new) : text.replace(e.old, e.new)),
-      base,
-    );
+    edits.reduceRight((text, e) => applyEdit(text, e.old, e.new, e.all) ?? text, base);
   for (let i = calls.length - 1; i >= 0; i--) {
     const c = calls[i];
     if (!c || !c.ok) continue;
@@ -495,21 +528,21 @@ function lastKnownContent(
       const o = c.args["old"];
       const n = c.args["new"];
       if (typeof o === "string" && typeof n === "string")
-        edits.push({ old: o, new: n, all: c.args["all"] === true });
+        edits.push({ old: lf(o), new: lf(n), all: c.args["all"] === true });
       continue;
     }
-    if (c.toolName === "fs.write_file") return replay(String(c.args["content"] ?? ""));
+    if (c.toolName === "fs.write_file") return replay(lf(String(c.args["content"] ?? "")));
     if (c.toolName === "fs.read_file") {
       // A ranged read is a fragment, never the file. See `fileTextFromEvents`.
       if (isPartialRead(c.args, c.result)) continue;
       const content = asRecord(c.result)?.["content"];
-      if (typeof content === "string") return replay(content);
+      if (typeof content === "string") return replay(lf(content));
     }
   }
   // Edits with no full view before them: the disk is the truth.
   if (edits.length > 0 && workspaceDir) {
     try {
-      return readFileSync(join(workspaceDir, path), "utf8");
+      return lf(readFileSync(join(workspaceDir, path), "utf8"));
     } catch {
       return undefined;
     }
@@ -519,7 +552,7 @@ function lastKnownContent(
   // something, and that something is what the rules have to compare against.
   if (workspaceDir) {
     try {
-      return readFileSync(join(workspaceDir, path), "utf8");
+      return lf(readFileSync(join(workspaceDir, path), "utf8"));
     } catch {
       return undefined;
     }
@@ -820,6 +853,16 @@ function scratchInTheSuite(
   );
 }
 
+/** A workspace file as it is on disk; undefined when there is no workspace or no file. */
+function textOnDisk(workspaceDir: string | undefined, path: string): string | undefined {
+  if (!workspaceDir) return undefined;
+  try {
+    return lf(readFileSync(join(workspaceDir, path), "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
 /** The scenarios in a feature file, by the story each is tagged with. */
 function storyOfScenarios(text: string): Map<string, TrackerId[]> {
   return new Map(scenarioStoryTags(text).map((s) => [s.scenario, s.stories]));
@@ -835,11 +878,16 @@ function storyOfScenarios(text: string): Map<string, TrackerId[]> {
 function dropsAnotherStory(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
+  workspaceDir?: string,
 ): string | undefined {
   if (call.toolName !== "fs.write_file") return;
   const path = String(call.args["path"] ?? "");
   if (!/\.feature$/i.test(path)) return;
-  const before = fileTextFromEvents(events, path);
+  // What the run has seen of the file — or, when it has seen nothing, the file
+  // on disk. Run 20261112T224735Z wrote the epic's shared feature file without
+  // ever reading it; with nothing in the events to compare against, this rule
+  // said nothing and story 91's four scenarios were overwritten, twice.
+  const before = fileTextFromEvents(events, path) ?? textOnDisk(workspaceDir, path);
   if (before === undefined) return;
   const mine = normId(storyFacts(events)?.story?.id);
   const next = String(call.args["content"] ?? "");
@@ -1185,7 +1233,7 @@ function duplicateBug(
   if (!title) return;
   const filed = storyFacts(events)?.filedBugs ?? [];
   const open = filed.filter((b) => !CLOSED.has(b.state.toLowerCase()));
-  const hit = open.find((b) => sameDefect(b.title, title));
+  const hit = open.find((b) => sameDefect(b.title, title)) ?? sameFailingTest(call, title, events);
   if (!hit) return;
   return (
     `#${hit.id} [${hit.state}] already says this: "${hit.title}". This proposal reads as the same ` +
@@ -1203,8 +1251,36 @@ function duplicateBug(
   );
 }
 
+type FiledBug = NonNullable<NonNullable<ReturnType<typeof storyFacts>>["filedBugs"]>[number];
+
+/**
+ * An open bug that names the failing test this proposal is about — the same
+ * failure under another title (`openBugAbout`). The proposal's test is read
+ * the way the end-of-run settlement reads it, or from its own repro steps.
+ */
+function sameFailingTest(
+  call: { args: Record<string, unknown> },
+  title: string,
+  events: AnyRunEvent[],
+): FiledBug | undefined {
+  const filed = storyFacts(events)?.filedBugs ?? [];
+  if (filed.length === 0) return undefined;
+  const failing = asArray(asRecord(lastFullRun(events)?.result)?.["failures"])
+    .map((f) => String(asRecord(f)?.["title"] ?? ""))
+    .filter(Boolean);
+  const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const own = flat(`${title} ${fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? ""}`);
+  for (const t of failing) {
+    const name = flat(t.split(" › ").pop() ?? t);
+    if (!bugIsAbout(title, t, failing) && !(name.length >= 16 && own.includes(name))) continue;
+    const hit = openBugAbout(t, filed, failing);
+    if (hit) return hit;
+  }
+  return undefined;
+}
+
 /** Bug states that are done with. A defect that returns after a fix deserves its own record. */
-const CLOSED = new Set(["closed", "done", "removed", "resolved"]);
+const CLOSED = CLOSED_BUG_STATES;
 
 /**
  * Do two bug titles describe one defect?
@@ -1381,7 +1457,7 @@ function swallowedFailure(
 
   const swallowing = [...failing].filter((t) =>
     specs.some(({ text }) => {
-      const body = testsByTitle(text).get(t);
+      const body = testBody(text, t);
       if (body === undefined) return false;
       // The fallback may sit in the test or in a helper it calls, so both count.
       return CATCHES.test(body) || CATCHES.test(helperBodies(text));
@@ -1554,7 +1630,7 @@ function latestFailures(events: AnyRunEvent[]): Array<{ title: string; message: 
 /** One test's body, from whichever spec the run has seen. */
 function bodyFor(title: string, specs: Array<{ path: string; text: string }>): string | undefined {
   for (const { text } of specs) {
-    const body = testsByTitle(text).get(title);
+    const body = testBody(text, title);
     if (body !== undefined) return body;
   }
   return undefined;
@@ -1851,17 +1927,19 @@ function asWrite(
 ): { toolName: string; args: Record<string, unknown> } {
   if (call.toolName !== "fs.replace_in_file") return call;
   const path = String(call.args["path"] ?? "");
-  const before = call.args["old"];
-  const after = call.args["new"];
-  if (!path || typeof before !== "string" || typeof after !== "string") return call;
+  const oldArg = call.args["old"];
+  const newArg = call.args["new"];
+  if (!path || typeof oldArg !== "string" || typeof newArg !== "string") return call;
   const text = lastKnownContent(path, events, workspaceDir);
   if (text === undefined) return call;
-  const hits = text.split(before).length - 1;
+  // Read as the tool reads it (design/edits.ts): an edit the tool will apply
+  // and this cannot turn into a write is an edit no rule looks at.
+  const every = call.args["all"] === true;
+  const hits = editHits(text, oldArg, newArg);
   // `all: true` changes every occurrence, and is judged as the write it amounts to.
-  if (call.args["all"] === true && hits > 0)
-    return { toolName: "fs.write_file", args: { path, content: text.split(before).join(after) } };
-  if (hits !== 1) return call;
-  return { toolName: "fs.write_file", args: { path, content: text.replace(before, after) } };
+  if (hits === 0 || (hits > 1 && !every)) return call;
+  const content = applyEdit(text, oldArg, newArg, every);
+  return content === undefined ? call : { toolName: "fs.write_file", args: { path, content } };
 }
 
 /** Every spec file this run read or wrote, with its latest content. */
@@ -1888,11 +1966,9 @@ function specTextsFromEvents(events: AnyRunEvent[]): Array<{ path: string; text:
       const before = c.args["old"];
       const after = c.args["new"];
       if (text === undefined || typeof before !== "string" || typeof after !== "string") continue;
-      const hits = text.split(before).length - 1;
-      if (hits === 0) out.delete(path);
-      else if (c.args["all"] === true) out.set(path, text.split(before).join(after));
-      else if (hits === 1) out.set(path, text.replace(before, after));
-      else out.delete(path);
+      const next = applyEdit(text, before, after, c.args["all"] === true);
+      if (next === undefined) out.delete(path);
+      else out.set(path, next);
     }
   }
   return [...out].map(([path, text]) => ({ path, text }));
@@ -1965,14 +2041,27 @@ function writeOnExecutePath(
   // deleted on the execute path (20261013T160220Z: the D19 check was rewritten
   // through exactly that gap — faithfully, that time). A removed assertion is
   // allowed only when the same claim, locators set aside, is still there.
-  const claimsAfter = new Set(
-    after
-      .split("\n")
-      .filter((l) => /\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l))
-      .map(claimOf),
-  );
+  //
+  // "Still there" used to mean anywhere in the file, and the locator was set
+  // aside whole. 20261113T232526Z (TOOL-9, route B): the heal step changed
+  // TOOL-10's `expect(page.getByText("Combination Pliers").first()).toBeVisible()`
+  // into `expect(page.getByRole("checkbox", { name: "Pliers" })).toBeVisible()`
+  // — a filter checkbox that is always on the page — and it passed here,
+  // because eleven other lines in the spec read `expect(<locator>.first())
+  // .toBeVisible()`. The suite went green and the report would have said so.
+  // So each assertion taken away needs its OWN replacement among the lines the
+  // write adds, and a replacement must still name what the old one named: the
+  // text, label or accessible name in a locator is what the assertion says is
+  // on the page, not where to look for it.
+  const isAssertion = (l: string) => /\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l);
+  const replacements = removedLines(after, before).filter(isAssertion);
   const unrepairable = gone.filter((l) => {
-    if (/\bexpect\s*(?:\(|\.\s*(?:poll|soft)\s*\(|$)/.test(l)) return !claimsAfter.has(claimOf(l));
+    if (isAssertion(l)) {
+      const i = replacements.findIndex((r) => claimOf(r) === claimOf(l) && namesTheSame(l, r));
+      if (i < 0) return true;
+      replacements.splice(i, 1);
+      return false;
+    }
     return !LOCATOR_EXPR.test(l) && !CATCHES.test(l) && !SCAN_SCOPE.test(l) && !NAVIGATION.test(l);
   });
   if (unrepairable.length === 0) return;
@@ -1984,6 +2073,8 @@ function writeOnExecutePath(
       .slice(0, 4)
       .map((l) => `    ${l.trim()}`)
       .join("\n") +
+    "\nAn assertion may move to another locator only if it still names the same text, label " +
+    "or name: looking for something else is a different assertion, however the element is found." +
     "\nA test may be strengthened; it may not be softened. If a test asserts the wrong thing, " +
     "that is a conversation with the product owner and not an edit: leave it red and report it. " +
     "If a test is genuinely missing, say so and stop — writing one is authoring, and authoring " +
@@ -2011,8 +2102,11 @@ function staleRerun(
 ): string | undefined {
   if (call.toolName !== "pw.run_tests") return;
   if (!isFullRun(call.args)) return;
-  const { lastFullRun, changed } = suiteChangedSinceLastFullRun(events);
+  const { lastFullRun, changed, retryOwed } = suiteChangedSinceLastFullRun(events);
   if (lastFullRun === undefined || changed.length > 0) return;
+  // The first failure, run again unchanged: what triage asks for, and what the
+  // runtime does itself (`autoRun`). Refusing it here contradicted both.
+  if (retryOwed) return;
   return (
     "the full suite has already run this run, and nothing in the suite has changed since — no " +
     "spec, no page object, no feature. Running it again executes the same code against the same " +
@@ -2026,6 +2120,24 @@ function staleRerun(
 /** An assertion line with its locators set aside: what it claims, not where it looks. */
 function claimOf(line: string): string {
   return line.replace(LOCATOR_CALL, "<locator>").replace(/["'`]/g, '"').replace(/\s+/g, " ").trim();
+}
+
+/**
+ * What a locator says must be on the page: the text of `getByText`, the label,
+ * placeholder, alt text or title of their locators, and a `name:` or
+ * `hasText:` option. A test id or a CSS selector says only where to look.
+ */
+const NAMED_IN_LOCATOR =
+  /\bgetBy(?:Text|Label|Placeholder|AltText|Title)\(\s*(["'`])((?:\\.|(?!\1).)*)\1|\b(?:name|hasText)\s*:\s*(["'`])((?:\\.|(?!\3).)*)\3/g;
+
+/** Whether `next` still names everything `line` named (letters and digits; case and punctuation aside). */
+function namesTheSame(line: string, next: string): boolean {
+  const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const now = flat(next);
+  return [...line.matchAll(NAMED_IN_LOCATOR)]
+    .map((m) => flat(m[2] ?? m[4] ?? ""))
+    .filter(Boolean)
+    .every((named) => now.includes(named));
 }
 
 const LOCATOR_EXPR = /getBy[A-Z]\w*\s*\(|\.locator\s*\(|frameLocator\s*\(|\$\$?\s*\(/;
@@ -2230,7 +2342,16 @@ export function editsAPassingTest(
   const failing = tests
     .filter((t) => t["status"] === "failed" || t["status"] === "timedOut")
     .map((t) => String(t["title"] ?? ""));
-  if (passed.length === 0 || failing.length === 0) return;
+  // Another story's test is not this run's to change, passing or failing.
+  // The rule used to look at passing tests only, so a FAILING test of another
+  // story could be edited: 20261114T132625Z (TOOL-9, route B) gave TOOL-6's
+  // home page accessibility scan `.exclude(".checkbox")`, which took the list
+  // violation it had reported out of the scan, and the test passed. The heal
+  // role already leaves such a test alone and the verifier reports its failure
+  // as that story's; the write rule now agrees with both.
+  const own = ownTestTitles(events, workItem);
+  const failingOther = own ? failing.filter((t) => !own.has(t)) : [];
+  if (failing.length === 0) return;
   // A regeneration since that run is a new file, not an edit of a green test.
   if (
     completedCalls(events).some(
@@ -2240,14 +2361,40 @@ export function editsAPassingTest(
     return;
   const before = lastKnownContent(path, events, workspaceDir);
   if (before === undefined) return;
+  // And so is a test of another story that neither passed nor failed: one that
+  // is skipped because its steps were never written. 20261115T124325Z (TOOL-34,
+  // route B): the suite result listed two unfinished tests of TOOL-13, the run
+  // wrote their steps for them — eight edits, all let through, because "passed
+  // or failing" did not describe a skipped test — and was then blocked on the
+  // one line of each it was not allowed to remove.
+  const storyId = normId(workItem);
+  const otherTagged = storyId === undefined ? [] : [...otherStoryTestTitles(before, storyId)];
+  if (passed.length === 0 && failingOther.length === 0 && otherTagged.length === 0) return;
   const was = testsByTitle(before);
   const now = testsByTitle(String(call.args["content"] ?? ""));
-  const squash = (x: string) => x.replace(/\s+/g, " ").trim();
+  // A test's text runs to the start of the next test, so it ends with the tag
+  // comments that belong to THAT test. Marking a failing test as a known bug
+  // (`// @bug:180` above it) therefore read as a change to the passing test
+  // before it: 20261113T134043Z proposed that edit three times, was refused
+  // each time for "AC-3 … passed in the last full run", and the run blocked.
+  // Trailing comment and blank lines are not part of the test.
+  const squash = (x: string) =>
+    x
+      .replace(/(?:\r?\n[ \t]*(?:\/\/[^\n]*)?)+$/, "")
+      .replace(/\s+/g, " ")
+      .trim();
   // A gap the verifier raised about a test is a reason to change it.
   const gapText = JSON.stringify(
     [...events].reverse().find((e) => e.kind === "verify")?.payload ?? {},
   );
-  const touched = passed.filter((title) => {
+  // So is a design item whose expectation changed in this run: its test was
+  // written for the earlier one, and may well still pass — an item that only
+  // GAINED a requirement does. 20261113T134043Z: the agent ran the suite, the
+  // old AC-1 test passed, and adding "the confirmation is not shown" to it was
+  // then refused here as changing a passing test.
+  const reworked = changedScenarioTitles(events);
+  const touched = [...new Set([...passed, ...failingOther, ...otherTagged])].filter((title) => {
+    if (reworked.has(title.trim())) return false;
     const a = was.get(title);
     if (a === undefined) return false;
     const b = now.get(title);
@@ -2262,7 +2409,6 @@ export function editsAPassingTest(
   // earlier stories' passing tests, refused over and over, is what spent a run
   // whose own story was green (W35, F-0155/F-0158). Without a story id the
   // behaviour is unchanged.
-  const own = ownTestTitles(events, workItem);
   const ownFailing = own ? failing.filter((t) => own.has(t)) : failing;
   const touchedOther = own ? touched.filter((t) => !own.has(t)) : [];
   const nextStep =
@@ -2278,7 +2424,11 @@ export function editsAPassingTest(
       touchedOther.length === 1 ? "it" : "them"
     }, so leave ${touchedOther.length === 1 ? "it" : "them"} exactly as ${
       touchedOther.length === 1 ? "it is" : "they are"
-    }. Work only on your own story's tests. ${nextStep}`;
+    }. Work only on your own story's tests.${
+      touchedOther.some((t) => failingOther.includes(t))
+        ? " A failing test of another story is reported with this run as that story's; it is not repaired here."
+        : ""
+    } ${nextStep}`;
   return `${touched.map((t) => `"${t}"`).join(", ")} passed in the last full run, and this write changes ${
     touched.length === 1 ? "it" : "them"
   }. Leave passing tests exactly as they are. ${nextStep}`;
@@ -2518,6 +2668,16 @@ function lastRouteBecause(events: AnyRunEvent[]): Record<string, unknown> | unde
   return undefined;
 }
 
+/** Scenario titles of the items the last route marked as changed (`because.changed`). */
+function changedScenarioTitles(events: AnyRunEvent[]): Set<string> {
+  const out = new Set<string>();
+  for (const c of asArray(lastRouteBecause(events)?.["changed"])) {
+    const s = asRecord(c)?.["scenario"];
+    if (typeof s === "string") out.add(s.trim());
+  }
+  return out;
+}
+
 /**
  * After a re-route from "execute" to "complete", the feature file may only
  * GROW: the scenarios for the new design items are added, every scenario that
@@ -2547,13 +2707,20 @@ export function appendOnlyAfterReroute(
     const after = now.get(scenario);
     if (!after || norm(after.body) !== body) changed.push(scenario);
   }
+  // The scenarios of items whose expectation the design approved in this run
+  // changed are not in `locked`: they are this run's to bring into line.
+  const reworked = asArray(because["changed"]).map((c) => String(asRecord(c)?.["id"] ?? ""));
   if (changed.length > 0)
     return (
-      `this run may only ADD scenarios for the new design items (${missing.join(", ")}); ` +
-      `${changed.length} scenario(s) that existed before would change or disappear: ` +
-      `${changed
-        .map((s) => `"${s}"`)
-        .join("; ")}. Keep them exactly as they are and add the new ones after them.`
+      (missing.length > 0
+        ? `this run may only ADD scenarios for the new design items (${missing.join(", ")})`
+        : "this run adds no scenario") +
+      (reworked.length > 0
+        ? ` and change the scenarios of the items whose expectation changed (${reworked.join(", ")})`
+        : "") +
+      `; ${changed.length} other scenario(s) that existed before would change or disappear: ` +
+      `${changed.map((s) => `"${s}"`).join("; ")}. Keep them exactly as they are` +
+      (missing.length > 0 ? " and add the new ones after them." : ".")
     );
 
   // 2. One scenario per new design item — a second is a draft that was not removed.
@@ -2574,7 +2741,9 @@ export function appendOnlyAfterReroute(
   const before = lastKnownContent(path, events, workspaceDir) ?? "";
   const had = scenarioDesignTags(before);
   const allWritten = missing.every((id) => had.some((s) => s.designs.includes(id.toUpperCase())));
-  if (allWritten && !analyzedSinceLastFeatureWrite(events, path))
+  // With nothing to add there is nothing to generate: the write changes the
+  // scenario of a changed item, and the generator is not the next step.
+  if (missing.length > 0 && allWritten && !analyzedSinceLastFeatureWrite(events, path))
     return (
       `the scenario for ${missing.join(
         ", ",
@@ -2761,6 +2930,13 @@ export function appendOnlySpec(
   // carries this story's tag and a design item approved in this run is the
   // run's own, whatever the read order.
   const own = ownTestsOfThisRun(before, events);
+  // The test of an item whose expectation the design approved in this run
+  // changed is the run's to bring into line: its old assertion is the thing
+  // being replaced. 20261113T122522Z: the three tests whose expected text sat
+  // in a data row were corrected; the fourth, whose text sat in the `expect`
+  // line itself, was refused four times as an existing test losing an
+  // assertion, and stayed red.
+  for (const title of changedScenarioTitles(events)) own.add(title);
   const lost: string[] = [];
   const weakened: string[] = [];
   for (const [title, body] of was) {

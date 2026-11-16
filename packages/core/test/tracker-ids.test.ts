@@ -204,6 +204,27 @@ describe("gatherJiraStoryContext", () => {
     ).toBe("project = SHOP AND issuetype = Bug ORDER BY updated DESC");
   });
 
+  it("records a hash of the story's wording, like an Azure DevOps story", async () => {
+    const story = (ac: string) => ({
+      key: "SHOP-12",
+      summary: "Pay with a saved card",
+      type: "Story",
+      status: "To Do",
+      description: "Customers reuse a card.",
+      acceptanceCriteria: ac,
+      acceptanceCriteriaSource: "field",
+    });
+    const hash = async (ac: string) => {
+      const { read } = fakeJira({ "SHOP-12": story(ac) });
+      const d = await gatherJiraStoryContext(read, { workItem: "SHOP-12" });
+      return (d.facts as StoryFacts).textHash;
+    };
+    const before = await hash("AC-1: a saved card can be chosen");
+    expect(before).toMatch(/^[0-9a-f]{12}$/);
+    expect(await hash("AC-1:  A saved card can be chosen ")).toBe(before);
+    expect(await hash("AC-1: a saved card can be chosen at checkout")).not.toBe(before);
+  });
+
   it("leaves out what this runtime wrote and keeps what people wrote", async () => {
     const { read } = fakeJira();
     const d = await gatherJiraStoryContext(read, { workItem: "SHOP-12" });

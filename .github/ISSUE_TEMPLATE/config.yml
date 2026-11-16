@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea
+    url: https://github.com/javvadivijayprasad/attestqa/discussions
+    about: Ask a question or float an idea in Discussions before it becomes an issue.
+  - name: User guide
+    url: https://github.com/javvadivijayprasad/attestqa/blob/main/packages/core/docs/USAGE.md
+    about: Install, set up a project, run a story, approve the design, read the ledger.
+  - name: Report a security problem
+    url: https://github.com/javvadivijayprasad/attestqa/blob/main/SECURITY.md
+    about: Please report vulnerabilities privately as SECURITY.md describes, not in a public issue.

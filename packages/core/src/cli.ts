@@ -48,6 +48,7 @@ import { JiraTools } from "./mcp/adapters/jira.js";
 import { normId, TRACKERS, type Tracker } from "./design/ids.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
+import { generateSeed, renderSeed } from "./seed/seed.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
 import { TestDesignTools } from "./mcp/adapters/test-design.js";
@@ -106,8 +107,8 @@ export const COMMIT = typeof __AQA_COMMIT__ === "string" ? __AQA_COMMIT__ : "unk
 /** In-process adapters, by `--servers` name. */
 export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira"];
 /**
- * `tcg` and `synthdata` are site-specific (they need TCG_URL / SYNTHDATA_CMD),
- * so they are opt-in rather than on by default.
+ * `tcg` and `synthdata` are site-specific (they need TCG_URL, and SYNTHDATA_CMD
+ * or SYNTHDATA_CLI), so they are opt-in rather than on by default.
  */
 export const DEFAULT_SERVERS = "ado,playwright,fs,bdd2pw,pw";
 /** The same set for a Jira story: Jira in place of Azure DevOps. */
@@ -142,6 +143,19 @@ Usage:
       ledgers and the feature/spec files (no model, no tracker, no browser). Exit 0
       when every design item has a test that passes or reproduces its known bug, 3
       when anything is missing, failing or not run.
+
+  aqa seed --schema <schema.sql> [--out seed-data] [--rows 50] [--seed 42]
+           [--profile functional|edge|volume] [--format csv,sql,postgres,mysql,sqlite]
+           [--workspace .] [--env .env] [--force]
+      Generate seed data for the application from its schema (CREATE TABLE statements):
+      rows for every table, foreign keys kept, written into a folder in the workspace
+      with a seed.json that records what was made. Runs the synthdata CLI named in
+      SYNTHDATA_CLI (for example "npx synthdata") in its auto mode: no model is called
+      and the same seed gives the same rows. It only writes files — loading them into
+      the application or a database is a step of your project. --format: csv (default,
+      one file per table), sql (INSERTs only), postgres and mysql (tables and rows),
+      sqlite (a database file). A folder aqa seed did not write is left alone unless
+      --force is given.
 
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
@@ -188,6 +202,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "discover") return await discover(rest, io);
     if (cmd === "check-rules") return await checkRules(rest, io);
     if (cmd === "coverage") return coverage(rest, io);
+    if (cmd === "seed") return await seed(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -418,8 +433,10 @@ async function buildTooling(
       );
     else if (w === "tcg" && !env.tcgUrl)
       throw new ConfigError("--servers includes tcg but TCG_URL is not set");
-    else if (w === "synthdata" && !env.synthdataCmd)
-      throw new ConfigError("--servers includes synthdata but SYNTHDATA_CMD is not set");
+    else if (w === "synthdata" && !env.synthdataCmd && !env.synthdataCli)
+      throw new ConfigError(
+        "--servers includes synthdata but neither SYNTHDATA_CMD nor SYNTHDATA_CLI is set",
+      );
     else if (w === "jira" && !env.jira)
       throw new ConfigError(
         "--servers includes jira but JIRA_BASE_URL and its credential (JIRA_EMAIL + JIRA_API_TOKEN, or JIRA_PAT) are not set",
@@ -484,8 +501,14 @@ async function buildTooling(
         if (wanted.includes("jira") && env.jira)
           clients.push(new JiraTools(env.jira, { evidenceRoot: workspace }));
         if (wanted.includes("tcg") && env.tcgUrl) clients.push(new TcgTools(env.tcgUrl));
-        if (wanted.includes("synthdata") && env.synthdataCmd)
-          clients.push(new SynthdataTools(env.synthdataCmd, workspace));
+        if (wanted.includes("synthdata") && (env.synthdataCmd || env.synthdataCli))
+          clients.push(
+            new SynthdataTools(
+              env.synthdataCmd ?? "",
+              workspace,
+              env.synthdataCli ? { examplesCli: env.synthdataCli } : {},
+            ),
+          );
         return { tools: new CompositeTools(clients), close: () => mcp.close() };
       })();
   return { specs, ...built, workspace };
@@ -787,6 +810,12 @@ async function live(
     // Stage 2 — the ISTQB test types a design must cover. Validated by the
     // config loader; empty means no design stage.
     const testTypes = (config.test_types ?? []) as TestType[];
+    // Whether the examples generator is really among this run's tools: a rule
+    // that sends a design back for not calling it must not ask for a tool the
+    // run does not have.
+    const examplesOffered = (await mcpTools.listTools()).some(
+      (t) => t.server === "synthdata" && t.name === "examples",
+    );
     const skill =
       skillName === "defect-profile"
         ? defectProfileSkill({ project: adoProject ?? "" })
@@ -805,6 +834,7 @@ async function live(
             previousRuns: () => readRuns(resolve(flag(args, "--ledger") ?? ".aqa")),
             // Evaluation only: ignore earlier runs and existing coverage.
             ...(args.includes("--fresh") ? { fresh: true } : {}),
+            ...(examplesOffered ? { examplesOffered: true } : {}),
             // Failure triage runs in-process by default and sends nothing
             // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
             // value comes from the environment and nowhere else, so that no
@@ -1048,10 +1078,16 @@ export function liveLine(e: AnyRunEvent): string {
         const fresh = Array.isArray(rec["newItems"])
           ? (rec["newItems"] as string[]).length
           : undefined;
-        if (already > 0)
+        const changedN = Array.isArray(rec["changedItems"])
+          ? (rec["changedItems"] as string[]).length
+          : 0;
+        if (already > 0 || changedN > 0)
           return (
             `aqa: test design approved — ${rec["items"]} item(s): ${already} already tested, ` +
-            `${fresh ?? 0} new${fresh === 0 ? " — running the tests that exist" : ""}\n`
+            (changedN > 0 ? `${changedN} changed (their tests are updated first), ` : "") +
+            `${fresh ?? 0} new${
+              fresh === 0 && changedN === 0 ? " — running the tests that exist" : ""
+            }\n`
           );
         return `aqa: test design approved — ${rec["items"]} item(s); tests are written from it\n`;
       }
@@ -1263,6 +1299,59 @@ export function pickTracker(
         "(JIRA_EMAIL + JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center) in the environment or .env.\n",
     };
   return { tracker, explicitRef, jiraRef };
+}
+
+/**
+ * `aqa seed`: application seed data from the project's schema. See USAGE and
+ * seed/seed.ts. Offline apart from the generator itself: no model, no tracker,
+ * no ledger, and nothing is loaded anywhere.
+ */
+export async function seed(
+  args: string[],
+  io: CliIo,
+  runner?: Parameters<typeof generateSeed>[0]["runner"],
+): Promise<number> {
+  const schema = flag(args, "--schema");
+  if (!schema) {
+    io.err("aqa seed: --schema <schema.sql> is required\n");
+    return 1;
+  }
+  loadDotEnv(flag(args, "--env") ?? ".env");
+  const whole = (name: string): number | undefined | null => {
+    const v = flag(args, name);
+    if (v === undefined) return undefined;
+    return /^\d+$/.test(v) ? Number(v) : null;
+  };
+  const rows = whole("--rows");
+  const seedValue = whole("--seed");
+  if (rows === null || seedValue === null) {
+    io.err(`aqa seed: ${rows === null ? "--rows" : "--seed"} must be a whole number\n`);
+    return 1;
+  }
+  const formats = (flag(args, "--format") ?? "csv")
+    .split(",")
+    .map((f) => f.trim().toLowerCase())
+    .filter(Boolean);
+  const out = flag(args, "--out");
+  const profile = flag(args, "--profile");
+  const result = await generateSeed({
+    cli: process.env["SYNTHDATA_CLI"] ?? "",
+    workspace: flag(args, "--workspace") ?? ".",
+    schema,
+    formats,
+    force: args.includes("--force"),
+    ...(out !== undefined ? { out } : {}),
+    ...(profile !== undefined ? { profile } : {}),
+    ...(rows !== undefined ? { rows } : {}),
+    ...(seedValue !== undefined ? { seed: seedValue } : {}),
+    ...(runner ? { runner } : {}),
+  });
+  if (!result.ok) {
+    io.err(`aqa seed: ${result.message}\n`);
+    return 1;
+  }
+  io.out(renderSeed(result, formats));
+  return 0;
 }
 
 /** `aqa check-rules`: today's rules against recorded runs. See USAGE. */

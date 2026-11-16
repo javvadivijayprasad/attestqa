@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { storyRefusal, coveredCriteria } from "../src/skills/story-rules.js";
 import type { AnyRunEvent } from "../src/types.js";
 
@@ -324,6 +327,34 @@ describe("one feature file per epic, shared by its stories", () => {
         events,
       ),
     ).toBeUndefined();
+  });
+
+  // Run 20261112T224735Z: the agent wrote the epic's shared feature file without
+  // reading it, so the events held nothing to compare against, the rule said
+  // nothing, and story 91's four scenarios were overwritten.
+  it("refuses it when the run never read the file, by reading the file on disk", () => {
+    const dir = mkdtempSync(join(tmpdir(), "aqa-shared-"));
+    mkdirSync(join(dir, "features"), { recursive: true });
+    const onDisk = "Feature: x\n" + scenario(44, "AC-1 logs out") + scenario(44, "AC-2 stays out");
+    writeFileSync(join(dir, FEATURE), onDisk);
+    const mineOnly = "Feature: x\n" + scenario(1, "AC-1 signs in");
+    const write = (content: string) => ({
+      toolName: "fs.write_file",
+      args: { path: FEATURE, content },
+    });
+
+    const refusal = storyRefusal(write(mineOnly), base, { workspaceDir: dir });
+    expect(refusal).toContain("removes 2 scenario(s) belonging to another story");
+    expect(refusal).toContain("AC-1 logs out");
+    // Adding beside them is what the shared file is for.
+    expect(
+      storyRefusal(write(onDisk + scenario(1, "AC-1 signs in")), base, { workspaceDir: dir }),
+    ).toBeUndefined();
+    // No workspace (a replay of a ledger alone): nothing to read, nothing said.
+    expect(storyRefusal(write(mineOnly), base)).toBeUndefined();
+    // A file that does not exist yet is the run's to create.
+    const empty = mkdtempSync(join(tmpdir(), "aqa-shared-"));
+    expect(storyRefusal(write(mineOnly), base, { workspaceDir: empty })).toBeUndefined();
   });
 
   it("refuses a scenario with no @story tag", () => {

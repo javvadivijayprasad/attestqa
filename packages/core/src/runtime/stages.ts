@@ -63,6 +63,8 @@ export class StageTracker {
   private forReviewer: string[] = [];
   private forReview: string[] = [];
   private heldForBug: string[] = [];
+  /** Failing tests an open bug from an earlier run already records (verifier limitation). */
+  private alreadyFiled: Array<{ test: string; bug: string }> = [];
   /** Filed bugs and the QA record, with the links a person opens. */
   private filed: Array<{ key: string; url: string; attached: number }> = [];
   private qaRecord: { key: string; url: string } | undefined;
@@ -262,6 +264,13 @@ export class StageTracker {
         // under bug #127, filed a line above).
         const heldForBug = /^"(.*)" fails, and a bug about it is put to the reviewer/;
         this.heldForBug = lim.map((l) => heldForBug.exec(l)?.[1]).filter((t): t is string => !!t);
+        // A failing test whose bug an earlier run filed: reported already, and
+        // shown with the defects so a red test is not left without its reason.
+        const filedEarlier = /^"(.*)" fails, and bug (#\S+ \[[^\]]*\]) already records it/;
+        this.alreadyFiled = lim.flatMap((l) => {
+          const m = filedEarlier.exec(l);
+          return m ? [{ test: m[1] ?? "", bug: m[2] ?? "" }] : [];
+        });
         this.forReviewer = lim
           .filter((l) => !heldForBug.test(l))
           .filter((l) => /put to the reviewer|Triaged as a product defect/.test(l))
@@ -314,6 +323,11 @@ export class StageTracker {
               : "") +
             (this.bugsDropped ? `, ${this.bugsDropped} dropped by the final result` : ""),
         );
+        for (const a of this.alreadyFiled)
+          out.push(
+            `     Already filed : ${a.bug} — "${a.test}" still fails; filed by an earlier run, ` +
+              "not yet confirmed by a person, not filed again",
+          );
         for (const f of this.filed)
           out.push(
             `       ${f.key}${f.url ? `  ${f.url}` : ""}` +

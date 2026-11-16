@@ -14,6 +14,7 @@ import {
   storyFacts,
   storyTestTitles,
 } from "../design/test-design.js";
+import { TitleSet } from "../design/titles.js";
 
 /**
  * Which proposed bugs survive to be put to a human, decided AFTER execution
@@ -62,6 +63,47 @@ function leadingName(title: string): string {
 /** Letters and digits only, lowercased — so "AC Story-a" and "Story-a" compare. */
 function squash(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** Bug states that are done with. A defect that returns after a fix deserves its own record. */
+export const CLOSED_BUG_STATES = new Set(["closed", "done", "removed", "resolved"]);
+
+/**
+ * The open bug that already records this failing test, if one does: a bug
+ * whose title or description names the test.
+ *
+ * Titles do not carry it. Bug #180 was filed as "Contact form accessibility
+ * scan reports unlabeled message field"; the next three runs proposed the same
+ * failure as "…description field has no accessible label", "…message field is
+ * missing an accessible label" and so on (20261113T131724Z, …133431Z,
+ * …134043Z) — no title close enough to the first for `sameDefect`, each
+ * proposal put to the reviewer, and each run blocked when the reviewer said
+ * "duplicate". What every one of them had in common was the test: this
+ * runtime writes the failing test's name into a bug it files.
+ *
+ * The same test can fail for a second reason. The refusal that rests on this
+ * says so, and asks for a title that names what differs.
+ *
+ * Where the tracker read returns titles only (a Jira search), the test's name
+ * is in nothing the run has. There a bug the tracker LINKS to the run's story
+ * is read by its title, the way a proposal's is (`bugIsAbout`), against the
+ * tests failing now (`failing`). 20261114T144930Z was blocked on two failing
+ * tests whose bugs TOOL-36 and TOOL-37 were open; 20261114T152437Z proposed
+ * TOOL-36's defect again as "AC-1: customer aged 18 cannot register". A bug
+ * of another story in the same project is never read that way.
+ */
+export function openBugAbout<
+  B extends { state: string; title: string; text?: string; linked?: boolean },
+>(test: string, filed: readonly B[], failing?: readonly string[]): B | undefined {
+  const open = filed.filter((b) => !CLOSED_BUG_STATES.has(b.state.toLowerCase()));
+  const name = squash(test.split(" › ").pop() ?? test);
+  // Too short to identify anything: "Login" is in every bug on a login story.
+  const named =
+    name.length < 16
+      ? undefined
+      : open.find((b) => squash(`${b.title} ${b.text ?? ""}`).includes(name));
+  if (named || !failing) return named;
+  return open.find((b) => b.linked === true && bugIsAbout(b.title, test, [...failing]));
 }
 
 /** Every test title that failed in ANY run this run made. */
@@ -336,8 +378,38 @@ export function ownTestTitles(events: AnyRunEvent[], workItem?: string): Set<str
   const facts = storyFacts(events);
   const path = facts ? specPathFor(facts) : undefined;
   const text = path ? fileTextFromEvents(events, path) : undefined;
-  if (!text || !hasStoryTag(text)) return undefined;
+  if (!text || !hasStoryTag(text)) return text ? undefined : titlesTheRouteListed(events);
   return storyTestTitles(text, id);
+}
+
+/**
+ * The story's tests as the route listed them, for a run that executes existing
+ * tests and never reads the spec.
+ *
+ * A run of an unchanged story reuses its design and goes straight to the suite:
+ * no file is read, so nothing above can say which tests are this story's. In
+ * 20261113T232526Z (TOOL-9) that left every test in the shared epic spec
+ * "nobody's": TOOL-10's failing test was sent to the heal role, and the first
+ * run of the same story (…224736Z) was blocked on it. The route already knew —
+ * it lists the story's cases with their titles. Only on route B: there the
+ * list is complete, because nothing is authored; on any other route the run
+ * adds tests the list does not have yet.
+ */
+function titlesTheRouteListed(events: AnyRunEvent[]): Set<string> | undefined {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const e = events[i];
+    if (e?.kind !== "route") continue;
+    const payload = asRecord(e.payload as unknown);
+    if (payload?.["path"] !== "B") return undefined;
+    const titles = asArray(asRecord(payload["because"])?.["cases"])
+      .map((c) => asRecord(c))
+      .filter((c) => c?.["state"] === "exists" && typeof c["title"] === "string")
+      .map((c) => String(c?.["title"]).trim());
+    // The route lists scenario names. The tests of a Scenario Outline are
+    // named after the scenario with the row's value after it ("… age 75").
+    return titles.length > 0 ? new TitleSet(titles, true) : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -429,7 +501,31 @@ export function bugIsAbout(title: string, test: string, candidates: string[]): b
 
 function testKeyForTitle(title: string, candidates: string[]): string {
   const labels = acLabels(title);
-  if (labels.length > 0) return labels.sort().join(",");
+  if (labels.length > 0) {
+    // A criterion may have several tests ("AC-1a", "AC-1c"), and a bug says
+    // "AC-1". Read as the label alone, two bugs about two of those tests were
+    // one key: 20261114T141230Z proposed "AC-1: Customer aged exactly 18 is not
+    // accepted" (test AC-1a) and "AC-1: Customer aged exactly 75 is accepted"
+    // (test AC-1c), and the second — a real defect — was dropped as a second
+    // bug for the same test; the verifier could not tie either to its test.
+    // So among the failing tests of that criterion the bug is about the one
+    // its title describes, when one stands out; otherwise the label, as before.
+    const base = (l: string) => l.replace(/[A-Z]$/, "");
+    const ofCriterion = candidates.filter((t) =>
+      acLabels(t).some((f) => labels.some((l) => l === f || base(f) === l || base(l) === f)),
+    );
+    if (ofCriterion.length === 1) return ofCriterion[0] as string;
+    if (ofCriterion.length > 1) {
+      const tokens = (t: string) => new Set(t.toLowerCase().match(/[a-z]{4,}|\d+/g) ?? []);
+      const said = tokens(title);
+      const scored = ofCriterion
+        .map((t) => ({ test: t, score: [...tokens(t)].filter((w) => said.has(w)).length }))
+        .sort((a, b) => b.score - a.score);
+      const [best, second] = scored;
+      if (best && second && best.score > second.score) return best.test;
+    }
+    return labels.sort().join(",");
+  }
 
   // The name the bug puts in front of its colon — "Story-c: …",
   // "AC Story-a: …", "Accessibility: …" — is the test it is about, said

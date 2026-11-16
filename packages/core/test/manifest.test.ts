@@ -116,7 +116,7 @@ describe("in-process adapters agree with the manifest", () => {
     new Bdd2PwTools("/tmp"),
     new PwTools("/tmp"),
     new TcgTools("http://example.invalid/generate"),
-    new SynthdataTools("true", "/tmp"),
+    new SynthdataTools("true", "/tmp", { examplesCli: "synthdata" }),
   ];
 
   it("declares the same class in the adapter and in the manifest", async () => {

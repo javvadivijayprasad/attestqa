@@ -178,6 +178,7 @@ defined-but-blank value is otherwise a long afternoon).
 | `AZURE_DEVOPS_ORG_URL` / `_PAT` / `_PROJECT`    | required together for the `ado` server    |
 | `AQA_APP_URL` / `AQA_APP_USER` / `AQA_APP_PASS` | read by the workspace's Playwright config |
 | `TCG_URL`, `SYNTHDATA_CMD`                      | enable those adapters when set            |
+| `SYNTHDATA_CLI`                                 | the synthdata CLI, for `synthdata.examples` |
 | `AQA_SANDBOX=1`                                 | relaxes URL scope to allow `*`            |
 
 ---
@@ -246,7 +247,8 @@ A `ToolClient` is anything with `listTools()` and `call(server, name, args)`. Tw
 | `bdd2pw`    | `parse`, `to_spec`                    | Gherkin → Playwright skeleton (`fixme` + TODOs)         |
 | `pw`        | `list_tests`, `run_tests`             | shells out to `npx playwright test --reporter=json`     |
 | `tcg`       | `generate_cases`                      | POSTs to `TCG_URL`; the one adapter that leaves the box |
-| `synthdata` | `generate`                            | opt-in via `SYNTHDATA_CMD`                              |
+| `synthdata` | `generate`                            | opt-in via `SYNTHDATA_CMD` (the project's own generator) |
+| `synthdata` | `examples`                            | opt-in via `SYNTHDATA_CLI` (the synthdata CLI, `auto` mode) |
 | `aqa`       | `run_summary`                         | counts this run's report from the ledger                |
 
 `pw.run_tests` returns `{ passed, failed, skipped, flaky, green, failures[], exitCode }`. Note that
@@ -337,6 +339,15 @@ aqa run "<request>" --config <file> [--ledger .aqa] [--workspace .] [--env .env]
 and polls. Answer by writing the same object back with `decision` set to `"approved"` or `"denied"`
 and `by` set. Silence past `--approval-timeout` (default 1800s) becomes
 `{ decision: "denied", by: "timeout" }`.
+
+A denial may also carry `reason`, a string in the reviewer's words (optional, from 2.3.0). The agent
+is told it, as it is told the reason typed at a terminal; a denied test design goes back with it.
+A file without `reason` behaves as before, and a `reason` on an approval is ignored.
+
+The request may carry `note`, a string (optional, from 2.3.0): what the runtime tells the reviewer
+about the request, the same text the terminal prompt prints. For a test design it lists the cases
+and their state, the items already tested, and the items that changed since the design approved
+before, with both wordings. It is for reading; nothing reads it back.
 
 The `approval_requested` ledger event is appended **before** the file is written, so a client that
 stats the file the instant it sees the event will sometimes find nothing. That is not an error.

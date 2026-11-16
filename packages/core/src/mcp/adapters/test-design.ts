@@ -5,6 +5,7 @@ import {
   TEST_TYPES,
   TYPE_MEANINGS,
   parseDesign,
+  previousDesign,
   storyFacts,
   validateDesign,
   type TestType,
@@ -12,6 +13,7 @@ import {
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { coverageOf, featurePathFor, specPathFor } from "../../design/test-design.js";
+import { changedItems } from "../../design/cases.js";
 import type { LedgerView } from "./summary.js";
 
 /**
@@ -143,22 +145,55 @@ export class TestDesignTools implements ToolClient {
       ...(facts.story?.id !== undefined ? { story: facts.story.id } : {}),
     });
     const fresh = design.items.filter((i) => !covered.has(i.id));
+    // Items that have a test written for what the design approved BEFORE said.
+    // "Already tested" was true of them and misleading: the test checks the
+    // earlier expectation (20261113T014353Z).
+    const earlier = previousDesign(this.ledger.read());
+    const changed = changedItems(design, covered, earlier?.design);
+    const changedIds = new Set(changed.map((c) => c.id));
+    const steps: string[] = [];
+    if (changed.length > 0)
+      steps.push(
+        `${changed.length} item(s) changed since the design approved in run ${earlier?.runId ?? "?"} ` +
+          `(${changed.map((c) => c.id).join(", ")}): each has a test, written for what it expected ` +
+          "then. Before the suite runs, bring each one into line with what the item expects NOW — " +
+          "in the .feature file (the scenario's steps and Examples; keep its tags) and in the spec " +
+          "(the values and assertions of its test). Read both files first and change only those " +
+          "scenarios and tests, with fs.replace_in_file; every other scenario and test stays as it " +
+          "is. Do not scaffold. A test that already checks exactly what its item now expects needs " +
+          "no change.",
+      );
+    if (fresh.length > 0)
+      steps.push(
+        `${fresh.length} item(s) have no test yet (${fresh
+          .map((i) => i.id)
+          .join(", ")}). Write ONLY those scenarios to the .feature file, each tagged ` +
+          "@design:<id> (plus @ac:<n> / @bug:<id>), leaving the existing scenarios untouched. " +
+          "Then scaffold with bdd2pw and implement the TODO steps.",
+      );
+    if (steps.length === 0)
+      steps.push(
+        "Every item is already tested by a scenario in this epic's spec: run the suite. Do not " +
+          "rewrite the feature file or the spec — repair a locator if one has moved, nothing else.",
+      );
     return {
       ok: true,
       result: {
         recorded: true,
         items: design.items.length,
-        alreadyTested: [...covered].map(([id, hit]) => `${id} → ${hit.scenario}`),
+        alreadyTested: [...covered]
+          .filter(([id]) => !changedIds.has(id))
+          .map(([id, hit]) => `${id} → ${hit.scenario}`),
+        ...(changed.length > 0
+          ? {
+              changedItems: changed.map(
+                (c) =>
+                  `${c.id} → ${c.scenario} | expected before: ${c.was} | expected now: ${c.now}`,
+              ),
+            }
+          : {}),
         newItems: fresh.map((i) => `${i.id} (${i.covers})`),
-        next:
-          fresh.length === 0
-            ? "Every item is already tested by a scenario in this epic's spec: run the suite. Do not " +
-              "rewrite the feature file or the spec — repair a locator if one has moved, nothing else."
-            : `${fresh.length} item(s) have no test yet (${fresh
-                .map((i) => i.id)
-                .join(", ")}). Write ONLY those scenarios to the .feature file, each tagged ` +
-              "@design:<id> (plus @ac:<n> / @bug:<id>), leaving the existing scenarios untouched. " +
-              "Then scaffold with bdd2pw and implement the TODO steps.",
+        next: steps.join(" "),
       },
       artefacts: [],
     };
