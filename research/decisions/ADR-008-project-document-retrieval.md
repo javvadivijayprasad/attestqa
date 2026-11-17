@@ -407,6 +407,17 @@ The evaluation command as built (17 Nov 2026), where §7 left a choice open:
   over these) and `allowed` (it may hold them: the value one below a minimum, test data;
   never counted wrong). Precision is over the concrete values found in the design: what is
   in double quotes, and numbers standing alone.
+  **Corrected after the first evaluation pass (17 Nov 2026), which showed three faults.**
+  (1) A gold value counts as held when it is anywhere in an item, its quote of the document
+  included: an item that says "the message is shown exactly" and quotes the message holds it.
+  (2) What a design asserts, and so what can be wrong or invented, is the numbers in its
+  conditions and expected results and the quoted wording in its expected results. Quoted
+  wording in a condition is what the test types in (a name, an email address, a sample phone
+  number); a rationale explains; a quote is the document's text. In the pass these read as 19
+  invented values of 49 on Booker with the search on. (3) F1 is 2·found / (2·found + wrong +
+  missed), so a design holding none of the gold values scores 0. Before, it had no score and
+  its story dropped out of the off-against-on comparison (one SauceDemo story of four was
+  compared).
 - **Passages in a gold file** are named by id or by id without the hash, so a gold file
   survives an edit to the passage's text.
 - **Prices.** The built-in table holds the one price the project has used and checked

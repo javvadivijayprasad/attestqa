@@ -11,7 +11,7 @@ import { GoldError, namesPassage, parseGold } from "../src/report/eval-gold.js";
 import { renderEvalHtml } from "../src/report/eval-html.js";
 import { costUsd, DEFAULT_PRICES, parsePrices, PriceError } from "../src/report/eval-prices.js";
 import { evalRetrieval } from "../src/report/eval-retrieval.js";
-import { concreteValues, holdsValue, runMetrics } from "../src/report/eval-runs.js";
+import { assertedValues, concreteValues, holdsValue, runMetrics } from "../src/report/eval-runs.js";
 import { mcnemarExact, mean, prf, rate } from "../src/report/eval-stats.js";
 import type { AnyRunEvent } from "../src/types.js";
 
@@ -409,13 +409,77 @@ describe("one run, measured from its ledger", () => {
         ],
       }),
     );
-    expect(m.values?.wrong).toEqual(["Phone number is too short", "7"]);
+    expect(m.values?.wrong).toEqual(["7", "Phone number is too short"]);
     expect(m.values?.missed).toEqual(["Phone must be between 11 and 21 characters."]);
     expect(m.values?.precision).toBe(0.5);
     expect(m.values?.recall).toBeCloseTo(2 / 3, 10);
-    expect(m.invented).toEqual({ values: ["Phone number is too short", "7"], of: 4 });
+    expect(m.invented).toEqual({ values: ["7", "Phone number is too short"], of: 4 });
     // It cites a document and quotes nothing: code cannot say the quote holds the value.
     expect(m.citations).toMatchObject({ faithful: 0, unfaithful: 0, undetermined: 1 });
+  });
+
+  it("does not take what a test types in for a claim about the application", () => {
+    // Seen in the 2.4.0 evaluation pass (Booker #92 and #176, search on): names,
+    // email addresses and sample phone numbers read as 19 "invented values" of 49.
+    const typed = {
+      conditions: [
+        'Name is "AQA Visitor", email is "aqa.visitor@example.com", phone is "0123456789" (10 characters)',
+      ],
+      expected:
+        'The form is not sent and the page shows "Phone must be between 11 and 21 characters."',
+    };
+    expect(assertedValues(typed)).toEqual(["10", "Phone must be between 11 and 21 characters"]);
+    const m = measure(run({ items: [item(typed)] }));
+    expect(m.values?.wrong).toEqual([]);
+    expect(m.invented).toEqual({ values: [], of: 2 });
+    // Wording the design EXPECTS the application to show is still a claim.
+    const claimed = measure(
+      run({ items: [item({ ...typed, expected: 'The page shows "Phone is too short."' })] }),
+    );
+    expect(claimed.values?.wrong).toEqual(["Phone is too short"]);
+    // A number in a rationale explains; it asserts nothing.
+    const explained = measure(
+      run({ items: [item({ rationale: "The 2024 version of the rules is superseded." })] }),
+    );
+    expect(explained.values?.wrong).toEqual([]);
+  });
+
+  it("counts a gold value that the item quotes from the document", () => {
+    // Seen in SauceDemo #110, search on: "the error is shown exactly", with the
+    // message in the quote. The design holds the value; it was scored as missed.
+    const m = measure(
+      run({
+        items: [
+          item({
+            conditions: ["Phone is one character below the minimum; the limits are 11 and 21"],
+            expected: "The form is not sent and the length message is shown exactly.",
+          }),
+        ],
+      }),
+    );
+    expect(m.values?.found).toEqual(["11", "21", "Phone must be between 11 and 21 characters."]);
+    expect(m.values?.missed).toEqual([]);
+    // The quote is the document's text: nothing in it is counted as asserted.
+    expect(m.values?.wrong).toEqual([]);
+  });
+
+  it("scores a design that holds no gold value 0, not blank", () => {
+    // Seen in SauceDemo, search off: three of four stories had no score, so the
+    // off-against-on comparison covered one story.
+    const m = measure(
+      run({
+        searched: null,
+        items: [
+          item({
+            conditions: ["Phone is shorter than allowed"],
+            expected: "The form is not sent and a message gives the allowed length.",
+            source: "AC-2",
+            quote: undefined,
+          }),
+        ],
+      }),
+    );
+    expect(m.values).toMatchObject({ tp: 0, fn: 3, precision: null, recall: 0, f1: 0 });
   });
 
   it("tells a quote that holds the value from one that does not", () => {
@@ -899,6 +963,54 @@ describe.skipIf(!existsSync(REAL))("run 20261117T004950Z (Booker #92), measured"
     expect(m.costUsd).toBeNull();
   });
 });
+
+/** Three runs of the 2.4.0 evaluation pass (17 Nov 2026); local, not committed. */
+const PASS = (id: string): string => join(__dirname, "..", ".aqa", "runs", id, "events.jsonl");
+const PASS_RUNS = {
+  sauce110on: "20261117T160216Z-705b2d90",
+  sauce115off: "20261117T160636Z-f9cb1183",
+  booker92on: "20261117T165823Z-02d311de",
+};
+describe.skipIf(!Object.values(PASS_RUNS).every((id) => existsSync(PASS(id))))(
+  "runs of the 2.4.0 evaluation pass, measured",
+  () => {
+    const goldOf = (app: string, story: string) => {
+      const file = join(__dirname, "..", "examples", "eval", `${app}.gold.json`);
+      return parseGold(JSON.parse(readFileSync(file, "utf8")), file).stories.find(
+        (s) => s.story === story,
+      )!;
+    };
+    const measured = (id: string, app: string, story: string) =>
+      runMetrics(
+        id,
+        readFileSync(PASS(id), "utf8")
+          .trim()
+          .split("\n")
+          .map((l) => JSON.parse(l) as AnyRunEvent),
+        { gold: goldOf(app, story), prices: DEFAULT_PRICES },
+      );
+
+    it("SauceDemo #110, search on: the messages it quotes are values it holds", () => {
+      const m = measured(PASS_RUNS.sauce110on, "saucedemo", "110");
+      expect(m.values?.found).toEqual([
+        "Epic sadface: Sorry, this user has been locked out.",
+        "Epic sadface: You can only access '/inventory.html' when you are logged in.",
+      ]);
+      expect(m.values?.f1).toBe(1);
+    });
+
+    it("SauceDemo #115, search off: no message found is a score of 0", () => {
+      const m = measured(PASS_RUNS.sauce115off, "saucedemo", "115");
+      expect(m.values).toMatchObject({ tp: 0, fn: 3, f1: 0 });
+    });
+
+    it("Booker #92, search on: the name, email and phone it types are not invented values", () => {
+      const m = measured(PASS_RUNS.booker92on, "booker", "92");
+      expect(m.values?.missed).toEqual([]);
+      expect(m.invented?.values).toEqual([]);
+    });
+  },
+);
 
 describe("the draft gold file shipped as an example", () => {
   it("is a valid gold file", () => {
