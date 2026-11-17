@@ -8,6 +8,7 @@ import { buildIndex } from "../src/knowledge/build.js";
 import { passagesOf } from "../src/knowledge/passages.js";
 import { barsMissed, evaluate, runFolders, type EvalResult } from "../src/report/eval.js";
 import { GoldError, namesPassage, parseGold } from "../src/report/eval-gold.js";
+import { renderEvalHtml } from "../src/report/eval-html.js";
 import { costUsd, DEFAULT_PRICES, parsePrices, PriceError } from "../src/report/eval-prices.js";
 import { evalRetrieval } from "../src/report/eval-retrieval.js";
 import { concreteValues, holdsValue, runMetrics } from "../src/report/eval-runs.js";
@@ -676,6 +677,26 @@ describe("aqa eval", () => {
     expect(written.retrieval?.results).toHaveLength(5);
   });
 
+  it("writes the page as well when asked, and says where", async () => {
+    const gold = put("gold.json", JSON.stringify({ version: 1, retrieval: GOLD.retrieval }));
+    const page = join(dir, "site", "eval.html");
+    const r = await cli([
+      "--gold",
+      gold,
+      "--ledger",
+      join(dir, ".aqa"),
+      "--out",
+      join(dir, "eval.json"),
+      "--html",
+      page,
+    ]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(`Page: ${page}`);
+    expect(readFileSync(page, "utf8")).toContain("<title>attestqa evaluation</title>");
+    // --html takes a value: it is not read as a run folder.
+    expect(r.err).toBe("");
+  });
+
   it("scores runs, told their arm or not, and exits 3 when a bar is missed", async () => {
     const gold = put("gold.json", JSON.stringify(GOLD));
     const onRun = ledger("on/runs/20261116T000000Z-aaaa", run());
@@ -727,6 +748,132 @@ describe("aqa eval", () => {
       '"asOf" must be the date',
     );
     expect(existsSync(join(dir, "eval.json"))).toBe(false);
+  });
+});
+
+describe("the evaluation as a page", () => {
+  const gold = parseGold(GOLD);
+  const result = (runs: Array<{ arm?: "on" | "off"; events: AnyRunEvent[] }>): EvalResult =>
+    evaluate({
+      gold,
+      goldFile: "gold.json",
+      prices: DEFAULT_PRICES,
+      index: buildKeywordIndex(PASSAGES),
+      runs: runs.map((r, i) => ({ runId: `run-${i}`, ...r })),
+      now: new Date("2026-11-17T00:00:00Z"),
+    });
+  const quiet = { searched: null, items: [item({ source: "AC-2", quote: undefined })] };
+  const both = result([
+    { arm: "on", events: run() },
+    { arm: "on", events: run({ status: "blocked" }) },
+    { arm: "off", events: run(quiet) },
+  ]);
+  const html = renderEvalHtml(both);
+
+  it("keeps, per item, what a reader opens to see why a score is what it is", () => {
+    const m = both.runs[0]!;
+    expect(m.events).toEqual({ design: expect.any(Number), searches: [expect.any(Number)] });
+    expect(m.items).toHaveLength(1);
+    expect(m.items[0]).toMatchObject({
+      id: "D11",
+      covers: "AC-2",
+      quote: "Phone must be between 11 and 21 characters.",
+      notFound: false,
+      faithfulness: "faithful",
+    });
+    expect(m.items[0]!.cited[0]).toMatchObject({
+      id: PHONE,
+      returned: true,
+      stale: false,
+      file: FILE,
+      lines: "12-14",
+    });
+    expect(m.items[0]!.cited[0]!.text).toContain(
+      "A phone number must be 11 to 21 characters long.",
+    );
+    // A passage no search returned has an id and nothing else to show.
+    const unreturned = result([
+      { arm: "on", events: run({ items: [item({ source: `AC-2; doc:${OLD_PHONE}` })] }) },
+    ]).runs[0]!.items[0]!.cited[0];
+    expect(unreturned).toEqual({ id: OLD_PHONE, returned: false, stale: true });
+  });
+
+  it("is one file that fetches nothing", () => {
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).not.toMatch(/<link|<img|<iframe|src=|url\(|@import|https?:\/\//i);
+    expect(html.match(/<script>/g)).toHaveLength(1);
+    expect(html).toContain("this file fetches nothing");
+  });
+
+  it("goes from the bars, to the stories, to the search, to each run and its evidence", () => {
+    const order = [
+      "The bars",
+      "Search off against search on, story by story",
+      "Runs completed per story",
+      "All measures",
+      "The search itself",
+      "Answer in the first five, by kind of question",
+      "Every run",
+      "From a score to the evidence",
+    ].map((h) => html.indexOf(h));
+    expect(order.every((i) => i > 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    // A bar says in words what its mark means: never colour alone.
+    expect(html).toMatch(/class="state met"><i aria-hidden="true">✓<\/i>Met/);
+    expect(html).toMatch(/class="state missed"><i aria-hidden="true">✕<\/i>Missed/);
+    // Two arms: a legend naming both, and the paired counts.
+    expect(html).toContain("</i>Search off</span>");
+    expect(html).toContain("</i>Search on</span>");
+    expect(html).toContain("Completion: stories helped · hurt · unchanged, of 1");
+    // Every mark that carries a value says it on hover and to a keyboard.
+    expect(html).toContain('data-tip="Story 92 — Search on\n1 of 2 run(s) completed (50%)');
+    expect(html).toContain('aria-label="1 of 2 runs completed"');
+    expect(html.match(/tabindex="0"/g)!.length).toBeGreaterThan(4);
+  });
+
+  it("marks the quoted words in the passage an item cites", () => {
+    expect(html).toContain("<mark>Phone must be between 11 and 21 characters.</mark>");
+    expect(html).toContain("quote holds the value");
+    expect(html).toContain("ledger events: design #");
+    const wrong = renderEvalHtml(
+      result([{ arm: "on", events: run({ items: [item({ quote: "Phone must be 10 to 20." })] }) }]),
+    );
+    expect(wrong).not.toContain("<mark>");
+    expect(wrong).toContain("The quoted words are not in this passage.");
+  });
+
+  it("escapes what came from a document or a model", () => {
+    const hostile = result([
+      {
+        arm: "on",
+        events: run({
+          items: [
+            item({
+              expected:
+                'shows "Phone must be between 11 and 21 characters." <script>alert(1)</script>',
+              conditions: ["<img src=x onerror=alert(2)>"],
+            }),
+          ],
+        }),
+      },
+    ]);
+    hostile.notes.push("</li><script>alert(3)</script>");
+    const page = renderEvalHtml(hostile);
+    expect(page.match(/<script>/g)).toHaveLength(1);
+    expect(page).not.toContain("<img");
+    expect(page).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(page).toContain("&lt;img src=x onerror=alert(2)&gt;");
+  });
+
+  it("is a page for one arm, and for the search alone", () => {
+    const one = renderEvalHtml(result([{ arm: "on", events: run() }]));
+    expect(one).toContain("Runs, story by story");
+    expect(one).not.toContain("Search off against search on");
+    expect(one).not.toContain("</i>Search off</span>");
+    const searchOnly = renderEvalHtml(result([]));
+    expect(searchOnly).toContain("The search itself");
+    expect(searchOnly).not.toContain("Every run");
+    expect(searchOnly).toMatch(/class="state none"><i aria-hidden="true">–<\/i>Not measured/);
   });
 });
 

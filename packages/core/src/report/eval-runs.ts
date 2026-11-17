@@ -93,6 +93,41 @@ export interface RunMetrics {
   plantedFollowed: boolean | null;
   /** A person's decisions in the run, with the reason where one was given. */
   decisions: Array<{ what: string; decision: string; reason?: string }>;
+  /**
+   * The approved design, item by item, with what each cites: what a reader
+   * opens to see why a score is what it is. `events` are the ledger events
+   * behind it (the design's call, the searches before it).
+   */
+  items: ItemDetail[];
+  events: { design: number | null; searches: number[] };
+}
+
+export type Faithfulness = "faithful" | "unfaithful" | "undetermined";
+
+export interface ItemDetail {
+  id: string;
+  covers: string;
+  type: string;
+  conditions: string[];
+  expected: string;
+  source: string;
+  quote?: string;
+  /** The item says the documents do not state its value. */
+  notFound: boolean;
+  /** For an item that cites a document: whether its quote holds a gold value the item holds. */
+  faithfulness?: Faithfulness;
+  cited: Array<{
+    id: string;
+    /** A search of this run returned it. */
+    returned: boolean;
+    /** The gold file marks it as the stale version of something. */
+    stale: boolean;
+    file?: string;
+    heading?: string;
+    lines?: string;
+    modified?: string;
+    text?: string;
+  }>;
 }
 
 const MINUTE = 60_000;
@@ -238,15 +273,59 @@ export function runMetrics(
 
   const citing = design?.items.filter((it) => citedPassages(it.source).length > 0) ?? [];
   const cited = citing.flatMap((it) => citedPassages(it.source));
-  let faithful = 0;
-  let unfaithful = 0;
-  let undetermined = 0;
+  const judged = new Map<DesignItem, Faithfulness>();
   for (const it of citing) {
     const held = gold ? gold.values.filter((v) => holdsValue(itemText(it), v)) : [];
-    if (!it.quote || held.length === 0) undetermined++;
-    else if (held.some((v) => holdsValue(quotable(it.quote ?? ""), v))) faithful++;
-    else unfaithful++;
+    judged.set(
+      it,
+      !it.quote || held.length === 0
+        ? "undetermined"
+        : held.some((v) => holdsValue(quotable(it.quote ?? ""), v))
+          ? "faithful"
+          : "unfaithful",
+    );
   }
+  const count = (f: Faithfulness): number => [...judged.values()].filter((v) => v === f).length;
+  const faithful = count("faithful");
+  const unfaithful = count("unfaithful");
+  const undetermined = count("undetermined");
+  const saysNotFound = (it: DesignItem): boolean =>
+    [...it.conditions, it.expected, it.rationale ?? "", it.source]
+      .join(" ")
+      .toLowerCase()
+      .includes(NOT_FOUND_PHRASE);
+  const items: ItemDetail[] = (design?.items ?? []).map((it) => {
+    const f = judged.get(it);
+    return {
+      id: it.id,
+      covers: it.covers,
+      type: it.type,
+      conditions: it.conditions,
+      expected: it.expected,
+      source: it.source,
+      ...(it.quote ? { quote: it.quote } : {}),
+      notFound: saysNotFound(it),
+      ...(f ? { faithfulness: f } : {}),
+      cited: citedPassages(it.source).map((pid) => {
+        const p = returned.get(pid);
+        return {
+          id: pid,
+          returned: p !== undefined,
+          stale: gold?.stale.some((ref) => namesPassage(ref, pid)) ?? false,
+          ...(p
+            ? {
+                file: p.file,
+                heading: p.heading,
+                lines: p.lines,
+                modified: p.modified,
+                text: p.text,
+              }
+            : {}),
+        };
+      }),
+    };
+  });
+  const searchEvents = successful(completedCalls(before), "docs.search").map((c) => c.eventId);
 
   let values: RunMetrics["values"] = null;
   let invented: RunMetrics["invented"] = null;
@@ -286,14 +365,9 @@ export function runMetrics(
     invented = { values: wrong.filter((v) => !holdsValue(evidence, v)), of: extracted.length };
   }
   if (gold && design) {
-    const says = (it: DesignItem): boolean =>
-      [...it.conditions, it.expected, it.rationale ?? "", it.source]
-        .join(" ")
-        .toLowerCase()
-        .includes(NOT_FOUND_PHRASE);
     const refused = new Set(
       design.items
-        .filter(says)
+        .filter(saysNotFound)
         .map((it) => criterion(it.covers))
         .filter(Boolean),
     );
@@ -351,5 +425,10 @@ export function runMetrics(
     staleCited,
     plantedFollowed: gold && gold.planted.length > 0 ? planted : null,
     decisions,
+    items,
+    events: {
+      design: approved ? (events[approved.at]?.eventId ?? null) : null,
+      searches: searchEvents,
+    },
   };
 }

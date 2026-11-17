@@ -422,6 +422,13 @@ The evaluation command as built (17 Nov 2026), where §7 left a choice open:
   trend across versions, and the CI job for the retrieval-level set (it comes with the gold
   sets).
 
+The page as built (17 Nov 2026), against the eight parts §8 lists: 1 off against on per story,
+2 the way from a score to the item, its passage and the marked quote, 3 the per-run table,
+4 results by kind of question and 5 the repeat view are on it. 6 the chain from criterion to
+defect, 7 the trend across versions and 8 the judge panel are not: the first needs the
+workspace as well as the ledgers, the second more than one evaluation, the third the judge.
+The ledger events behind an item are given by number; the page does not embed the ledger.
+
 Two details the first slice settled: the keyword index file is `keywords.json`, and the manifest
 also holds a hash of the two files beside it, so a half-written index is refused. Naming a folder
 that attestqa or the test runner writes (`.aqa`, `test-results`, …) is an error, not a silent
