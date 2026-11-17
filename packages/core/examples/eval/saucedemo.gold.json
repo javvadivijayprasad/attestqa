@@ -1,0 +1,303 @@
+{
+  "version": 1,
+  "retrieval": [
+    {
+      "id": "wrong-password",
+      "question": "message shown for a wrong password",
+      "category": "single",
+      "passages": [
+        "docs/requirements/sign-in.md#wrong-username-or-password"
+      ],
+      "value": "Epic sadface: Username and password do not match any user in this service"
+    },
+    {
+      "id": "username-empty",
+      "question": "error when the username is empty",
+      "category": "single",
+      "passages": [
+        "docs/requirements/sign-in.md#username-left-empty"
+      ],
+      "value": "Epic sadface: Username is required"
+    },
+    {
+      "id": "password-empty",
+      "question": "error when the password is left empty",
+      "category": "single",
+      "passages": [
+        "docs/requirements/sign-in.md#password-left-empty"
+      ],
+      "value": "Epic sadface: Password is required"
+    },
+    {
+      "id": "locked-out",
+      "question": "What does a locked-out user see when signing in?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/sign-in.md#locked-out-user"
+      ],
+      "value": "Epic sadface: Sorry, this user has been locked out."
+    },
+    {
+      "id": "direct-access",
+      "question": "message when the product list is opened without signing in",
+      "category": "single",
+      "passages": [
+        "docs/requirements/sign-in.md#opening-the-product-list-without-signing-in"
+      ],
+      "value": "Epic sadface: You can only access '/inventory.html' when you are logged in."
+    },
+    {
+      "id": "first-name-required",
+      "question": "error when the first name is empty at checkout",
+      "category": "single",
+      "passages": [
+        "docs/requirements/checkout.md#customer-information"
+      ],
+      "value": "Error: First Name is required"
+    },
+    {
+      "id": "postal-required",
+      "question": "error when the postal code is missing",
+      "category": "single",
+      "passages": [
+        "docs/requirements/checkout.md#customer-information"
+      ],
+      "value": "Error: Postal Code is required"
+    },
+    {
+      "id": "tax-rate",
+      "question": "How is the tax on an order worked out?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/checkout.md#sales-tax"
+      ],
+      "value": "8%"
+    },
+    {
+      "id": "thank-you",
+      "question": "heading shown after the order is finished",
+      "category": "single",
+      "passages": [
+        "docs/requirements/checkout.md#order-confirmation"
+      ],
+      "value": "Thank you for your order!"
+    },
+    {
+      "id": "payment-shown",
+      "question": "payment information shown on the order overview",
+      "category": "single",
+      "passages": [
+        "docs/requirements/checkout.md#payment-and-delivery"
+      ],
+      "value": "SauceCard #31337"
+    },
+    {
+      "id": "sort-default",
+      "question": "How is the product list sorted when it first opens?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/products.md#sorting"
+      ],
+      "value": "Name (A to Z)"
+    },
+    {
+      "id": "sort-options",
+      "question": "names of the sort options",
+      "category": "single",
+      "passages": [
+        "docs/requirements/products.md#sorting"
+      ]
+    },
+    {
+      "id": "backpack-price",
+      "question": "price of the Sauce Labs Backpack",
+      "category": "single",
+      "passages": [
+        "docs/requirements/products.md#price-list"
+      ],
+      "value": "$29.99"
+    },
+    {
+      "id": "cheapest",
+      "question": "Which product is the cheapest?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/products.md#price-list"
+      ],
+      "value": "Sauce Labs Onesie"
+    },
+    {
+      "id": "remove-label",
+      "question": "label of the button after a product is added to the cart",
+      "category": "single",
+      "passages": [
+        "docs/requirements/products.md#add-and-remove-buttons"
+      ],
+      "value": "Remove"
+    },
+    {
+      "id": "username-and-password-empty",
+      "question": "errors for an empty username and for an empty password",
+      "category": "several",
+      "passages": [
+        "docs/requirements/sign-in.md#username-left-empty",
+        "docs/requirements/sign-in.md#password-left-empty"
+      ]
+    },
+    {
+      "id": "price-and-sort",
+      "question": "the product prices and the ways the list can be sorted",
+      "category": "several",
+      "passages": [
+        "docs/requirements/products.md#price-list",
+        "docs/requirements/products.md#sorting"
+      ]
+    },
+    {
+      "id": "first-name-not-username",
+      "question": "message when the first name is required and missing",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/checkout.md#customer-information"
+      ],
+      "not": [
+        "docs/requirements/sign-in.md#username-left-empty"
+      ],
+      "value": "Error: First Name is required"
+    },
+    {
+      "id": "locked-not-wrong",
+      "question": "message that says the user has been locked out",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/sign-in.md#locked-out-user"
+      ],
+      "not": [
+        "docs/requirements/sign-in.md#wrong-username-or-password"
+      ],
+      "value": "Epic sadface: Sorry, this user has been locked out."
+    },
+    {
+      "id": "username-not-password",
+      "question": "message that says the username is required",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/sign-in.md#username-left-empty"
+      ],
+      "not": [
+        "docs/requirements/sign-in.md#password-left-empty"
+      ],
+      "value": "Epic sadface: Username is required"
+    },
+    {
+      "id": "tax-current",
+      "question": "sales tax rate on an order",
+      "category": "stale",
+      "passages": [
+        "docs/requirements/checkout.md#sales-tax"
+      ],
+      "not": [
+        "docs/archive/checkout-2024.md#sales-tax-2024"
+      ],
+      "value": "8%"
+    },
+    {
+      "id": "confirmation-current",
+      "question": "order confirmation heading",
+      "category": "stale",
+      "passages": [
+        "docs/requirements/checkout.md#order-confirmation"
+      ],
+      "not": [
+        "docs/archive/checkout-2024.md#order-confirmation-2024"
+      ],
+      "value": "Thank you for your order!"
+    },
+    {
+      "id": "forgot-password",
+      "question": "How does a customer reset a forgotten password?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "delivery-countries",
+      "question": "Which countries does the shop deliver to?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "max-quantity",
+      "question": "maximum quantity of one product in the cart",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "returns",
+      "question": "refund for a returned product",
+      "category": "unanswerable",
+      "passages": []
+    }
+  ],
+  "stories": [
+    {
+      "story": "109",
+      "needsDocuments": true,
+      "values": [
+        "Epic sadface: Username and password do not match any user in this service",
+        "Epic sadface: Username is required"
+      ],
+      "allowed": [
+        "Epic sadface: Password is required"
+      ]
+    },
+    {
+      "story": "110",
+      "needsDocuments": true,
+      "values": [
+        "Epic sadface: Sorry, this user has been locked out.",
+        "Epic sadface: You can only access '/inventory.html' when you are logged in."
+      ]
+    },
+    {
+      "story": "115",
+      "needsDocuments": true,
+      "values": [
+        "Error: First Name is required",
+        "Error: Last Name is required",
+        "Error: Postal Code is required"
+      ],
+      "stale": [
+        "docs/archive/checkout-2024.md#sales-tax-2024",
+        "docs/archive/checkout-2024.md#order-confirmation-2024"
+      ]
+    },
+    {
+      "story": "116",
+      "needsDocuments": false,
+      "values": [],
+      "allowed": [
+        "8%",
+        "$29.99",
+        "$9.99",
+        "$39.98",
+        "$3.20",
+        "$43.18"
+      ],
+      "stale": [
+        "docs/archive/checkout-2024.md#sales-tax-2024",
+        "docs/archive/checkout-2024.md#order-confirmation-2024"
+      ]
+    },
+    {
+      "story": "117",
+      "needsDocuments": true,
+      "values": [
+        "Thank you for your order!"
+      ],
+      "stale": [
+        "docs/archive/checkout-2024.md#sales-tax-2024",
+        "docs/archive/checkout-2024.md#order-confirmation-2024"
+      ]
+    }
+  ]
+}

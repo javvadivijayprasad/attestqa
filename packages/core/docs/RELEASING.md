@@ -66,6 +66,9 @@ DOI resolves to the latest version). Finally, open the PR **release → `main`**
   code must be formatted with the package's own Prettier (`npm run format` at the root). Do not run a
   bare `npx prettier` — the root resolves an older Prettier 2 pulled in by another dependency, and it
   formats differently.
+- **Before a minor release, run the end-to-end evaluation by hand** (ADR-008 §7): the stories in
+  `examples/eval/*.gold.json`, with the document search off and on, then `aqa eval`. It costs
+  money, so it is not in CI; the search questions of the same gold files are, as a test.
 - **A tag is only pushed after the commit it points at is green** on the release branch. If the tag
   has to move, delete it on both sides first: `git tag -d vX.Y.Z; git push origin :refs/tags/vX.Y.Z`.
 - **Re-running a failed release is always safe.** Every publish step checks first and skips if that

@@ -467,6 +467,11 @@ A run counts as "on" when it searched the documents. A run that had the search a
 it would be counted as off, so name the two arms with `--on` and `--off` when you compare.
 "Off" is simply the product with no document folder configured; there is no experiment switch.
 
+In the repository, `examples/eval/` holds a gold file for each of the three evaluation
+applications and, under `examples/eval/documents/<app>/docs/`, the documents each is about. Their
+search questions run with the tests (`test/eval-gold-sets.test.ts`), so a change that loses an
+answer fails before any paid run.
+
 The gold file is JSON (or YAML). `examples/eval/booker.gold.json` in the package is a worked
 one:
 
