@@ -177,7 +177,10 @@ agent:
 
 It names the project's own documents for `aqa index` and, with `docs` among `--servers`, switches
 on the `docs.search` tool (at most five passages per call, each with its id, file, heading, line
-range and date; a search is an ordinary `call` and `observation` in the ledger). A path must be relative and stay inside
+range and date; a search is an ordinary `call` and `observation` in the ledger). A design item
+that takes a value from a passage cites it in `source` as `doc:<passage id>` and copies the
+words into an optional `quote` field of the item; both are checked against the run's own search
+results before the design reaches a person. A path must be relative and stay inside
 the workspace; an unknown key under `knowledge` is an error. Like every optional key, it is part
 of the loaded config only when set, so a config without it keeps the `configHash` it had.
 
