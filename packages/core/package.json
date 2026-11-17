@@ -52,6 +52,7 @@
     "docs/USAGE.md",
     "docs/VERSIONS.md",
     "examples/fixture-ledger",
+    "examples/eval/booker.gold.json",
     "README.md",
     "CHANGELOG.md",
     "LICENSE",

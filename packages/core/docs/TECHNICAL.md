@@ -57,6 +57,13 @@ src/
     passages.ts       a document cut into passages; the passage id
     bm25.ts           keyword ranking (BM25), tokeniser, query stop words
     build.ts          aqa index: collect, write, read back, staleness
+  report/
+    coverage.ts       aqa coverage; qa-record.ts the tracker's QA record
+    eval.ts           aqa eval: arms, per-story comparison, the bars, eval.json
+    eval-runs.ts      one run measured from its ledger
+    eval-retrieval.ts the gold questions put to the search
+    eval-gold.ts      the gold file; eval-prices.ts the dated price table; eval-stats.ts
+                      Wilson interval, McNemar's exact test, precision and recall
   skills/
     story-to-tests.ts instructions, allowedTools, sourceTools, verifier
   verify/
@@ -343,6 +350,8 @@ attempted" from "attempted and refused" from "attempted and failed".
 aqa replay <path> [--out <file>]
 aqa discover [--servers …] [--out docs/tools-observed.md] [--workspace .]
 aqa index --config <file> [--workspace .] [--ledger .aqa]
+aqa eval [<runs>…] --gold <file> [--on <runs>] [--off <runs>] [--ledger .aqa]
+         [--prices <file>] [--out eval.json] [--skip-retrieval]
 aqa run "<request>" --config <file> [--ledger .aqa] [--workspace .] [--env .env]
         [--approval terminal|file] [--approval-timeout <seconds>]
         [--work-item <id>] [--servers …] [--dry-run]

@@ -398,6 +398,30 @@ Three details of the citation check as built: a citation without a quote is refu
 the second check would otherwise have nothing to compare; a quote must be at least ten
 characters; and with several passages cited the quote may come from any one of them.
 
+The evaluation command as built (17 Nov 2026), where §7 left a choice open:
+
+- **Arms.** The ledger does not record whether the search was offered, so a run is "on" when
+  it searched, unless the arms are named with `--on` and `--off`. A comparison should name
+  them: a run that had the search and did not use it would otherwise be counted as off.
+- **Gold values.** A story's gold entry has `values` (a correct design holds them; recall is
+  over these) and `allowed` (it may hold them: the value one below a minimum, test data;
+  never counted wrong). Precision is over the concrete values found in the design: what is
+  in double quotes, and numbers standing alone.
+- **Passages in a gold file** are named by id or by id without the hash, so a gold file
+  survives an edit to the passage's text.
+- **Prices.** The built-in table holds the one price the project has used and checked
+  (`claude-sonnet-4-6`, from `research/tools/cost.py`). Any other model has no cost until a
+  dated table is given with `--prices`; it is never priced as another model.
+- **Faithfulness in code** is counted only where the item holds a gold value: the quote
+  either holds that value or does not. Every other cited item is "undetermined" and waits
+  for the judge model, which is not built.
+- **Unanswerable questions** have no hit to score. The report gives how often the search
+  returned passages for them anyway and the mean top score, which is the evidence for or
+  against a score floor in `docs.search`.
+- **Not built in this slice:** the judge model, the seeded-fault harness as an input, the
+  trend across versions, and the CI job for the retrieval-level set (it comes with the gold
+  sets).
+
 Two details the first slice settled: the keyword index file is `keywords.json`, and the manifest
 also holds a hash of the two files beside it, so a half-written index is refused. Naming a folder
 that attestqa or the test runner writes (`.aqa`, `test-results`, …) is an error, not a silent
