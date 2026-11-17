@@ -136,6 +136,7 @@ aqa coverage --workspace ./my-playwright-project   # each story: design, tests, 
 aqa replay .aqa                                    # what happened in the latest run
 aqa seed --schema db/schema.sql                    # optional: seed data for the app, from its schema
 aqa index --config ai-quality.config.yaml          # optional: index your project's documents (agent.knowledge.paths)
+aqa eval --gold gold.json --ledger .aqa            # optional: score the document search, and recorded runs, against a gold file
 ```
 
 ## What it does today

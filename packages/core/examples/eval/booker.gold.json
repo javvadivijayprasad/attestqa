@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "retrieval": [
+    {
+      "id": "phone-length",
+      "question": "phone length",
+      "category": "single",
+      "passages": ["docs/requirements/contact-form.md#phone"],
+      "value": "11 to 21 characters"
+    },
+    {
+      "id": "phone-message",
+      "question": "What message is shown when the phone number is too short?",
+      "category": "single",
+      "passages": ["docs/requirements/contact-form.md#phone"],
+      "value": "Phone must be between 11 and 21 characters."
+    },
+    {
+      "id": "subject-length",
+      "question": "allowed length of the subject",
+      "category": "single",
+      "passages": ["docs/requirements/contact-form.md#subject"],
+      "value": "5 to 100 characters"
+    },
+    {
+      "id": "message-minimum",
+      "question": "minimum length of a message",
+      "category": "single",
+      "passages": ["docs/requirements/contact-form.md#message"],
+      "value": "20 characters"
+    },
+    {
+      "id": "message-wording",
+      "question": "contact form message too long wording",
+      "category": "single",
+      "passages": ["docs/requirements/contact-form.md#message"],
+      "value": "Message must be between 20 and 2000 characters."
+    },
+    {
+      "id": "where-form",
+      "question": "Where is the contact form and which fields does it have?",
+      "category": "single",
+      "passages": ["docs/requirements/contact-form.md#contact-form-validation-rules"]
+    },
+    {
+      "id": "name-empty",
+      "question": "message shown when the name field is left empty",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "refund",
+      "question": "refund policy for a cancelled booking",
+      "category": "unanswerable",
+      "passages": []
+    }
+  ],
+  "stories": [
+    {
+      "story": "92",
+      "needsDocuments": true,
+      "values": [
+        "11",
+        "21",
+        "Phone must be between 11 and 21 characters.",
+        "20",
+        "2000",
+        "Message must be between 20 and 2000 characters."
+      ],
+      "allowed": ["10", "19", "22", "2001", "5", "100"],
+      "unanswerable": ["AC-1"]
+    },
+    {
+      "story": "176",
+      "needsDocuments": false,
+      "values": [
+        "11",
+        "21",
+        "Phone must be between 11 and 21 characters.",
+        "20",
+        "2000",
+        "Message must be between 20 and 2000 characters.",
+        "5",
+        "100",
+        "Subject must be between 5 and 100 characters."
+      ],
+      "allowed": ["10", "22", "19", "2001", "4", "101"]
+    },
+    {
+      "story": "93",
+      "needsDocuments": false,
+      "values": []
+    }
+  ]
+}

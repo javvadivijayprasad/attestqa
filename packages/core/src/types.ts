@@ -138,6 +138,12 @@ export interface ApprovalResolvedPayload {
   decision: ApprovalDecision;
   by: string;
   at: string;
+  /**
+   * Why a person denied it, when they said. Written by the loop since the
+   * denial reason was kept (2.3.0) and declared here in 2.4.0, when
+   * `aqa eval` began to read it. Optional and additive: older ledgers have none.
+   */
+  reason?: string;
 }
 
 export interface CallPayload {

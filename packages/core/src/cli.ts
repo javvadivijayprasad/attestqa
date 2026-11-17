@@ -52,6 +52,9 @@ import { SynthdataTools } from "./mcp/adapters/synthdata.js";
 import { DocsTools } from "./mcp/adapters/docs.js";
 import { generateSeed, renderSeed } from "./seed/seed.js";
 import { buildIndex, readIndex, renderIndex } from "./knowledge/build.js";
+import { barsMissed, evaluate, readRun, renderEval, runFolders } from "./report/eval.js";
+import { GoldError, parseGold } from "./report/eval-gold.js";
+import { DEFAULT_PRICES, parsePrices, PriceError } from "./report/eval-prices.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
 import { TestDesignTools } from "./mcp/adapters/test-design.js";
@@ -168,6 +171,17 @@ Usage:
       by itself, so what a run was told always has a record. Run reports, failure
       snapshots, credential files and node_modules are never indexed.
 
+  aqa eval [<runs>...] --gold <gold.json> [--on <runs>] [--off <runs>] [--ledger .aqa]
+           [--prices <prices.json>] [--out eval.json] [--skip-retrieval]
+      Score recorded runs, and the document search, against a gold file — offline: no
+      model, no tracker, no browser. The gold file's questions are put to the search index
+      in <ledger>/knowledge (hit rate at 5, mean reciprocal rank); its stories are scored
+      from the ledgers of the runs given (completion, value correctness, citations,
+      invented values, cost). <runs> is a run folder, a ledger root, or a folder of runs.
+      A run counts as search "on" when it searched the documents; --on and --off name the
+      two arms outright (comma-separated paths). Writes eval.json and prints a summary with
+      the agreed bars. Exit 0 when no measured bar is missed, 3 when one is.
+
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
       Reads .env for credentials. Makes NO tool calls — listTools() only.
@@ -215,6 +229,7 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "coverage") return coverage(rest, io);
     if (cmd === "seed") return await seed(rest, io);
     if (cmd === "index") return await index(rest, io);
+    if (cmd === "eval") return await evalCommand(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -1424,6 +1439,94 @@ export async function index(args: string[], io: CliIo): Promise<number> {
   }
   io.out(renderIndex(result));
   return 0;
+}
+
+/** Flags of `aqa eval` that take a value, so what follows one is not read as a run folder. */
+const EVAL_VALUE_FLAGS = ["--gold", "--on", "--off", "--ledger", "--prices", "--out"];
+
+/**
+ * `aqa eval`: recorded runs and a gold file in, `eval.json` out. See USAGE and
+ * report/eval.ts. Offline: it reads ledgers, the document index and two files.
+ */
+export async function evalCommand(args: string[], io: CliIo): Promise<number> {
+  const goldFile = flag(args, "--gold");
+  if (!goldFile) {
+    io.err("aqa eval: --gold <gold.json> is required\n");
+    return 1;
+  }
+  const read = async (file: string, what: string): Promise<unknown> => {
+    const path = resolve(file);
+    if (!existsSync(path)) throw new ConfigError(`${what} not found: ${path}`);
+    return parseConfigText(readFileSync(path, "utf8"), extname(path));
+  };
+  try {
+    const gold = parseGold(await read(goldFile, "gold file"), goldFile);
+    const pricesFile = flag(args, "--prices");
+    const prices = pricesFile
+      ? parsePrices(await read(pricesFile, "price table"), pricesFile)
+      : DEFAULT_PRICES;
+
+    const positional: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i] as string;
+      if (EVAL_VALUE_FLAGS.includes(a)) i++;
+      else if (!a.startsWith("--")) positional.push(a);
+    }
+    const paths = (name: string): string[] =>
+      (flag(args, name) ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const groups: Array<{ arm?: "on" | "off"; path: string }> = [
+      ...positional.map((path) => ({ path })),
+      ...paths("--on").map((path) => ({ arm: "on" as const, path })),
+      ...paths("--off").map((path) => ({ arm: "off" as const, path })),
+    ];
+    const runs = [];
+    for (const g of groups) {
+      const folders = runFolders(g.path);
+      if (folders.length === 0)
+        throw new ConfigError(
+          `no run found at ${resolve(g.path)} (a run folder holds events.jsonl)`,
+        );
+      for (const f of folders) runs.push({ ...readRun(f), ...(g.arm ? { arm: g.arm } : {}) });
+    }
+
+    const skip = args.includes("--skip-retrieval");
+    let keywords;
+    if (gold.retrieval.length > 0 && !skip) {
+      const index = readIndex(flag(args, "--ledger") ?? ".aqa");
+      if (!index.ok)
+        throw new ConfigError(
+          `${index.message}. The gold file has ${gold.retrieval.length} retrieval question(s); ` +
+            "name the ledger that holds the index with --ledger, or pass --skip-retrieval",
+        );
+      keywords = index.keywords;
+    }
+    if (runs.length === 0 && !keywords)
+      throw new ConfigError(
+        "nothing to score: give run folders, or a gold file with retrieval questions",
+      );
+
+    const result = evaluate({
+      gold,
+      goldFile,
+      prices,
+      runs,
+      ...(keywords ? { index: keywords } : {}),
+    });
+    const out = resolve(flag(args, "--out") ?? "eval.json");
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, JSON.stringify(result, null, 2) + "\n", "utf8");
+    io.out(renderEval(result, out));
+    return barsMissed(result).length > 0 ? 3 : 0;
+  } catch (e) {
+    if (e instanceof GoldError || e instanceof PriceError || e instanceof ConfigError) {
+      io.err(`aqa eval: ${e.message}\n`);
+      return 1;
+    }
+    throw e;
+  }
 }
 
 /** `aqa check-rules`: today's rules against recorded runs. See USAGE. */

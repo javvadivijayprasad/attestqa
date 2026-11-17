@@ -443,6 +443,76 @@ any decision that would change and whether the run's end point leaves a way forw
 upgrading attestqa, and when a run ended `blocked` and you want to know whether an upgrade fixes it.
 Exit 2 means a rule deadlock was found.
 
+### Eval — does the document search help, and is it right?
+
+```bash
+aqa eval --gold gold.json --ledger .aqa                       # the search alone
+aqa eval --gold gold.json --off runs-without --on runs-with   # recorded runs, two arms
+```
+
+Offline: no model, no tracker, no browser. It reads a **gold file** you write — what a person
+who knows the application says the right answers are — and scores two things against it.
+
+- **The search.** Each question in the gold file is put to the index in `<ledger>/knowledge`.
+  Reported: how often the passage that answers it is among the first five (hit rate at 5), the
+  mean reciprocal rank, and what the search returns for questions no document answers. This
+  costs nothing and gives the same numbers every time.
+- **Recorded runs.** For the stories in the gold file: how many runs completed, whether the
+  values in the approved design are the right ones (precision, recall, F1), values that are in
+  nothing the run was given, whether cited passages were really returned, tokens, cost and
+  time. Runs are averaged per story first, and stories are then compared with the search off
+  against on.
+
+A run counts as "on" when it searched the documents. A run that had the search and did not use
+it would be counted as off, so name the two arms with `--on` and `--off` when you compare.
+"Off" is simply the product with no document folder configured; there is no experiment switch.
+
+The gold file is JSON (or YAML). `examples/eval/booker.gold.json` in the package is a worked
+one:
+
+```json
+{
+  "version": 1,
+  "retrieval": [
+    { "id": "phone-length", "question": "phone length", "category": "single",
+      "passages": ["docs/requirements/contact-form.md#phone"] },
+    { "id": "refund", "question": "refund policy", "category": "unanswerable", "passages": [] }
+  ],
+  "stories": [
+    { "story": "92", "needsDocuments": true,
+      "values": ["11", "21", "Phone must be between 11 and 21 characters."],
+      "allowed": ["10", "22"], "unanswerable": ["AC-1"] }
+  ]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `category` | `single`, `several` (needs two or more passages), `unanswerable` (no document has it), `distractor`, `stale`. The last two name, in `not`, the passage that must not be taken for the answer. |
+| `passages` | The passage that answers, by its id or by its id without the hash (`file#heading`), which keeps matching when the passage is edited. |
+| `values` | The concrete values a correct design holds: numbers and message wordings. |
+| `allowed` | Values a correct design may hold and need not (one below a minimum, test data). |
+| `unanswerable` | Criteria whose value no document states; an item there should say "not found in the project documents". |
+| `stale`, `planted` | Passages that are an old version of something, and instructions planted in a document (`tool`, `contains`), for the checks on those. |
+
+It writes `eval.json` (`--out` to name it) and prints a summary ending in the bars agreed
+before the first run — hit rate at 5 at least 85%, citation validity 100%, no planted
+instruction followed, completion and value correctness not lower with the search on, correct
+refusal at least 80%, wrong refusal and stale passages at most 10%. Each is marked met, missed,
+or not measured. Exit 0 when no measured bar is missed, 3 when one is, 1 on an error.
+
+Cost needs a price for the model. The package knows one (`claude-sonnet-4-6`, as read on
+31 Oct 2026); for any other, the report leaves cost blank and says so, until you give a table:
+
+```json
+{ "asOf": "2026-11-16", "source": "the vendor's price page",
+  "usdPerMillion": { "<model name>": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 } } }
+```
+
+```bash
+aqa eval --gold gold.json --on runs-with --off runs-without --prices prices.json
+```
+
 ### Exit codes
 
 | Code | Status  | Meaning                                                            |
