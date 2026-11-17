@@ -429,6 +429,22 @@ defect, 7 the trend across versions and 8 the judge panel are not: the first nee
 workspace as well as the ledgers, the second more than one evaluation, the third the judge.
 The ledger events behind an item are given by number; the page does not embed the ledger.
 
+**The gold sets as drafted (17 Nov 2026).** One gold file per evaluation app is in
+`packages/core/examples/eval/<app>.gold.json`, and the documents each is about are in
+`packages/core/examples/eval/documents/<app>/docs/`: the requirement documents, and for Booker
+and SauceDemo an archived older version (the stale case), and for Booker a notes file with a
+planted instruction. Together they hold 82 retrieval questions and 15 stories. The Booker and
+SauceDemo values were read from the running applications that day; the Toolshop values come
+from its passing tests and its documents say so. The retrieval level runs as an ordinary test
+(`test/eval-gold-sets.test.ts`), so the release check of §7 is part of preflight and CI, with no
+separate job. Its first result, recorded so that a later change is measured against it: the
+answer is in the first five for 66 of 67 answerable questions; the one miss is a question whose
+words differ from the passage only by word form ("sort options" against "sorted"), because the
+search does not reduce words to a stem; both SauceDemo stale questions rank the archived
+passage first; and every one of the 15 unanswerable questions gets passages back. For an
+end-to-end run a workspace is given a copy of its app's `docs` folder; the "off" arm is the
+workspace without it.
+
 Two details the first slice settled: the keyword index file is `keywords.json`, and the manifest
 also holds a hash of the two files beside it, so a half-written index is refused. Naming a folder
 that attestqa or the test runner writes (`.aqa`, `test-results`, …) is an error, not a silent

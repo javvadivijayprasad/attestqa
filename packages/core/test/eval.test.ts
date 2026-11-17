@@ -904,6 +904,6 @@ describe("the draft gold file shipped as an example", () => {
   it("is a valid gold file", () => {
     const gold = parseGold(JSON.parse(readFileSync(DRAFT, "utf8")), DRAFT);
     expect(gold.retrieval.length).toBeGreaterThan(5);
-    expect(gold.stories.map((s) => s.story)).toEqual(["92", "176", "93"]);
+    expect(gold.stories.map((s) => s.story)).toEqual(["92", "176", "93", "95", "97", "100"]);
   });
 });

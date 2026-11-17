@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "retrieval": [
+    {
+      "id": "contact-first-name",
+      "question": "message when the first name is empty on the contact form",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact.md#required-fields"
+      ],
+      "value": "First name is required"
+    },
+    {
+      "id": "contact-message-empty",
+      "question": "message when the contact message is left empty",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact.md#required-fields"
+      ],
+      "value": "Message is required"
+    },
+    {
+      "id": "email-format",
+      "question": "message for an email address without an @",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact.md#email-format"
+      ],
+      "value": "Email format is invalid"
+    },
+    {
+      "id": "contact-thanks",
+      "question": "What is shown after the contact form is sent?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact.md#after-sending"
+      ],
+      "value": "Thanks for your message!"
+    },
+    {
+      "id": "age-minimum",
+      "question": "minimum age to register",
+      "category": "single",
+      "passages": [
+        "docs/requirements/account.md#age-limit"
+      ],
+      "value": "18"
+    },
+    {
+      "id": "age-maximum",
+      "question": "oldest a customer may be to register",
+      "category": "single",
+      "passages": [
+        "docs/requirements/account.md#age-limit"
+      ],
+      "value": "younger than 75"
+    },
+    {
+      "id": "password-length",
+      "question": "minimum number of characters in a password",
+      "category": "single",
+      "passages": [
+        "docs/requirements/account.md#password-rules"
+      ],
+      "value": "8"
+    },
+    {
+      "id": "password-kinds",
+      "question": "Which kinds of character must a password hold?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/account.md#password-rules"
+      ]
+    },
+    {
+      "id": "wrong-password",
+      "question": "message shown when signing in with a wrong password",
+      "category": "single",
+      "passages": [
+        "docs/requirements/account.md#signing-in-with-a-wrong-password"
+      ],
+      "value": "Invalid email or password."
+    },
+    {
+      "id": "favourites-signed-out",
+      "question": "What happens when a visitor who is not signed in opens the favourites page?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/account.md#favourites-need-a-sign-in"
+      ]
+    },
+    {
+      "id": "no-products",
+      "question": "message when a search finds no products",
+      "category": "single",
+      "passages": [
+        "docs/requirements/catalogue.md#search-with-no-result"
+      ],
+      "value": "There are no products found."
+    },
+    {
+      "id": "added-to-cart",
+      "question": "confirmation shown after adding a product to the cart",
+      "category": "single",
+      "passages": [
+        "docs/requirements/catalogue.md#adding-to-the-cart"
+      ],
+      "value": "Product added to shopping cart."
+    },
+    {
+      "id": "quantity-minimum",
+      "question": "lowest quantity on a product page",
+      "category": "single",
+      "passages": [
+        "docs/requirements/catalogue.md#quantity-on-a-product-page"
+      ],
+      "value": "1"
+    },
+    {
+      "id": "payment-message",
+      "question": "message after paying with cash on delivery",
+      "category": "single",
+      "passages": [
+        "docs/requirements/catalogue.md#paying"
+      ],
+      "value": "Payment was successful"
+    },
+    {
+      "id": "price-sort-name",
+      "question": "name of the sort from cheapest to most expensive",
+      "category": "single",
+      "passages": [
+        "docs/requirements/catalogue.md#sorting-the-catalogue"
+      ],
+      "value": "Price (Low - High)"
+    },
+    {
+      "id": "registration-limits",
+      "question": "the age limit and the password rules for registration",
+      "category": "several",
+      "passages": [
+        "docs/requirements/account.md#age-limit",
+        "docs/requirements/account.md#password-rules"
+      ]
+    },
+    {
+      "id": "first-name-both-forms",
+      "question": "message for an empty first name on the contact form and on registration",
+      "category": "several",
+      "passages": [
+        "docs/requirements/contact.md#required-fields",
+        "docs/requirements/account.md#required-registration-fields"
+      ]
+    },
+    {
+      "id": "email-empty-not-format",
+      "question": "message when the email address is empty on the contact form",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/contact.md#required-fields"
+      ],
+      "not": [
+        "docs/requirements/contact.md#email-format"
+      ],
+      "value": "Email is required"
+    },
+    {
+      "id": "email-format-not-empty",
+      "question": "message when the email format is invalid",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/contact.md#email-format"
+      ],
+      "not": [
+        "docs/requirements/contact.md#required-fields"
+      ],
+      "value": "Email format is invalid"
+    },
+    {
+      "id": "message-length",
+      "question": "minimum length of a contact form message",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "age-17-wording",
+      "question": "exact message shown when the customer is 17",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "attachment-types",
+      "question": "Which file types can be attached to a contact message?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "session-length",
+      "question": "How long does a customer stay signed in?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "delivery-cost",
+      "question": "What does delivery cost?",
+      "category": "unanswerable",
+      "passages": []
+    }
+  ],
+  "stories": [
+    {
+      "story": "TOOL-18",
+      "needsDocuments": true,
+      "values": [
+        "First name is required",
+        "Last name is required",
+        "Email is required",
+        "Message is required",
+        "Email format is invalid"
+      ],
+      "allowed": [
+        "Thanks for your message!"
+      ]
+    },
+    {
+      "story": "TOOL-34",
+      "needsDocuments": false,
+      "values": [
+        "18",
+        "75",
+        "8"
+      ],
+      "allowed": [
+        "17",
+        "74",
+        "7"
+      ]
+    },
+    {
+      "story": "TOOL-13",
+      "needsDocuments": true,
+      "values": [
+        "Invalid email or password."
+      ]
+    },
+    {
+      "story": "TOOL-9",
+      "needsDocuments": true,
+      "values": [
+        "There are no products found."
+      ]
+    }
+  ]
+}
