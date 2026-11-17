@@ -31,9 +31,19 @@ import type { Prf } from "./eval-stats.js";
  *  - faithfulness (the part code can tell): of the items that quote a document
  *    and hold a gold value, those whose quote holds that value;
  *  - value correctness: the concrete values in the approved design against the
- *    gold values — precision, recall, F1;
- *  - invented value: a concrete value in the design that is not a gold value
- *    and is in nothing a tool returned in this run;
+ *    gold values — precision, recall, F1. A gold value counts as held when it
+ *    is in an item's conditions, expected result, rationale or quote: an item
+ *    that says "the message is shown exactly" and quotes the message holds it.
+ *    F1 is 2·found / (2·found + wrong + missed), so a design that holds none
+ *    of the gold values scores 0 and is not left out of the comparison;
+ *  - what a design ASSERTS (the values counted as wrong or invented): numbers
+ *    in its conditions and expected results, and wording between quotes in
+ *    its expected results. Wording between quotes in a condition is test
+ *    input (a name, an email address, a sample phone number), a rationale is
+ *    an explanation and a quote is the document's own text; none of the three
+ *    is a claim about the application;
+ *  - invented value: an asserted value that is not a gold value and is in
+ *    nothing a tool returned in this run;
  *    (a number counts as given when it appears anywhere in a tool's result, a
  *    line number included, so for small numbers this errs towards "not invented");
  *  - correct / wrong refusal: criteria whose value no document states that say
@@ -170,6 +180,19 @@ export function holdsValue(text: string, value: string): boolean {
 
 const itemText = (it: DesignItem): string =>
   quotable([...it.conditions, it.expected, it.rationale ?? ""].join(" \n "));
+
+/** Everything an item says, its quote of a document included: where a gold value is looked for. */
+const itemHolds = (it: DesignItem): string => quotable([itemText(it), it.quote ?? ""].join(" \n "));
+
+/**
+ * The values an item asserts about the application: numbers in its conditions
+ * and its expected result, wording between quotes in its expected result.
+ * Quoted wording in a condition is what the test types in, not a claim.
+ */
+export function assertedValues(it: Pick<DesignItem, "conditions" | "expected">): string[] {
+  const inputs = quotable(it.conditions.join(" \n ")).replace(/"[^"]{2,200}"/g, " ");
+  return [...new Set([...concreteValues(inputs), ...concreteValues(it.expected)])];
+}
 
 const criterion = (s: string): string | undefined => {
   const m = /\bAC[- ]?(\d+)/i.exec(s);
@@ -334,11 +357,11 @@ export function runMetrics(
   // A story the gold file gives no values for is not scored on values: with
   // nothing to compare against, every value in its design would read as wrong.
   if (gold && design && gold.values.length > 0) {
-    const text = quotable(design.items.map(itemText).join(" \n "));
+    const text = design.items.map(itemHolds).join(" \n ");
     const found = gold.values.filter((v) => holdsValue(text, v));
     const missed = gold.values.filter((v) => !holdsValue(text, v));
     const known = [...gold.values, ...gold.allowed].map(normalValue);
-    const extracted = concreteValues(design.items.map(itemText).join(" \n "));
+    const extracted = [...new Set(design.items.flatMap(assertedValues))];
     const wrong = extracted.filter((v) => !known.includes(v));
     // Precision is over what the design holds (a value the gold file allows
     // is not wrong); recall is over what the gold file requires.
@@ -351,12 +374,8 @@ export function runMetrics(
       fn: missed.length,
       precision,
       recall,
-      f1:
-        precision === null
-          ? null
-          : precision + recall > 0
-            ? (2 * precision * recall) / (precision + recall)
-            : 0,
+      // Defined whenever the gold file has a value: none found is 0, not "no score".
+      f1: (2 * found.length) / (2 * found.length + wrong.length + missed.length),
       found,
       missed,
       wrong,

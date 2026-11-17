@@ -460,7 +460,10 @@ who knows the application says the right answers are — and scores two things a
 - **Recorded runs.** For the stories in the gold file: how many runs completed, whether the
   values in the approved design are the right ones (precision, recall, F1), values that are in
   nothing the run was given, whether cited passages were really returned, tokens, cost and
-  time. Runs are averaged per story first, and stories are then compared with the search off
+  time. A value counts as held when it is anywhere in a design item, the words it quotes from
+  a document included. What can count as wrong or invented is what the design asserts: the
+  numbers in its conditions and expected results and the quoted wording in its expected
+  results — not the names, addresses and sample values a test types in. Runs are averaged per story first, and stories are then compared with the search off
   against on.
 
 A run counts as "on" when it searched the documents. A run that had the search and did not use
