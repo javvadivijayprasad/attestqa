@@ -54,6 +54,7 @@ import { generateSeed, renderSeed } from "./seed/seed.js";
 import { buildIndex, readIndex, renderIndex } from "./knowledge/build.js";
 import { barsMissed, evaluate, readRun, renderEval, runFolders } from "./report/eval.js";
 import { GoldError, parseGold } from "./report/eval-gold.js";
+import { renderEvalHtml } from "./report/eval-html.js";
 import { DEFAULT_PRICES, parsePrices, PriceError } from "./report/eval-prices.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
@@ -172,14 +173,15 @@ Usage:
       snapshots, credential files and node_modules are never indexed.
 
   aqa eval [<runs>...] --gold <gold.json> [--on <runs>] [--off <runs>] [--ledger .aqa]
-           [--prices <prices.json>] [--out eval.json] [--skip-retrieval]
+           [--prices <prices.json>] [--out eval.json] [--html eval.html] [--skip-retrieval]
       Score recorded runs, and the document search, against a gold file — offline: no
       model, no tracker, no browser. The gold file's questions are put to the search index
       in <ledger>/knowledge (hit rate at 5, mean reciprocal rank); its stories are scored
       from the ledgers of the runs given (completion, value correctness, citations,
       invented values, cost). <runs> is a run folder, a ledger root, or a folder of runs.
       A run counts as search "on" when it searched the documents; --on and --off name the
-      two arms outright (comma-separated paths). Writes eval.json and prints a summary with
+      two arms outright (comma-separated paths). --html also writes the result as one
+      self-contained page (nothing is fetched). Writes eval.json and prints a summary with
       the agreed bars. Exit 0 when no measured bar is missed, 3 when one is.
 
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
@@ -1442,7 +1444,7 @@ export async function index(args: string[], io: CliIo): Promise<number> {
 }
 
 /** Flags of `aqa eval` that take a value, so what follows one is not read as a run folder. */
-const EVAL_VALUE_FLAGS = ["--gold", "--on", "--off", "--ledger", "--prices", "--out"];
+const EVAL_VALUE_FLAGS = ["--gold", "--on", "--off", "--ledger", "--prices", "--out", "--html"];
 
 /**
  * `aqa eval`: recorded runs and a gold file in, `eval.json` out. See USAGE and
@@ -1518,7 +1520,14 @@ export async function evalCommand(args: string[], io: CliIo): Promise<number> {
     const out = resolve(flag(args, "--out") ?? "eval.json");
     mkdirSync(dirname(out), { recursive: true });
     writeFileSync(out, JSON.stringify(result, null, 2) + "\n", "utf8");
-    io.out(renderEval(result, out));
+    const html = flag(args, "--html");
+    if (html) {
+      // The same result as a page: one file, nothing fetched (report/eval-html.ts).
+      const page = resolve(html);
+      mkdirSync(dirname(page), { recursive: true });
+      writeFileSync(page, renderEvalHtml(result), "utf8");
+    }
+    io.out(renderEval(result, out) + (html ? `Page: ${resolve(html)}` + "\n" : ""));
     return barsMissed(result).length > 0 ? 3 : 0;
   } catch (e) {
     if (e instanceof GoldError || e instanceof PriceError || e instanceof ConfigError) {

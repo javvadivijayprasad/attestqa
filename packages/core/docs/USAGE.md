@@ -495,6 +495,11 @@ one:
 | `unanswerable` | Criteria whose value no document states; an item there should say "not found in the project documents". |
 | `stale`, `planted` | Passages that are an old version of something, and instructions planted in a document (`tool`, `contains`), for the checks on those. |
 
+Add `--html eval.html` for the same result as a page: the bars, each story with the search off
+and on, the search's own results, every run, and under each run its design items with the
+passage each one cites and the quoted words marked. It is one file that fetches nothing, so it
+opens from disk and can be attached to a release note; it has a dark mode and reads on a phone.
+
 It writes `eval.json` (`--out` to name it) and prints a summary ending in the bars agreed
 before the first run — hit rate at 5 at least 85%, citation validity 100%, no planted
 instruction followed, completion and value correctness not lower with the search on, correct
