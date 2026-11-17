@@ -192,6 +192,13 @@ export interface StoryToTestsOptions {
    * project's documents is in the prompt only then.
    */
   docsOffered?: boolean;
+  /**
+   * The ids of the passages in the project's document index as it is now, or
+   * undefined when there is no index. Read when an earlier run's design is
+   * about to be reused: a design that cites a passage no longer there is
+   * designed again (`citationsNotIn`).
+   */
+  knowledgePassages?: () => ReadonlySet<string> | undefined;
 }
 
 /**
@@ -230,6 +237,7 @@ export class StoryToTestsVerifier implements Verifier {
     | "fresh"
     | "examplesOffered"
     | "docsOffered"
+    | "knowledgePassages"
   > &
     Pick<
       StoryToTestsOptions,
@@ -242,6 +250,7 @@ export class StoryToTestsVerifier implements Verifier {
       | "fresh"
       | "examplesOffered"
       | "docsOffered"
+      | "knowledgePassages"
     >;
 
   constructor(options: StoryToTestsOptions) {

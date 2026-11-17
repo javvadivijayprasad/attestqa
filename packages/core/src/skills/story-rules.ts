@@ -22,6 +22,7 @@ import {
 } from "../triage/settle.js";
 import { droppedClaims, LOCATOR_CALL } from "../design/claims.js";
 import { rangeValuesOwed } from "../design/stated-ranges.js";
+import { citationProblems } from "../design/citations.js";
 import { applyEdit, editHits } from "../design/edits.js";
 import { exhaustedTests, MAX_REPAIRS_PER_TEST, quarantinedTitles } from "../triage/quarantine.js";
 import { missingImports } from "../framework/survey.js";
@@ -176,6 +177,9 @@ function invalidDesign(
   const problems = [
     ...validateDesign(design, facts, types),
     ...takenDesignIds(design, facts, events, workspaceDir),
+    // A passage cited from a project document was returned in this run, and
+    // holds the words the item quotes (design/citations.ts).
+    ...citationProblems(design, events),
     // Only where the generator is offered: without it the values are the
     // agent's own, as they always were.
     ...(examplesOffered ? rangeValuesOwed(design, events) : []),

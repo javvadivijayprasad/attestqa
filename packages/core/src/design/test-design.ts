@@ -9,6 +9,7 @@ import {
 } from "./ids.js";
 import type { AnyRunEvent } from "../types.js";
 import { asArray, asRecord, completedCalls, successful } from "../verify/evidence.js";
+import { citedPassages, quotable } from "./citations.js";
 import { acLabels } from "../triage/settle.js";
 import { applyEdit } from "./edits.js";
 import { sameTest, TitleSet } from "./titles.js";
@@ -95,6 +96,13 @@ export interface DesignItem {
    * the approver, whose job is to judge whether the page and source really fit.
    */
   rationale?: string;
+  /**
+   * The words of a project document that state this item's value, copied
+   * from the passage its `source` cites as `doc:<passage id>` (ADR-008 §6).
+   * Checked in code against what `docs.search` returned in this run
+   * (`design/citations.ts`) and shown to the approver beside the expectation.
+   */
+  quote?: string;
 }
 
 export interface Exclusion {
@@ -227,6 +235,7 @@ export function parseDesign(args: Record<string, unknown>): TestDesign {
       ...(typeof r["rationale"] === "string" && r["rationale"].trim()
         ? { rationale: r["rationale"].trim() }
         : {}),
+      ...(typeof r["quote"] === "string" && r["quote"].trim() ? { quote: r["quote"].trim() } : {}),
     };
   });
   const excluded = asArray(args["excluded"]).map((x) => {
@@ -773,6 +782,16 @@ export function renderDesign(
     if (hit) out.push(`      ALREADY TESTED by "${hit.scenario}" (matched on ${hit.how})`);
     if (it.conditions.length > 0) out.push(`      conditions: ${it.conditions.join("; ")}`);
     out.push(`      expect: ${it.expected}   (from ${it.source})`);
+    // What a project document says, in its own words, beside what the item
+    // expects: the code has checked the words are in the passage; whether
+    // they support the expectation is the approver's to judge.
+    for (const id of citedPassages(it.source))
+      out.push(
+        `      document: ${id.replace(/@[0-9a-f]{8}$/, "").replace("#", " › ")}` +
+          // On one line: a quote of a whole passage has the passage's line
+          // breaks and block-quote marks in it (20261117T004950Z).
+          (it.quote ? ` says "${quotable(it.quote)}"` : " (nothing quoted)"),
+      );
     // The model's justification that this page and source fit the story, shown
     // so the approver can judge it (W2/W6). When absent, say so — an item with
     // no justification is the one most likely to have been copied from an

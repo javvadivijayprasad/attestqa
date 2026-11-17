@@ -51,7 +51,7 @@ import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
 import { DocsTools } from "./mcp/adapters/docs.js";
 import { generateSeed, renderSeed } from "./seed/seed.js";
-import { buildIndex, renderIndex } from "./knowledge/build.js";
+import { buildIndex, readIndex, renderIndex } from "./knowledge/build.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
 import { TestDesignTools } from "./mcp/adapters/test-design.js";
@@ -867,6 +867,12 @@ async function live(
             ...(args.includes("--fresh") ? { fresh: true } : {}),
             ...(examplesOffered ? { examplesOffered: true } : {}),
             ...(docsOffered ? { docsOffered: true } : {}),
+            // The document index as it is now, for a design carried from an
+            // earlier run that cites a passage of it.
+            knowledgePassages: () => {
+              const index = readIndex(resolve(flag(args, "--ledger") ?? ".aqa"));
+              return index.ok ? new Set(index.passages.map((p) => p.id)) : undefined;
+            },
             // Failure triage runs in-process by default and sends nothing
             // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
             // value comes from the environment and nowhere else, so that no

@@ -227,7 +227,8 @@ your machine. It prints the files it indexed and any it left out, with the reaso
   `aqa run "…" --config ai-quality.config.yaml --servers ado,playwright,fs,bdd2pw,pw,docs`
   (for Jira, `jira` in place of `ado`). During test design the agent then searches your documents
   when a criterion names a rule without its value, and names the passage it used in the item's
-  source (`AC-2; doc:docs/requirements/contact.md#phone@1a2b3c4d`), so you can open it. When
+  source (`AC-2; doc:docs/requirements/contact.md#phone@1a2b3c4d`) with the words it took from
+  it, so you can open it. When
   the story states the value, the story is used. When no document has it, the item says "not
   found in the project documents". Without `docs` in `--servers`, a run is the same as before.
 - **What the agent is given is on record.** Each search and the passages it returned are in the
@@ -235,8 +236,14 @@ your machine. It prints the files it indexed and any it left out, with the reaso
   file was last changed; nothing written in a document can make the agent do something the
   rules would otherwise refuse. If the documents changed after the index was built, the search
   says so and still answers from the index as built.
-- **Not yet checked in code.** That a cited passage really holds the quoted value is checked by
-  the next change of 2.4.0; until it ships, read the cited passage when you approve a design.
+- **A citation is checked before you see the design.** An item that cites a document also
+  quotes it. The design is sent back to the agent, not to you, when the passage was not one a
+  search of this run returned, or the quoted words are not in it. In the approval you see the
+  file, the heading and the quote under what the item expects. What the check cannot tell is
+  whether the quote supports the expectation: that is what you are reading it for.
+- **When a document changes.** A later run of an unchanged story normally reuses the approved
+  design. If that design cites a passage whose text has since changed, or the index is no
+  longer there, the story is designed again and you are asked to approve it again.
 
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 

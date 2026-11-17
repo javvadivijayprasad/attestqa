@@ -383,14 +383,20 @@ holds. Five points are corrected or added; where they differ from the text above
    content hash, so when a design is reused, each passage it cites is looked up in the current
    index; one that is no longer there means the document changed. Changing the fingerprint
    would also have sent every existing story back to design once, as the 2.3.0 change did.
-   Open, for the maintainer: what a reused design that cites a document does when the index is
-   missing or search is off (recommended: it is designed again).
+   Built on 16 Nov 2026 as follows: a reused design that cites a passage is designed again
+   when the passage is no longer in the index, and when there is no index at all, because the
+   citation can then not be confirmed. Search being switched off for a run does not by itself
+   send a story back to design: while the index holds the passage, the citation still stands.
 5. **Function words in a query (§4).** Built as designed, the ranking put a passage with two
    "the"s above the phone rule for "allowed length of the phone number": in a set of tens of
    passages a function word is rare enough to outweigh the word that matters. A fixed list of
    English function words is dropped from the QUERY; documents are indexed whole. No stemming is
    done ("booking" does not match "bookings"); whether it is needed is a question for the
    retrieval-level evaluation, not a guess made now.
+
+Three details of the citation check as built: a citation without a quote is refused, since
+the second check would otherwise have nothing to compare; a quote must be at least ten
+characters; and with several passages cited the quote may come from any one of them.
 
 Two details the first slice settled: the keyword index file is `keywords.json`, and the manifest
 also holds a hash of the two files beside it, so a half-written index is refused. Naming a folder
