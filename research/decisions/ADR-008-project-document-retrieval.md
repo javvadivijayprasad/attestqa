@@ -1,6 +1,6 @@
 # ADR-008 — Retrieval over project documents, its evaluation, and the roadmap from 2.4.0
 
-Date: 2026-11-12 · Status: accepted (design and plan; nothing built)
+Date: 2026-11-12 · Status: accepted (design and plan; building started 16 Nov 2026 — see §13)
 
 ## Context
 
@@ -362,6 +362,113 @@ turn comes. The fuller account of every release, as discussed, is in
 **A rule for every new kind of test.** A kind is a feature, not a label. Each needs its own
 validity rules for a design item, a required source, and a verifier check that the test does what
 the kind claims.
+
+### 13. Corrections from the check against the code (16 Nov 2026)
+
+Before the first slice was built, this record was checked against the code of 2.3.0. The design
+holds. Five points are corrected or added; where they differ from the text above, these apply.
+
+1. **Where the citation check runs (§6).** `validateDesign` (`design/test-design.ts`) sees the
+   design and the story, not the run's events. The check needs the run's search results, so it
+   is a separate function called from `invalidDesign` (`skills/story-rules.ts`), beside
+   `takenDesignIds` and `rangeValuesOwed`, which already read events.
+2. **Masked text (§6).** The model sees a passage after the scrubber has replaced emails, IP
+   addresses and tokens; the ledger keeps the original. A quote copied by the model is therefore
+   compared through `unmask` (`design/edits.ts`, 2.3.0), and against the recorded observation,
+   not against the index on disk.
+3. **The fence (§5).** The untrusted-content fence is added by the external tracker server, not
+   by the in-process adapters, so there is no helper to reuse. The `docs` adapter writes its own
+   header.
+4. **A carried design (§6).** The story fingerprint is left as it is. A passage id ends in its
+   content hash, so when a design is reused, each passage it cites is looked up in the current
+   index; one that is no longer there means the document changed. Changing the fingerprint
+   would also have sent every existing story back to design once, as the 2.3.0 change did.
+   Built on 16 Nov 2026 as follows: a reused design that cites a passage is designed again
+   when the passage is no longer in the index, and when there is no index at all, because the
+   citation can then not be confirmed. Search being switched off for a run does not by itself
+   send a story back to design: while the index holds the passage, the citation still stands.
+5. **Function words in a query (§4).** Built as designed, the ranking put a passage with two
+   "the"s above the phone rule for "allowed length of the phone number": in a set of tens of
+   passages a function word is rare enough to outweigh the word that matters. A fixed list of
+   English function words is dropped from the QUERY; documents are indexed whole. No stemming is
+   done ("booking" does not match "bookings"); whether it is needed is a question for the
+   retrieval-level evaluation, not a guess made now.
+
+Three details of the citation check as built: a citation without a quote is refused, since
+the second check would otherwise have nothing to compare; a quote must be at least ten
+characters; and with several passages cited the quote may come from any one of them.
+
+The evaluation command as built (17 Nov 2026), where §7 left a choice open:
+
+- **Arms.** The ledger does not record whether the search was offered, so a run is "on" when
+  it searched, unless the arms are named with `--on` and `--off`. A comparison should name
+  them: a run that had the search and did not use it would otherwise be counted as off.
+- **Gold values.** A story's gold entry has `values` (a correct design holds them; recall is
+  over these) and `allowed` (it may hold them: the value one below a minimum, test data;
+  never counted wrong). Precision is over the concrete values found in the design: what is
+  in double quotes, and numbers standing alone.
+  **Corrected after the first evaluation pass (17 Nov 2026), which showed three faults.**
+  (1) A gold value counts as held when it is anywhere in an item, its quote of the document
+  included: an item that says "the message is shown exactly" and quotes the message holds it.
+  (2) What a design asserts, and so what can be wrong or invented, is the numbers in its
+  conditions and expected results and the quoted wording in its expected results. Quoted
+  wording in a condition is what the test types in (a name, an email address, a sample phone
+  number); a rationale explains; a quote is the document's text. In the pass these read as 19
+  invented values of 49 on Booker with the search on. (3) F1 is 2·found / (2·found + wrong +
+  missed), so a design holding none of the gold values scores 0. Before, it had no score and
+  its story dropped out of the off-against-on comparison (one SauceDemo story of four was
+  compared).
+- **The evaluation before 2.4.0 (17 Nov 2026) was one small pass, not the full one of §7.**
+  11 stories (Booker 6, SauceDemo 5), each run once with the search off and once with it on
+  (22 runs, `gpt-5.5`); Toolshop was not run. One run per arm gives indications, not results.
+  With the corrected scoring: gold values held, SauceDemo 0 of 8 off and 8 of 8 on, Booker 13
+  of 19 off and 16 of 19 on; cited passages valid 18 of 18; an old version cited 0 of 5; the
+  planted instruction followed 0 of 6. Two bars were missed: completion with the search on was
+  lower on SauceDemo (3 of 5 off, 2 of 5 on; Booker 0 of 6 in both arms, mostly for reasons
+  outside the search), and the one story whose value no document has was not refused (0 of 1).
+  2.4.0 shipped on 20 Nov 2026 with these recorded; the full pass remains to be done.
+- **Passages in a gold file** are named by id or by id without the hash, so a gold file
+  survives an edit to the passage's text.
+- **Prices.** The built-in table holds the one price the project has used and checked
+  (`claude-sonnet-4-6`, from `research/tools/cost.py`). Any other model has no cost until a
+  dated table is given with `--prices`; it is never priced as another model.
+- **Faithfulness in code** is counted only where the item holds a gold value: the quote
+  either holds that value or does not. Every other cited item is "undetermined" and waits
+  for the judge model, which is not built.
+- **Unanswerable questions** have no hit to score. The report gives how often the search
+  returned passages for them anyway and the mean top score, which is the evidence for or
+  against a score floor in `docs.search`.
+- **Not built in this slice:** the judge model, the seeded-fault harness as an input, the
+  trend across versions, and the CI job for the retrieval-level set (it comes with the gold
+  sets).
+
+The page as built (17 Nov 2026), against the eight parts §8 lists: 1 off against on per story,
+2 the way from a score to the item, its passage and the marked quote, 3 the per-run table,
+4 results by kind of question and 5 the repeat view are on it. 6 the chain from criterion to
+defect, 7 the trend across versions and 8 the judge panel are not: the first needs the
+workspace as well as the ledgers, the second more than one evaluation, the third the judge.
+The ledger events behind an item are given by number; the page does not embed the ledger.
+
+**The gold sets as drafted (17 Nov 2026).** One gold file per evaluation app is in
+`packages/core/examples/eval/<app>.gold.json`, and the documents each is about are in
+`packages/core/examples/eval/documents/<app>/docs/`: the requirement documents, and for Booker
+and SauceDemo an archived older version (the stale case), and for Booker a notes file with a
+planted instruction. Together they hold 82 retrieval questions and 15 stories. The Booker and
+SauceDemo values were read from the running applications that day; the Toolshop values come
+from its passing tests and its documents say so. The retrieval level runs as an ordinary test
+(`test/eval-gold-sets.test.ts`), so the release check of §7 is part of preflight and CI, with no
+separate job. Its first result, recorded so that a later change is measured against it: the
+answer is in the first five for 66 of 67 answerable questions; the one miss is a question whose
+words differ from the passage only by word form ("sort options" against "sorted"), because the
+search does not reduce words to a stem; both SauceDemo stale questions rank the archived
+passage first; and every one of the 15 unanswerable questions gets passages back. For an
+end-to-end run a workspace is given a copy of its app's `docs` folder; the "off" arm is the
+workspace without it.
+
+Two details the first slice settled: the keyword index file is `keywords.json`, and the manifest
+also holds a hash of the two files beside it, so a half-written index is refused. Naming a folder
+that attestqa or the test runner writes (`.aqa`, `test-results`, …) is an error, not a silent
+skip.
 
 ## Alternatives considered
 

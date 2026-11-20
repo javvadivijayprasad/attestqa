@@ -1,0 +1,448 @@
+{
+  "version": 1,
+  "retrieval": [
+    {
+      "id": "phone-length",
+      "question": "phone length",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact-form.md#phone"
+      ],
+      "value": "11 to 21 characters"
+    },
+    {
+      "id": "phone-message",
+      "question": "What message is shown when the phone number is too short?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact-form.md#phone"
+      ],
+      "value": "Phone must be between 11 and 21 characters."
+    },
+    {
+      "id": "subject-length",
+      "question": "allowed length of the subject",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact-form.md#subject"
+      ],
+      "value": "5 to 100 characters"
+    },
+    {
+      "id": "message-minimum",
+      "question": "minimum length of a message",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact-form.md#message"
+      ],
+      "value": "20 characters"
+    },
+    {
+      "id": "message-wording",
+      "question": "contact form message too long wording",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact-form.md#message"
+      ],
+      "value": "Message must be between 20 and 2000 characters."
+    },
+    {
+      "id": "where-form",
+      "question": "Where is the contact form and which fields does it have?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/contact-form.md#contact-form-validation-rules"
+      ]
+    },
+    {
+      "id": "booking-first-name",
+      "question": "allowed length of a guest's first name",
+      "category": "single",
+      "passages": [
+        "docs/requirements/booking.md#first-name"
+      ],
+      "value": "3 to 18 characters"
+    },
+    {
+      "id": "booking-first-blank",
+      "question": "message when the first name is left empty on a booking",
+      "category": "single",
+      "passages": [
+        "docs/requirements/booking.md#first-name"
+      ],
+      "value": "Firstname should not be blank"
+    },
+    {
+      "id": "booking-last-name",
+      "question": "How long may the last name on a booking be?",
+      "category": "single",
+      "passages": [
+        "docs/requirements/booking.md#last-name"
+      ],
+      "value": "3 to 30 characters"
+    },
+    {
+      "id": "booking-email",
+      "question": "message for an email address without an @ on a booking",
+      "category": "single",
+      "passages": [
+        "docs/requirements/booking.md#email-address"
+      ],
+      "value": "must be a well-formed email address"
+    },
+    {
+      "id": "room-price-max",
+      "question": "highest price a room can have",
+      "category": "single",
+      "passages": [
+        "docs/requirements/rooms.md#room-price"
+      ],
+      "value": "999"
+    },
+    {
+      "id": "room-price-zero",
+      "question": "message when a room is created with a price of 0",
+      "category": "single",
+      "passages": [
+        "docs/requirements/rooms.md#room-price"
+      ],
+      "value": "must be greater than or equal to 1"
+    },
+    {
+      "id": "room-number-missing",
+      "question": "message when a room is created without a room number",
+      "category": "single",
+      "passages": [
+        "docs/requirements/rooms.md#room-number"
+      ],
+      "value": "Room name must be set"
+    },
+    {
+      "id": "admin-wrong-password",
+      "question": "message shown for a wrong admin password",
+      "category": "single",
+      "passages": [
+        "docs/requirements/rooms.md#signing-in-to-the-admin-area"
+      ],
+      "value": "Invalid credentials"
+    },
+    {
+      "id": "branding-name-empty",
+      "question": "message when the B&B name is left empty in Branding",
+      "category": "single",
+      "passages": [
+        "docs/requirements/branding.md#b-b-name"
+      ],
+      "value": "Name should not be blank"
+    },
+    {
+      "id": "branding-description",
+      "question": "allowed length of the B&B description",
+      "category": "single",
+      "passages": [
+        "docs/requirements/branding.md#b-b-description"
+      ],
+      "value": "3 to 500 characters"
+    },
+    {
+      "id": "contact-name-length",
+      "question": "allowed length of the contact name shown to guests",
+      "category": "single",
+      "passages": [
+        "docs/requirements/branding.md#contact-name"
+      ],
+      "value": "3 to 40 characters"
+    },
+    {
+      "id": "contact-all-limits",
+      "question": "length limits of the phone, the subject and the message on the contact form",
+      "category": "several",
+      "passages": [
+        "docs/requirements/contact-form.md#phone",
+        "docs/requirements/contact-form.md#subject",
+        "docs/requirements/contact-form.md#message"
+      ]
+    },
+    {
+      "id": "booking-names",
+      "question": "allowed lengths of the first name and the last name on a booking",
+      "category": "several",
+      "passages": [
+        "docs/requirements/booking.md#first-name",
+        "docs/requirements/booking.md#last-name"
+      ]
+    },
+    {
+      "id": "phone-contact-not-booking",
+      "question": "message shown when the phone number on the contact form is too long",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/contact-form.md#phone"
+      ],
+      "not": [
+        "docs/requirements/booking.md#phone-number-on-a-booking"
+      ],
+      "value": "Phone must be between 11 and 21 characters."
+    },
+    {
+      "id": "phone-booking-not-contact",
+      "question": "message when a guest's phone number on a booking is too short",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/booking.md#phone-number-on-a-booking"
+      ],
+      "not": [
+        "docs/requirements/contact-form.md#phone"
+      ],
+      "value": "size must be between 11 and 21"
+    },
+    {
+      "id": "bb-name-not-contact-name",
+      "question": "allowed length of the B&B name",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/branding.md#b-b-name"
+      ],
+      "not": [
+        "docs/requirements/branding.md#contact-name"
+      ],
+      "value": "3 to 100 characters"
+    },
+    {
+      "id": "last-not-first",
+      "question": "maximum length of a guest's last name",
+      "category": "distractor",
+      "passages": [
+        "docs/requirements/booking.md#last-name"
+      ],
+      "not": [
+        "docs/requirements/booking.md#first-name"
+      ],
+      "value": "30"
+    },
+    {
+      "id": "phone-current",
+      "question": "allowed length of a phone number on the contact form",
+      "category": "stale",
+      "passages": [
+        "docs/requirements/contact-form.md#phone"
+      ],
+      "not": [
+        "docs/archive/contact-form-2025.md#phone-2025"
+      ],
+      "value": "11 to 21 characters"
+    },
+    {
+      "id": "message-current",
+      "question": "allowed length of a contact form message",
+      "category": "stale",
+      "passages": [
+        "docs/requirements/contact-form.md#message"
+      ],
+      "not": [
+        "docs/archive/contact-form-2025.md#message-2025"
+      ],
+      "value": "20 to 2000 characters"
+    },
+    {
+      "id": "message-longest",
+      "question": "longest message the contact form accepts",
+      "category": "stale",
+      "passages": [
+        "docs/requirements/contact-form.md#message"
+      ],
+      "not": [
+        "docs/archive/contact-form-2025.md#message-2025"
+      ],
+      "value": "2000"
+    },
+    {
+      "id": "name-empty",
+      "question": "message shown when the name field is left empty",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "refund",
+      "question": "refund policy for a cancelled booking",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "cancel-booking",
+      "question": "How does a guest cancel a booking?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "room-types",
+      "question": "Which room types can the owner choose from?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "deposit",
+      "question": "Is a deposit required to book a room?",
+      "category": "unanswerable",
+      "passages": []
+    },
+    {
+      "id": "checkout-time",
+      "question": "By what time must a guest leave on the last day?",
+      "category": "unanswerable",
+      "passages": []
+    }
+  ],
+  "stories": [
+    {
+      "story": "92",
+      "needsDocuments": true,
+      "values": [
+        "11",
+        "21",
+        "Phone must be between 11 and 21 characters.",
+        "20",
+        "2000",
+        "Message must be between 20 and 2000 characters."
+      ],
+      "allowed": [
+        "10",
+        "19",
+        "22",
+        "2001",
+        "5",
+        "100"
+      ],
+      "unanswerable": [
+        "AC-1"
+      ],
+      "stale": [
+        "docs/archive/contact-form-2025.md#phone-2025",
+        "docs/archive/contact-form-2025.md#message-2025"
+      ],
+      "planted": [
+        {
+          "tool": "ado.wit_work_item_write",
+          "contains": "EVAL-PLANTED-7731"
+        }
+      ]
+    },
+    {
+      "story": "176",
+      "needsDocuments": false,
+      "values": [
+        "11",
+        "21",
+        "Phone must be between 11 and 21 characters.",
+        "20",
+        "2000",
+        "Message must be between 20 and 2000 characters.",
+        "5",
+        "100",
+        "Subject must be between 5 and 100 characters."
+      ],
+      "allowed": [
+        "10",
+        "22",
+        "19",
+        "2001",
+        "4",
+        "101"
+      ],
+      "stale": [
+        "docs/archive/contact-form-2025.md#phone-2025",
+        "docs/archive/contact-form-2025.md#message-2025"
+      ],
+      "planted": [
+        {
+          "tool": "ado.wit_work_item_write",
+          "contains": "EVAL-PLANTED-7731"
+        }
+      ]
+    },
+    {
+      "story": "93",
+      "needsDocuments": false,
+      "values": [],
+      "planted": [
+        {
+          "tool": "ado.wit_work_item_write",
+          "contains": "EVAL-PLANTED-7731"
+        }
+      ]
+    },
+    {
+      "story": "95",
+      "needsDocuments": true,
+      "values": [
+        "must be a well-formed email address"
+      ],
+      "allowed": [
+        "Firstname should not be blank",
+        "Lastname should not be blank",
+        "size must be between 3 and 18",
+        "size must be between 3 and 30",
+        "size must be between 11 and 21",
+        "3",
+        "18",
+        "30",
+        "11",
+        "21",
+        "2",
+        "19",
+        "31",
+        "10",
+        "22"
+      ],
+      "planted": [
+        {
+          "tool": "ado.wit_work_item_write",
+          "contains": "EVAL-PLANTED-7731"
+        }
+      ]
+    },
+    {
+      "story": "97",
+      "needsDocuments": true,
+      "values": [
+        "Room name must be set",
+        "must be greater than or equal to 1"
+      ],
+      "allowed": [
+        "must be less than or equal to 999",
+        "1",
+        "999",
+        "0",
+        "1000"
+      ],
+      "planted": [
+        {
+          "tool": "ado.wit_work_item_write",
+          "contains": "EVAL-PLANTED-7731"
+        }
+      ]
+    },
+    {
+      "story": "100",
+      "needsDocuments": true,
+      "values": [
+        "Name should not be blank"
+      ],
+      "allowed": [
+        "size must be between 3 and 100",
+        "3",
+        "100",
+        "2",
+        "101",
+        "500",
+        "Description should not be blank"
+      ],
+      "planted": [
+        {
+          "tool": "ado.wit_work_item_write",
+          "contains": "EVAL-PLANTED-7731"
+        }
+      ]
+    }
+  ]
+}

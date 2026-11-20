@@ -52,7 +52,19 @@ src/
     manifest.ts       DEFAULT_MANIFEST — the governance classification table
     servers.ts        azureDevOpsServer(), playwrightServer()
     discover.ts       buildReport for `aqa discover`
-    adapters/         fs, bdd2pw, pw, tcg, synthdata, summary, process
+    adapters/         fs, bdd2pw, pw, tcg, synthdata, docs, summary, process
+  knowledge/
+    passages.ts       a document cut into passages; the passage id
+    bm25.ts           keyword ranking (BM25), tokeniser, query stop words
+    build.ts          aqa index: collect, write, read back, staleness
+  report/
+    coverage.ts       aqa coverage; qa-record.ts the tracker's QA record
+    eval.ts           aqa eval: arms, per-story comparison, the bars, eval.json
+    eval-runs.ts      one run measured from its ledger
+    eval-html.ts      aqa eval --html: the result as one self-contained page
+    eval-retrieval.ts the gold questions put to the search
+    eval-gold.ts      the gold file; eval-prices.ts the dated price table; eval-stats.ts
+                      Wilson interval, McNemar's exact test, precision and recall
   skills/
     story-to-tests.ts instructions, allowedTools, sourceTools, verifier
   verify/
@@ -163,6 +175,23 @@ JSON is accepted with the same shape, so a generator need not depend on a YAML l
 `agent.scope` is required; everything else has a default. An unknown key under `policy` or
 `capabilities` is an error rather than a silent no-op.
 
+`agent.knowledge` is optional and absent by default:
+
+```yaml
+agent:
+  knowledge:
+    paths: ["docs/requirements", "docs/validation-rules.md"] # folders or files, inside the workspace
+```
+
+It names the project's own documents for `aqa index` and, with `docs` among `--servers`, switches
+on the `docs.search` tool (at most five passages per call, each with its id, file, heading, line
+range and date; a search is an ordinary `call` and `observation` in the ledger). A design item
+that takes a value from a passage cites it in `source` as `doc:<passage id>` and copies the
+words into an optional `quote` field of the item; both are checked against the run's own search
+results before the design reaches a person. A path must be relative and stay inside
+the workspace; an unknown key under `knowledge` is an error. Like every optional key, it is part
+of the loaded config only when set, so a config without it keeps the `configHash` it had.
+
 `configHash` in the `request` event is `sha256(JSON.stringify(config))` — so any config change is
 visible in the ledger, and the golden fixture fails on drift.
 
@@ -249,6 +278,7 @@ A `ToolClient` is anything with `listTools()` and `call(server, name, args)`. Tw
 | `tcg`       | `generate_cases`                      | POSTs to `TCG_URL`; the one adapter that leaves the box |
 | `synthdata` | `generate`                            | opt-in via `SYNTHDATA_CMD` (the project's own generator) |
 | `synthdata` | `examples`                            | opt-in via `SYNTHDATA_CLI` (the synthdata CLI, `auto` mode) |
+| `docs`      | `search`                              | opt-in via `agent.knowledge.paths` and `--servers …,docs`; reads the index `aqa index` built |
 | `aqa`       | `run_summary`                         | counts this run's report from the ledger                |
 
 `pw.run_tests` returns `{ passed, failed, skipped, flaky, green, failures[], exitCode }`. Note that
@@ -320,10 +350,19 @@ attempted" from "attempted and refused" from "attempted and failed".
 ```
 aqa replay <path> [--out <file>]
 aqa discover [--servers …] [--out docs/tools-observed.md] [--workspace .]
+aqa index --config <file> [--workspace .] [--ledger .aqa]
+aqa eval [<runs>…] --gold <file> [--on <runs>] [--off <runs>] [--ledger .aqa]
+         [--prices <file>] [--out eval.json] [--html eval.html] [--skip-retrieval]
 aqa run "<request>" --config <file> [--ledger .aqa] [--workspace .] [--env .env]
         [--approval terminal|file] [--approval-timeout <seconds>]
         [--work-item <id>] [--servers …] [--dry-run]
 ```
+
+`aqa index` writes `<ledger>/knowledge/`: `passages.jsonl` (one passage per line: `id`, `file`,
+`heading`, `lines`, `modified`, `hash`, `text`), `keywords.json` (the BM25 postings) and
+`manifest.json` (file hashes, chunker version, build time, the attestqa version, and a hash of
+the other two files — an index whose files do not match its manifest is refused). It exits 0, or
+1 with the reason. The exit codes below are those of `aqa run`.
 
 | exit | status    | meaning                                                 |
 | ---- | --------- | ------------------------------------------------------- |

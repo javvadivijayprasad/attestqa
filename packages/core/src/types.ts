@@ -138,6 +138,12 @@ export interface ApprovalResolvedPayload {
   decision: ApprovalDecision;
   by: string;
   at: string;
+  /**
+   * Why a person denied it, when they said. Written by the loop since the
+   * denial reason was kept (2.3.0) and declared here in 2.4.0, when
+   * `aqa eval` began to read it. Optional and additive: older ledgers have none.
+   */
+  reason?: string;
 }
 
 export interface CallPayload {
@@ -516,6 +522,16 @@ export interface AgentConfig {
    * the suite runs without asking, as before.
    */
   approve_execution?: boolean;
+  /**
+   * The project's own documents the agent may search (ADR-008): folders or
+   * files, relative to the workspace. Absent: no search, and a config without
+   * the key hashes as it always did.
+   */
+  knowledge?: KnowledgeConfig;
+}
+
+export interface KnowledgeConfig {
+  paths: string[];
 }
 
 export const DEFAULT_POLICY: PolicyTable = {

@@ -20,6 +20,7 @@ import { readRuns } from "./design/fingerprint.js";
 import { renderMarkdown } from "./ledger/replay.js";
 import {
   ConfigError,
+  knowledgeConfig,
   loadAgentConfig,
   loadDotEnv,
   parseConfigText,
@@ -48,7 +49,13 @@ import { JiraTools } from "./mcp/adapters/jira.js";
 import { normId, TRACKERS, type Tracker } from "./design/ids.js";
 import { TcgTools } from "./mcp/adapters/tcg.js";
 import { SynthdataTools } from "./mcp/adapters/synthdata.js";
+import { DocsTools } from "./mcp/adapters/docs.js";
 import { generateSeed, renderSeed } from "./seed/seed.js";
+import { buildIndex, readIndex, renderIndex } from "./knowledge/build.js";
+import { barsMissed, evaluate, readRun, renderEval, runFolders } from "./report/eval.js";
+import { GoldError, parseGold } from "./report/eval-gold.js";
+import { renderEvalHtml } from "./report/eval-html.js";
+import { DEFAULT_PRICES, parsePrices, PriceError } from "./report/eval-prices.js";
 import { HealTools } from "./mcp/adapters/heal.js";
 import { SummaryTools } from "./mcp/adapters/summary.js";
 import { TestDesignTools } from "./mcp/adapters/test-design.js";
@@ -105,7 +112,7 @@ declare const __AQA_COMMIT__: string | undefined;
 export const COMMIT = typeof __AQA_COMMIT__ === "string" ? __AQA_COMMIT__ : "unknown";
 
 /** In-process adapters, by `--servers` name. */
-export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira"];
+export const LOCAL_SERVERS = ["fs", "bdd2pw", "pw", "tcg", "synthdata", "jira", "docs"];
 /**
  * `tcg` and `synthdata` are site-specific (they need TCG_URL, and SYNTHDATA_CMD
  * or SYNTHDATA_CLI), so they are opt-in rather than on by default.
@@ -157,6 +164,26 @@ Usage:
       sqlite (a database file). A folder aqa seed did not write is left alone unless
       --force is given.
 
+  aqa index --config <ai-quality.config.yaml> [--workspace .] [--ledger .aqa]
+      Build the search index of the project's own documents: the folders and files named
+      in agent.knowledge.paths (Markdown and plain text), cut into passages at their
+      headings and written to <ledger>/knowledge/. No model is called and nothing leaves
+      the machine. Run it again after the documents change — the index is never rebuilt
+      by itself, so what a run was told always has a record. Run reports, failure
+      snapshots, credential files and node_modules are never indexed.
+
+  aqa eval [<runs>...] --gold <gold.json> [--on <runs>] [--off <runs>] [--ledger .aqa]
+           [--prices <prices.json>] [--out eval.json] [--html eval.html] [--skip-retrieval]
+      Score recorded runs, and the document search, against a gold file — offline: no
+      model, no tracker, no browser. The gold file's questions are put to the search index
+      in <ledger>/knowledge (hit rate at 5, mean reciprocal rank); its stories are scored
+      from the ledgers of the runs given (completion, value correctness, citations,
+      invented values, cost). <runs> is a run folder, a ledger root, or a folder of runs.
+      A run counts as search "on" when it searched the documents; --on and --off name the
+      two arms outright (comma-separated paths). --html also writes the result as one
+      self-contained page (nothing is fetched). Writes eval.json and prints a summary with
+      the agreed bars. Exit 0 when no measured bar is missed, 3 when one is.
+
   aqa discover [--servers ado,playwright,fs,bdd2pw,pw] [--out docs/tools-observed.md] [--workspace .]
       Spawn the MCP servers, list their tools, and write the observed names + schemas.
       Reads .env for credentials. Makes NO tool calls — listTools() only.
@@ -203,6 +230,8 @@ export async function main(argv: string[], io: CliIo = stdio()): Promise<number>
     if (cmd === "check-rules") return await checkRules(rest, io);
     if (cmd === "coverage") return coverage(rest, io);
     if (cmd === "seed") return await seed(rest, io);
+    if (cmd === "index") return await index(rest, io);
+    if (cmd === "eval") return await evalCommand(rest, io);
     if (cmd === "run") return await run(rest, io);
     io.err(`Unknown command: ${cmd}\n\n${USAGE}`);
     return 1;
@@ -397,6 +426,12 @@ async function buildTooling(
   llmFallback?: AgentConfig["llm_fallback"],
   /** Servers when --servers is not given: DEFAULT_SERVERS, or JIRA_SERVERS for a Jira story. */
   defaultServers: string = DEFAULT_SERVERS,
+  /**
+   * `agent.knowledge` from the config. `docs` is offered only when --servers
+   * names it AND this is set: the same two-key pattern as synthdata, so a
+   * project that has not asked for document search never gets the tool.
+   */
+  knowledge?: AgentConfig["knowledge"],
 ): Promise<{
   specs: ServerSpec[];
   tools: ToolClient;
@@ -436,6 +471,10 @@ async function buildTooling(
     else if (w === "synthdata" && !env.synthdataCmd && !env.synthdataCli)
       throw new ConfigError(
         "--servers includes synthdata but neither SYNTHDATA_CMD nor SYNTHDATA_CLI is set",
+      );
+    else if (w === "docs" && !knowledge)
+      throw new ConfigError(
+        "--servers includes docs but agent.knowledge.paths is not set in the config",
       );
     else if (w === "jira" && !env.jira)
       throw new ConfigError(
@@ -509,6 +548,8 @@ async function buildTooling(
               env.synthdataCli ? { examplesCli: env.synthdataCli } : {},
             ),
           );
+        if (wanted.includes("docs") && knowledge)
+          clients.push(new DocsTools(workspace, resolve(flag(args, "--ledger") ?? ".aqa")));
         return { tools: new CompositeTools(clients), close: () => mcp.close() };
       })();
   return { specs, ...built, workspace };
@@ -603,6 +644,7 @@ export async function run(args: string[], io: CliIo, deps: ToolingDeps = {}): Pr
     config.scope.urls,
     config.llm_fallback,
     picked.tracker === "jira" ? JIRA_SERVERS : DEFAULT_SERVERS,
+    config.knowledge,
   );
   try {
     const list = await tools.listTools();
@@ -800,6 +842,7 @@ async function live(
     config.scope.urls,
     config.llm_fallback,
     tracker === "jira" ? JIRA_SERVERS : DEFAULT_SERVERS,
+    config.knowledge,
   );
   try {
     const planName = config.scope.test_plans[0];
@@ -815,6 +858,11 @@ async function live(
     // run does not have.
     const examplesOffered = (await mcpTools.listTools()).some(
       (t) => t.server === "synthdata" && t.name === "examples",
+    );
+    // The same for document search: the skill text about it is only in the
+    // prompt of a run that has the tool, so a run without it reads as before.
+    const docsOffered = (await mcpTools.listTools()).some(
+      (t) => t.server === "docs" && t.name === "search",
     );
     const skill =
       skillName === "defect-profile"
@@ -835,6 +883,13 @@ async function live(
             // Evaluation only: ignore earlier runs and existing coverage.
             ...(args.includes("--fresh") ? { fresh: true } : {}),
             ...(examplesOffered ? { examplesOffered: true } : {}),
+            ...(docsOffered ? { docsOffered: true } : {}),
+            // The document index as it is now, for a design carried from an
+            // earlier run that cites a passage of it.
+            knowledgePassages: () => {
+              const index = readIndex(resolve(flag(args, "--ledger") ?? ".aqa"));
+              return index.ok ? new Set(index.passages.map((p) => p.id)) : undefined;
+            },
             // Failure triage runs in-process by default and sends nothing
             // anywhere. Setting DEFECT_ANALYSIS_URL opts into the service; the
             // value comes from the environment and nowhere else, so that no
@@ -1352,6 +1407,135 @@ export async function seed(
   }
   io.out(renderSeed(result, formats));
   return 0;
+}
+
+/**
+ * `aqa index`: the search index of the project's documents. See USAGE and
+ * knowledge/build.ts. Offline: no model, no tracker, no browser — and it reads
+ * one key of the config, so a provider plug-in need not be installed to run it.
+ */
+export async function index(args: string[], io: CliIo): Promise<number> {
+  const file = flag(args, "--config");
+  if (!file) {
+    io.err("aqa index: --config <ai-quality.config.yaml> is required\n");
+    return 1;
+  }
+  const path = resolve(file);
+  if (!existsSync(path)) {
+    io.err(`aqa index: config file not found: ${path}\n`);
+    return 1;
+  }
+  const raw = (await parseConfigText(readFileSync(path, "utf8"), extname(path))) as {
+    agent?: { knowledge?: unknown };
+  } | null;
+  const knowledge = knowledgeConfig(raw?.agent?.knowledge, `${path}: agent.knowledge`);
+  const result = buildIndex({
+    workspace: flag(args, "--workspace") ?? ".",
+    ledgerRoot: flag(args, "--ledger") ?? ".aqa",
+    paths: knowledge?.paths ?? [],
+    version: packageVersion(),
+  });
+  if (!result.ok) {
+    io.err(`aqa index: ${result.message}\n`);
+    return 1;
+  }
+  io.out(renderIndex(result));
+  return 0;
+}
+
+/** Flags of `aqa eval` that take a value, so what follows one is not read as a run folder. */
+const EVAL_VALUE_FLAGS = ["--gold", "--on", "--off", "--ledger", "--prices", "--out", "--html"];
+
+/**
+ * `aqa eval`: recorded runs and a gold file in, `eval.json` out. See USAGE and
+ * report/eval.ts. Offline: it reads ledgers, the document index and two files.
+ */
+export async function evalCommand(args: string[], io: CliIo): Promise<number> {
+  const goldFile = flag(args, "--gold");
+  if (!goldFile) {
+    io.err("aqa eval: --gold <gold.json> is required\n");
+    return 1;
+  }
+  const read = async (file: string, what: string): Promise<unknown> => {
+    const path = resolve(file);
+    if (!existsSync(path)) throw new ConfigError(`${what} not found: ${path}`);
+    return parseConfigText(readFileSync(path, "utf8"), extname(path));
+  };
+  try {
+    const gold = parseGold(await read(goldFile, "gold file"), goldFile);
+    const pricesFile = flag(args, "--prices");
+    const prices = pricesFile
+      ? parsePrices(await read(pricesFile, "price table"), pricesFile)
+      : DEFAULT_PRICES;
+
+    const positional: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i] as string;
+      if (EVAL_VALUE_FLAGS.includes(a)) i++;
+      else if (!a.startsWith("--")) positional.push(a);
+    }
+    const paths = (name: string): string[] =>
+      (flag(args, name) ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    const groups: Array<{ arm?: "on" | "off"; path: string }> = [
+      ...positional.map((path) => ({ path })),
+      ...paths("--on").map((path) => ({ arm: "on" as const, path })),
+      ...paths("--off").map((path) => ({ arm: "off" as const, path })),
+    ];
+    const runs = [];
+    for (const g of groups) {
+      const folders = runFolders(g.path);
+      if (folders.length === 0)
+        throw new ConfigError(
+          `no run found at ${resolve(g.path)} (a run folder holds events.jsonl)`,
+        );
+      for (const f of folders) runs.push({ ...readRun(f), ...(g.arm ? { arm: g.arm } : {}) });
+    }
+
+    const skip = args.includes("--skip-retrieval");
+    let keywords;
+    if (gold.retrieval.length > 0 && !skip) {
+      const index = readIndex(flag(args, "--ledger") ?? ".aqa");
+      if (!index.ok)
+        throw new ConfigError(
+          `${index.message}. The gold file has ${gold.retrieval.length} retrieval question(s); ` +
+            "name the ledger that holds the index with --ledger, or pass --skip-retrieval",
+        );
+      keywords = index.keywords;
+    }
+    if (runs.length === 0 && !keywords)
+      throw new ConfigError(
+        "nothing to score: give run folders, or a gold file with retrieval questions",
+      );
+
+    const result = evaluate({
+      gold,
+      goldFile,
+      prices,
+      runs,
+      ...(keywords ? { index: keywords } : {}),
+    });
+    const out = resolve(flag(args, "--out") ?? "eval.json");
+    mkdirSync(dirname(out), { recursive: true });
+    writeFileSync(out, JSON.stringify(result, null, 2) + "\n", "utf8");
+    const html = flag(args, "--html");
+    if (html) {
+      // The same result as a page: one file, nothing fetched (report/eval-html.ts).
+      const page = resolve(html);
+      mkdirSync(dirname(page), { recursive: true });
+      writeFileSync(page, renderEvalHtml(result), "utf8");
+    }
+    io.out(renderEval(result, out) + (html ? `Page: ${resolve(html)}` + "\n" : ""));
+    return barsMissed(result).length > 0 ? 3 : 0;
+  } catch (e) {
+    if (e instanceof GoldError || e instanceof PriceError || e instanceof ConfigError) {
+      io.err(`aqa eval: ${e.message}\n`);
+      return 1;
+    }
+    throw e;
+  }
 }
 
 /** `aqa check-rules`: today's rules against recorded runs. See USAGE. */

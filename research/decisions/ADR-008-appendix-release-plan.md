@@ -67,6 +67,15 @@ Markdown and plain text only; 60 to 100 questions and 12 to 15 stories, roughly 
 full pass; the pass bars in the decision record; gold sets drafted and then checked by the
 maintainer.
 
+**Shipped on 20 Nov 2026**, three months ahead of the date above, with all six parts. Tag
+`v2.4.0`; npm, the Marketplace and the GitHub release carry 2.4.0; Zenodo DOI
+10.5281/zenodo.24406328. The evaluation before the
+release was smaller than agreed, for cost: one pass on 17 Nov 2026 of 11 stories (Booker and
+SauceDemo) run once with the search off and once with it on, not five times each, and Toolshop
+was not run. Its results are indications only and are recorded in ADR-008 §13, including the two
+bars it missed (completion not lower with the search on; a correct refusal when no document has
+the value). The full pass remains to be done.
+
 ## 2.5.0: tracker seam (15 Mar 2027)
 
 **The problem today.** The rules that stop bad tracker writes were written for Azure DevOps.

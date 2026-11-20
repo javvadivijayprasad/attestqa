@@ -19,8 +19,8 @@ authors:
     orcid: "https://orcid.org/0009-0004-1192-6906"
     affiliation: "Independent Researcher, Plainsboro, NJ, USA"
     email: vijay@vijayjavvadiresearch.ai
-version: 2.3.0
-date-released: "2026-11-15"
+version: 2.4.0
+date-released: "2026-11-20"
 license: MIT
 repository-code: "https://github.com/javvadivijayprasad/attestqa"
 url: "https://github.com/javvadivijayprasad/attestqa#readme"
@@ -29,6 +29,9 @@ identifiers:
   - type: doi
     value: 10.5281/zenodo.22758875
     description: "Concept DOI: all versions, resolves to the latest (Zenodo)"
+  - type: doi
+    value: 10.5281/zenodo.24406328
+    description: "Version 2.4.0 (Zenodo)"
   - type: doi
     value: 10.5281/zenodo.24249907
     description: "Version 2.3.0 (Zenodo)"

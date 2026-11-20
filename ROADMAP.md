@@ -50,6 +50,11 @@ From a user story in **Jira or Azure DevOps** to governed Playwright tests.
   one Scenario Outline with an Examples table; `aqa seed` generates seed data for the application
   from its schema (loading it stays a project step). Both are off until `SYNTHDATA_CLI` is set.
   With it, the fixes found by end-to-end runs on the three test applications.
+- **2.4.0** (20 Nov 2026) — project documents: the agent searches the project's own documents
+  (`aqa index`, `docs.search`) for a value the story does not state and cites the passage; the
+  citation is checked in code and shown at approval. With it, `aqa eval` and its one-page report
+  (`--html`), which compare runs with the search off and on against a gold file. Off until
+  `agent.knowledge.paths` is set and `docs` is in `--servers`; the search needs no model or key.
 
 ### Planned — one feature per minor, on the 15th of the month
 
@@ -59,7 +64,6 @@ date does not move. The near-term sequence below is committed; the technical pla
 
 | Release | Target | Feature |
 | --- | --- | --- |
-| **v2.4.0** | 15 Feb 2027 | **Project documents** — the agent searches the project's own documents for a value the story does not state, and cites the passage; the citation is checked in code and shown at approval. With it, an evaluation command (`aqa eval`) and a local dashboard page that compare runs with search off and on. Opt-in, no model or key for the search. |
 | **v2.5.0** | 15 Mar 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so Jira runs are governed by the same rules as Azure DevOps (today most tracker-write rules name `ado.*` and Jira runs are under-governed). Behaviour-preserving for ADO. |
 | **v2.6.0** | 15 Apr 2027 | **Approved locator repairs** — a repair the two rankers agree on, or that a person approves, with the before/after evidence. Off by default. |
 | **v2.7.0** | 15 May 2027 | **Memory across runs** — facts rebuilt from past run ledgers (a flaky test, which tests belong to a story, a repair that worked) and read through one governed, read-only tool; the model cannot write a fact. Uses the vector search plug-in when installed. Off by default. |

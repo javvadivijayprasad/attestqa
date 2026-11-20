@@ -94,6 +94,12 @@ export class TestDesignTools implements ToolClient {
                       'where the expectation comes from: "AC-2", "task #46", "bug #50", "comment"',
                   },
                   expectFail: { type: "boolean" },
+                  quote: {
+                    type: "string",
+                    description:
+                      'only when the source cites a project document ("doc:<passage id>"): the ' +
+                      "words of that passage that state the value, copied exactly",
+                  },
                 },
                 required: ["id", "covers", "type", "technique", "conditions", "expected", "source"],
               },

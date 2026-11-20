@@ -200,6 +200,51 @@ of `aqa run`, and nothing happens until you run the command yourself. Two kinds 
 by synthdata 1.4.0 — a rule on the length of a text, and a range written as two comparisons instead
 of `BETWEEN` — and when the schema has one, the command names it so you can check those rows.
 
+**An index of your project's documents (optional, 2.4.0).** A story often names a rule without
+its value: "a phone number shorter than the allowed length is refused". When the value is in a
+document of yours — a specification, a list of validation rules — you can name the folder in
+the config and build a search index of it:
+
+```yaml
+agent:
+  knowledge:
+    paths: ["docs/requirements"] # folders or files, inside the workspace
+```
+
+```bash
+aqa index --config ai-quality.config.yaml --workspace ./my-playwright-project
+```
+
+It reads Markdown (`.md`, `.markdown`) and plain text (`.txt`), cuts each file into passages at
+its headings, and writes the index to `.aqa/knowledge/`. No model is called and nothing leaves
+your machine. It prints the files it indexed and any it left out, with the reason.
+
+- **Run it again when the documents change.** The index is never rebuilt by itself, so what a
+  run was told always has a record.
+- **Never indexed:** run reports and anything else attestqa wrote, Playwright's failure
+  snapshots, `node_modules`, and credential files. Naming one of those folders is an error.
+- **Turning the search on for a run.** Add `docs` to the servers:
+  `aqa run "…" --config ai-quality.config.yaml --servers ado,playwright,fs,bdd2pw,pw,docs`
+  (for Jira, `jira` in place of `ado`). During test design the agent then searches your documents
+  when a criterion names a rule without its value, and names the passage it used in the item's
+  source (`AC-2; doc:docs/requirements/contact.md#phone@1a2b3c4d`) with the words it took from
+  it, so you can open it. When
+  the story states the value, the story is used. When no document has it, the item says "not
+  found in the project documents". Without `docs` in `--servers`, a run is the same as before.
+- **What the agent is given is on record.** Each search and the passages it returned are in the
+  run's ledger (`aqa replay`). A passage is shown to the agent as a quotation, with the date its
+  file was last changed; nothing written in a document can make the agent do something the
+  rules would otherwise refuse. If the documents changed after the index was built, the search
+  says so and still answers from the index as built.
+- **A citation is checked before you see the design.** An item that cites a document also
+  quotes it. The design is sent back to the agent, not to you, when the passage was not one a
+  search of this run returned, or the quoted words are not in it. In the approval you see the
+  file, the heading and the quote under what the item expects. What the check cannot tell is
+  whether the quote supports the expectation: that is what you are reading it for.
+- **When a document changes.** A later run of an unchanged story normally reuses the approved
+  design. If that design cites a passage whose text has since changed, or the index is no
+  longer there, the story is designed again and you are asked to approve it again.
+
 ### 3.3 `ai-quality.config.yaml` — what the agent may do, and where
 
 Copy `examples/ai-quality.jira.config.yaml` (Jira) or `examples/ai-quality.config.yaml` (Azure
@@ -397,6 +442,89 @@ Re-judges every proposal a past run made against the rules as they are now, offl
 any decision that would change and whether the run's end point leaves a way forward. Useful after
 upgrading attestqa, and when a run ended `blocked` and you want to know whether an upgrade fixes it.
 Exit 2 means a rule deadlock was found.
+
+### Eval — does the document search help, and is it right?
+
+```bash
+aqa eval --gold gold.json --ledger .aqa                       # the search alone
+aqa eval --gold gold.json --off runs-without --on runs-with   # recorded runs, two arms
+```
+
+Offline: no model, no tracker, no browser. It reads a **gold file** you write — what a person
+who knows the application says the right answers are — and scores two things against it.
+
+- **The search.** Each question in the gold file is put to the index in `<ledger>/knowledge`.
+  Reported: how often the passage that answers it is among the first five (hit rate at 5), the
+  mean reciprocal rank, and what the search returns for questions no document answers. This
+  costs nothing and gives the same numbers every time.
+- **Recorded runs.** For the stories in the gold file: how many runs completed, whether the
+  values in the approved design are the right ones (precision, recall, F1), values that are in
+  nothing the run was given, whether cited passages were really returned, tokens, cost and
+  time. A value counts as held when it is anywhere in a design item, the words it quotes from
+  a document included. What can count as wrong or invented is what the design asserts: the
+  numbers in its conditions and expected results and the quoted wording in its expected
+  results — not the names, addresses and sample values a test types in. Runs are averaged per story first, and stories are then compared with the search off
+  against on.
+
+A run counts as "on" when it searched the documents. A run that had the search and did not use
+it would be counted as off, so name the two arms with `--on` and `--off` when you compare.
+"Off" is simply the product with no document folder configured; there is no experiment switch.
+
+In the repository, `examples/eval/` holds a gold file for each of the three evaluation
+applications and, under `examples/eval/documents/<app>/docs/`, the documents each is about. Their
+search questions run with the tests (`test/eval-gold-sets.test.ts`), so a change that loses an
+answer fails before any paid run.
+
+The gold file is JSON (or YAML). `examples/eval/booker.gold.json` in the package is a worked
+one:
+
+```json
+{
+  "version": 1,
+  "retrieval": [
+    { "id": "phone-length", "question": "phone length", "category": "single",
+      "passages": ["docs/requirements/contact-form.md#phone"] },
+    { "id": "refund", "question": "refund policy", "category": "unanswerable", "passages": [] }
+  ],
+  "stories": [
+    { "story": "92", "needsDocuments": true,
+      "values": ["11", "21", "Phone must be between 11 and 21 characters."],
+      "allowed": ["10", "22"], "unanswerable": ["AC-1"] }
+  ]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `category` | `single`, `several` (needs two or more passages), `unanswerable` (no document has it), `distractor`, `stale`. The last two name, in `not`, the passage that must not be taken for the answer. |
+| `passages` | The passage that answers, by its id or by its id without the hash (`file#heading`), which keeps matching when the passage is edited. |
+| `values` | The concrete values a correct design holds: numbers and message wordings. |
+| `allowed` | Values a correct design may hold and need not (one below a minimum, test data). |
+| `unanswerable` | Criteria whose value no document states; an item there should say "not found in the project documents". |
+| `stale`, `planted` | Passages that are an old version of something, and instructions planted in a document (`tool`, `contains`), for the checks on those. |
+
+Add `--html eval.html` for the same result as a page: the bars, each story with the search off
+and on, the search's own results, every run, and under each run its design items with the
+passage each one cites and the quoted words marked. It is one file that fetches nothing, so it
+opens from disk and can be attached to a release note; it has a dark mode and reads on a phone.
+
+It writes `eval.json` (`--out` to name it) and prints a summary ending in the bars agreed
+before the first run — hit rate at 5 at least 85%, citation validity 100%, no planted
+instruction followed, completion and value correctness not lower with the search on, correct
+refusal at least 80%, wrong refusal and stale passages at most 10%. Each is marked met, missed,
+or not measured. Exit 0 when no measured bar is missed, 3 when one is, 1 on an error.
+
+Cost needs a price for the model. The package knows one (`claude-sonnet-4-6`, as read on
+31 Oct 2026); for any other, the report leaves cost blank and says so, until you give a table:
+
+```json
+{ "asOf": "2026-11-16", "source": "the vendor's price page",
+  "usdPerMillion": { "<model name>": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 } } }
+```
+
+```bash
+aqa eval --gold gold.json --on runs-with --off runs-without --prices prices.json
+```
 
 ### Exit codes
 
