@@ -13,12 +13,12 @@ Check this table against reality before every release, with the commands below.
 
 | Artefact | Name | Version | Published | Source |
 | --- | --- | --- | --- | --- |
-| Runtime | `attestqa` | **2.3.0** (on npm 15 Nov 2026) | npm | `packages/core/package.json` |
-| Extension | `attestqa-vscode` | **2.3.0** (on the Marketplace 15 Nov 2026) | VS Code Marketplace | `packages/vscode/package.json` |
-| Plug-ins | `@attestqa/provider-bedrock`, `@attestqa/auth-aws`, `@attestqa/auth-azure` | **0.1.0** each (on npm 10 Nov 2026, unchanged by 2.3.0); versioned independently | npm | `packages/<plug-in>/package.json` |
+| Runtime | `attestqa` | **2.4.0** (on npm 20 Nov 2026) | npm | `packages/core/package.json` |
+| Extension | `attestqa-vscode` | **2.4.0** (on the Marketplace 20 Nov 2026) | VS Code Marketplace | `packages/vscode/package.json` |
+| Plug-ins | `@attestqa/provider-bedrock`, `@attestqa/auth-aws`, `@attestqa/auth-azure` | **0.1.0** each (on npm 10 Nov 2026, unchanged by 2.3.0 and 2.4.0); versioned independently | npm | `packages/<plug-in>/package.json` |
 | Archive | `attestqa` | every release; cite the concept DOI (see `CITATION.cff`) | Zenodo (GitHub release integration) | `CITATION.cff` |
 
-The next version is built on `release/2.4.0` (ADR-006); nothing is published until its tag. The
+The next version is built on `release/2.5.0` (ADR-006); nothing is published until its tag. The
 forward plan is in [ROADMAP.md](../../../ROADMAP.md).
 
 One version line (ADR-005, 3 Nov 2026): the product release tag, the runtime and the extension carry the
