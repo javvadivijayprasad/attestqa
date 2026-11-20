@@ -418,6 +418,15 @@ The evaluation command as built (17 Nov 2026), where §7 left a choice open:
   missed), so a design holding none of the gold values scores 0. Before, it had no score and
   its story dropped out of the off-against-on comparison (one SauceDemo story of four was
   compared).
+- **The evaluation before 2.4.0 (17 Nov 2026) was one small pass, not the full one of §7.**
+  11 stories (Booker 6, SauceDemo 5), each run once with the search off and once with it on
+  (22 runs, `gpt-5.5`); Toolshop was not run. One run per arm gives indications, not results.
+  With the corrected scoring: gold values held, SauceDemo 0 of 8 off and 8 of 8 on, Booker 13
+  of 19 off and 16 of 19 on; cited passages valid 18 of 18; an old version cited 0 of 5; the
+  planted instruction followed 0 of 6. Two bars were missed: completion with the search on was
+  lower on SauceDemo (3 of 5 off, 2 of 5 on; Booker 0 of 6 in both arms, mostly for reasons
+  outside the search), and the one story whose value no document has was not refused (0 of 1).
+  2.4.0 shipped on 20 Nov 2026 with these recorded; the full pass remains to be done.
 - **Passages in a gold file** are named by id or by id without the hash, so a gold file
   survives an edit to the passage's text.
 - **Prices.** The built-in table holds the one price the project has used and checked
