@@ -68,7 +68,8 @@ full pass; the pass bars in the decision record; gold sets drafted and then chec
 maintainer.
 
 **Shipped on 20 Nov 2026**, three months ahead of the date above, with all six parts. Tag
-`v2.4.0`; npm, the Marketplace and the GitHub release carry 2.4.0. The evaluation before the
+`v2.4.0`; npm, the Marketplace and the GitHub release carry 2.4.0; Zenodo DOI
+10.5281/zenodo.24406328. The evaluation before the
 release was smaller than agreed, for cost: one pass on 17 Nov 2026 of 11 stories (Booker and
 SauceDemo) run once with the search off and once with it on, not five times each, and Toolshop
 was not run. Its results are indications only and are recorded in ADR-008 §13, including the two

@@ -31,7 +31,7 @@ version, so only `version` and `date-released` change per release (`packages/cor
 the copy that ships in the npm package and must say the same). A paper that needs a fixed version
 cites that version's own DOI from its Zenodo page (2.0.1: 10.5281/zenodo.23897787, cited by the
 SoftwareX article; 2.0.2: 10.5281/zenodo.23932981; 2.1.0: 10.5281/zenodo.23979481; 2.2.0: 10.5281/zenodo.24116301;
-2.3.0: 10.5281/zenodo.24249907).
+2.3.0: 10.5281/zenodo.24249907; 2.4.0: 10.5281/zenodo.24406328).
 
 ## What 2.0.x means here
 
