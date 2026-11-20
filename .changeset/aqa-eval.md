@@ -1,5 +1,0 @@
----
-"attestqa": minor
----
-
-`aqa eval` scores the document search, and recorded runs, against a gold file you write. Offline: it reads ledgers, the document index and the gold file, and calls no model. For the search it reports how often the passage that answers a question is among the first five, the mean reciprocal rank, and what comes back for questions no document answers. For runs it reports completion, whether the values in the approved design are the right ones, values that are in nothing the run was given, whether cited passages were really returned, tokens, cost and time; runs are averaged per story and stories are compared with the search off against on. It writes `eval.json` and prints a summary ending in the bars agreed before the first run, each marked met, missed or not measured; the exit code is 3 when a measured bar is missed. Cost uses a dated price table: a model the table does not have gets no cost until you give its price with `--prices`. A worked gold file is in `examples/eval/booker.gold.json`.
