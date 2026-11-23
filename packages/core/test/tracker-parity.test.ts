@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { storyRefusal } from "../src/skills/story-rules.js";
+import { proposedBug } from "../src/governance/bug-view.js";
 import { trackerTools, STORY_TO_TESTS_TOOLS } from "../src/skills/story-to-tests.js";
 import { DEFECT_PROFILE_SOURCES, DEFECT_PROFILE_TOOLS } from "../src/skills/defect-profile.js";
 import type { AnyRunEvent } from "../src/types.js";
@@ -293,6 +294,62 @@ describe("tracker parity: every bug rule judges a Jira bug as it judges an Azure
   }
 });
 
+describe("tracker parity: one proposed bug, whichever tracker it is written for", () => {
+  it("reads the same title, steps, story link and tag from either tracker's call", () => {
+    const ado = proposedBug(bug("ado", ...REDIRECT_BUG));
+    const jira = proposedBug(bug("jira", ...REDIRECT_BUG));
+    expect(ado).toEqual({
+      tracker: "ado",
+      title: REDIRECT_BUG[0],
+      repro: `<div>${REDIRECT_BUG[1]}</div>`,
+      story: 44,
+      tags: "agentic-qa",
+    });
+    expect(jira).toEqual({
+      tracker: "jira",
+      title: REDIRECT_BUG[0],
+      repro: REDIRECT_BUG[1],
+      story: "TOOL-6",
+      tags: "agentic-qa",
+    });
+  });
+
+  it("reads Azure DevOps fields given as a list, and a title given outside them", () => {
+    const listed = proposedBug({
+      toolName: "ado.wit_work_item_write",
+      args: {
+        action: "create",
+        workItemType: "Bug",
+        title: "Outside",
+        fields: [
+          { name: "System.Title", value: "Inside" },
+          { name: "Microsoft.VSTS.TCM.ReproSteps", value: "steps" },
+          { name: "System.Tags", value: "agentic-qa; login" },
+        ],
+      },
+    });
+    expect(listed).toMatchObject({ title: "Outside", repro: "steps", tags: "agentic-qa; login" });
+    expect(listed?.story).toBeUndefined();
+  });
+
+  it("keeps the labels a Jira bug passes, with the one the adapter always adds", () => {
+    const b = proposedBug({
+      toolName: "jira.create_bug",
+      args: { projectKey: "TOOL", summary: "x", labels: ["login", "agentic-qa"] },
+    });
+    expect(b?.tags).toBe("agentic-qa; login");
+    expect(b?.repro).toBe("");
+  });
+
+  it("is not a proposed bug when the call creates something else, or creates nothing", () => {
+    const write = (args: Record<string, unknown>) =>
+      proposedBug({ toolName: "ado.wit_work_item_write", args });
+    expect(write({ action: "create", workItemType: "Task" })).toBeUndefined();
+    expect(write({ action: "update", workItemType: "Bug" })).toBeUndefined();
+    expect(proposedBug({ toolName: "jira.record_qa", args: {} })).toBeUndefined();
+  });
+});
+
 describe("tracker parity: the run report is the runtime's to post, in both trackers", () => {
   it("refuses the agent's own report as a comment and as a Jira QA record", () => {
     const ado = storyRefusal(
@@ -377,8 +434,9 @@ describe("tracker parity: skills that read one tracker only", () => {
  *
  * 1. The bug rules are NOT Azure DevOps only. All six (unlinkedBug, duplicateBug,
  *    unhealedLocator, swallowedFailure, unobservedClaim, unscopedAccessibilityBug)
- *    refuse a Jira bug in the situations where they refuse an Azure DevOps bug,
- *    because `asAdoBug` shows them the Jira call in the shape they check. The
+ *    refuse a Jira bug in the situations where they refuse an Azure DevOps bug.
+ *    At the audit that was because `asAdoBug` showed them the Jira call in the
+ *    shape they checked; they now read a `ProposedBug` that names no tracker. The
  *    roadmap's "a duplicate or unlinked bug goes through on Jira" is out of date.
  * 2. The run report is refused for both, each with its own wording.
  * 3. The test-case, suite and plan rules have nothing to judge on Jira: a Jira
