@@ -64,7 +64,7 @@ date does not move. The near-term sequence below is committed; the technical pla
 
 | Release | Target | Feature |
 | --- | --- | --- |
-| **v2.5.0** | 15 Mar 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so Jira runs are governed by the same rules as Azure DevOps (today most tracker-write rules name `ado.*` and Jira runs are under-governed). Behaviour-preserving for ADO. |
+| **v2.5.0** | 15 Mar 2027 | **Tracker seam** — one tracker-neutral vocabulary behind the rules, so the rules stop being written in Azure DevOps terms. An audit on 21 Nov 2026 (`packages/core/test/tracker-parity.test.ts`) showed the bug rules already refuse a Jira bug where they refuse an Azure DevOps one, so this is smaller than first planned: refusals in each tracker's own words, the neutral vocabulary with no change in behaviour, and the defect profile for Jira. |
 | **v2.6.0** | 15 Apr 2027 | **Approved locator repairs** — a repair the two rankers agree on, or that a person approves, with the before/after evidence. Off by default. |
 | **v2.7.0** | 15 May 2027 | **Memory across runs** — facts rebuilt from past run ledgers (a flaky test, which tests belong to a story, a repair that worked) and read through one governed, read-only tool; the model cannot write a fact. Uses the vector search plug-in when installed. Off by default. |
 | **v2.8.0** | 15 Jun 2027 | **Local web UI** — `aqa serve` runs the engine behind a browser on `127.0.0.1`; nothing leaves the machine. Parity with the VS Code extension, plus the dashboard and memory pages and a choice of the kinds of test for a run. Two new kinds: **responsive layout** and **cross-browser**. A signed Windows app wraps it later. |

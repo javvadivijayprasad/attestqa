@@ -333,11 +333,12 @@ const ADO_ONLY_WORDS =
   /parentId|System\.[A-Z]\w+|Microsoft\.VSTS|workItemType|ado\.\w+|Azure DevOps|ReproSteps/;
 
 describe("tracker parity: what a Jira run is told", () => {
-  /** Rules whose refusal, shown to a Jira run, names Azure DevOps fields. Found 21 Nov 2026. */
-  const SPEAKS_ADO_TO_JIRA = new Set<string>([
-    "unlinkedBug: a bug with no link to the story",
-    "unlinkedBug: a bug linked to another story",
-  ]);
+  /**
+   * Rules whose refusal, shown to a Jira run, names Azure DevOps fields. The
+   * audit of 21 Nov 2026 found the two unlinkedBug rows here; both were fixed in
+   * the next change, and the set is kept empty so a new one shows up as a failure.
+   */
+  const SPEAKS_ADO_TO_JIRA = new Set<string>([]);
 
   for (const row of ROWS.filter((r) => r.refused !== null)) {
     it(`${row.rule}: ${row.situation}`, () => {
@@ -350,11 +351,17 @@ describe("tracker parity: what a Jira run is told", () => {
     });
   }
 
-  it("names an existing Jira bug with a '#' before its key", () => {
+  it("names the link to the story as each tracker's own tool names it", () => {
+    for (const row of ROWS.filter((r) => r.rule === "unlinkedBug")) {
+      expect(judge(row, "ado")).toContain("parentId: 44 —");
+      expect(judge(row, "jira")).toContain('storyKey: "TOOL-6" —');
+    }
+  });
+
+  it("names an existing bug as its tracker writes it: #83, and the Jira key alone", () => {
     const row = ROWS.find((r) => r.situation.startsWith("an open bug already says this")) as Row;
-    expect(judge(row, "ado")).toContain("#83 [Active]");
-    // A Jira key is not a number: "#TOOL-83" is the Azure DevOps way of writing it.
-    expect(judge(row, "jira")).toContain("#TOOL-83 [To Do]");
+    expect(judge(row, "ado")).toMatch(/^#83 \[Active\]/);
+    expect(judge(row, "jira")).toMatch(/^TOOL-83 \[To Do\]/);
   });
 });
 
@@ -376,11 +383,12 @@ describe("tracker parity: skills that read one tracker only", () => {
  * 2. The run report is refused for both, each with its own wording.
  * 3. The test-case, suite and plan rules have nothing to judge on Jira: a Jira
  *    run is offered no such tool (ADR-004: the QA sub-task, kept by the runtime).
- * 4. Gaps, for the next slices:
- *    a. unlinkedBug tells a Jira run to pass `parentId`. The Jira argument is
- *       `storyKey`; the refusal names a field the tool does not have.
- *    b. duplicateBug writes a Jira key as "#TOOL-83".
- *    c. The defect-profile skill cannot run against Jira at all.
+ * 4. Gaps:
+ *    a. FIXED in the next change. unlinkedBug told a Jira run to pass `parentId`.
+ *       The Jira argument is `storyKey`, and the refusal now names it.
+ *    b. FIXED in the next change. duplicateBug wrote a Jira key as "#TOOL-83";
+ *       it now writes "TOOL-83".
+ *    c. OPEN. The defect-profile skill cannot run against Jira at all.
  * 5. Not covered here: the end-of-run settlement (`triage/settle.ts`) and the
  *    verifier, which use the same view and have their own Jira tests
  *    (`jira-tracker.test.ts`, `settle.test.ts`).

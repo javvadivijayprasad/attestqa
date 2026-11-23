@@ -78,6 +78,15 @@ the value). The full pass remains to be done.
 
 ## 2.5.0: tracker seam (15 Mar 2027)
 
+> **Correction, 23 Nov 2026.** The problem statement below was out of date when it was written.
+> An audit that gives every bug rule the same situation in both trackers
+> (`packages/core/test/tracker-parity.test.ts`) shows that a duplicate or unlinked bug is already
+> refused on Jira: a Jira bug is shown to the rules in the shape they check. What the audit did
+> find is smaller: two refusals worded for Azure DevOps (fixed), and a defect-profile skill that
+> reads Azure DevOps only. So 2.5.0 is those fixes, the neutral vocabulary with no change in
+> behaviour, and the defect profile for Jira if it is wanted. A Jira user will notice clearer
+> refusals, not new ones.
+
 **The problem today.** The rules that stop bad tracker writes were written for Azure DevOps.
 About 12 of the 13 name Azure DevOps tools directly. A duplicate or unlinked bug is refused on
 Azure DevOps and goes through on Jira.

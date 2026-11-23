@@ -13,6 +13,7 @@ import {
 import { createdCaseIds } from "../../verify/story-to-tests.js";
 import { lastFullRun, ownTestTitles } from "../../triage/settle.js";
 import { approvedDesign } from "../../design/test-design.js";
+import { itemRef } from "../../governance/bug-view.js";
 
 export interface SummaryOptions {
   /** The story the run is scoped to, when there is one. */
@@ -177,7 +178,7 @@ export function composeRunReport(
       if (reason.startsWith("dropped at end of run — ")) bugsDropped.push(reason.slice(24));
       const already = ALREADY_FILED.exec(reason);
       if (already?.[1] && already[2])
-        bugsAlreadyFiled.push(`#${already[1]} [${already[2]}] ${already[3] ?? ""}`.trim());
+        bugsAlreadyFiled.push(`${itemRef(already[1])} [${already[2]}] ${already[3] ?? ""}`.trim());
       if (
         (p["toolName"] === "ado.wit_work_item_write" || p["toolName"] === "jira.create_bug") &&
         p["decision"] === "ask" &&
@@ -245,13 +246,16 @@ export function composeRunReport(
 /**
  * `duplicateBug`'s refusal, read back out of the ledger.
  *
- * The rule writes `#83 [Active] already says this: "<title>"`, and this is the
+ * The rule writes `#83 [Active] already says this: "<title>"` for Azure DevOps
+ * and `TOOL-83 [To Do] already says this: "<title>"` for Jira (ledgers written
+ * before 2.5.0 have `#TOOL-83`, so the `#` is optional), and this is the
  * only place that parses it. A refusal message is generated from code and is
  * stable per rule, which is what makes it safe to read as data — but the
- * coupling is real, so the shape is asserted in test/report.test.ts against the
+ * coupling is real, so the shape is asserted in test/already-filed.test.ts against the
  * rule's own output rather than against a copy of this string.
  */
-const ALREADY_FILED = /^#([A-Za-z][A-Za-z0-9_]+-\d+|\d+) \[([^\]]+)\] already says this: "([^"]*)"/;
+const ALREADY_FILED =
+  /^#?([A-Za-z][A-Za-z0-9_]+-\d+|\d+) \[([^\]]+)\] already says this: "([^"]*)"/;
 
 /** The first line of error text a contagious verdict matched on — the reason, in the suite's own words. */
 function firstEvidence(verdicts: unknown[], level: string): string {
