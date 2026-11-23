@@ -34,6 +34,15 @@ export function isBugCreate(call: CallLike): boolean {
   );
 }
 
+/**
+ * A tracker item as its own tracker writes it: "#83" for an Azure DevOps id,
+ * the key alone ("TOOL-83") for Jira. A refusal that says "#TOOL-83" names
+ * nothing a Jira user can search for.
+ */
+export function itemRef(id: number | string): string {
+  return /^\d+$/.test(String(id)) ? `#${id}` : String(id);
+}
+
 /** The call as the Azure DevOps bug rules expect to see it. Non-Jira calls come back unchanged. */
 export function asAdoBug<T extends CallLike>(call: T): T {
   if (call.toolName !== JIRA_BUG_TOOL) return call;

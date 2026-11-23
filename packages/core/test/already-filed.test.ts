@@ -157,6 +157,19 @@ describe("a reproduced defect that is already on record", () => {
     expect(report.text).not.toContain("already recorded");
   });
 
+  it("names a Jira bug by its key, from a refusal written before or after 2.5.0", () => {
+    const events = [...context(), ...ranTheSuite()];
+    const tail = ' [To Do] already says this: "Logout redirects to home". This proposal reads…';
+    // Ledgers written before 2.5.0 hold "#TOOL-83"; the rule now writes "TOOL-83".
+    for (const written of ["#TOOL-83", "TOOL-83"]) {
+      const report = composeRunReport([...events, refusalEvent(written + tail)], "r", {
+        workItem: "TOOL-6",
+      });
+      expect(report.text).toContain("TOOL-83 [To Do]");
+      expect(report.text).not.toContain("#TOOL-83");
+    }
+  });
+
   it("does not confuse another refusal for this one", () => {
     const events = [...context(), ...ranTheSuite()];
     const report = composeRunReport(

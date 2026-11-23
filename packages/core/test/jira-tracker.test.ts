@@ -153,7 +153,7 @@ describe("one view of a proposed bug", () => {
         },
       },
     ] as unknown as AnyRunEvent[];
-    expect(storyRefusal(JIRA_BUG, events)).toMatch(/^#SHOP-20 \[In Progress\] already says this/);
+    expect(storyRefusal(JIRA_BUG, events)).toMatch(/^SHOP-20 \[In Progress\] already says this/);
   });
 
   it("puts a Jira bug to the reviewer as a BUG, linked by its key", () => {

@@ -207,7 +207,7 @@ describe.skipIf(!existsSync(RUN3) || !existsSync(WS))("run 20261114T152437Z, rep
         { workspaceDir: WS, workItem: "TOOL-34" },
       );
     };
-    expect(refusalOf(/aged 18 cannot register/)).toContain("#TOOL-36");
+    expect(refusalOf(/aged 18 cannot register/)).toMatch(/^TOOL-36 \[/);
     expect(refusalOf(/aged 75 is accepted/) ?? "").not.toContain("already says this");
   });
 });

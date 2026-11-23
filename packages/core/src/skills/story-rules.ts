@@ -1,4 +1,4 @@
-import { asAdoBug } from "../governance/bug-view.js";
+import { asAdoBug, itemRef, JIRA_BUG_TOOL } from "../governance/bug-view.js";
 import { includesId, normId, sameId, storyTagId, type TrackerId } from "../design/ids.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -84,7 +84,10 @@ export function storyRefusal(
   // write tool would have refused.
   call = asWrite(call, events, opts.workspaceDir);
   // Likewise a Jira bug is judged as the Azure DevOps bug it amounts to, so
-  // every bug rule below applies to both trackers without being copied.
+  // every bug rule below applies to both trackers without being copied. What a
+  // refusal SAYS still has to be in the words of the tracker the run is using,
+  // so the one rule that names an argument is told which tracker it is.
+  const jira = call.toolName === JIRA_BUG_TOOL;
   call = asAdoBug(call);
   return (
     absoluteNavigation(call, events, opts.workspaceDir) ??
@@ -101,7 +104,7 @@ export function storyRefusal(
     writesMaskedValue(call, events, opts.workspaceDir) ??
     noChangeWrite(call, events, opts.workspaceDir) ??
     writeChurn(call, events) ??
-    unlinkedBug(call, events) ??
+    unlinkedBug(call, events, jira) ??
     unhealedLocator(call, events) ??
     swallowedFailure(call, events) ??
     fallbackInATest(call, events, opts.workspaceDir) ??
@@ -1182,10 +1185,17 @@ function notInstalled(
  * drop the bug: 20260923T230833Z did the whole run, found a real contrast
  * violation, wrote it up — and lost it, because `parentId` was missing. Checked
  * when the bug is proposed, the agent is told at once and fixes it.
+ *
+ * The rule reads the call through the shared bug view, where the link is always
+ * `parentId`. What it tells the agent to add is named as the agent's own tool
+ * names it: `storyKey` for a Jira bug (the tracker parity audit of 21 Nov 2026
+ * found a Jira run being told to pass `parentId`, an argument `jira.create_bug`
+ * does not have).
  */
 function unlinkedBug(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
+  jira = false,
 ): string | undefined {
   if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
   if (String(call.args["workItemType"] ?? "") !== "Bug") return;
@@ -1193,7 +1203,7 @@ function unlinkedBug(
   const problems: string[] = [];
   if (story !== undefined && String(call.args["parentId"] ?? "") !== String(story))
     problems.push(
-      `parentId: ${story} — a bug nobody can trace to a story is a bug nobody will act on`,
+      `${jira ? `storyKey: "${story}"` : `parentId: ${story}`} — a bug nobody can trace to a story is a bug nobody will act on`,
     );
   if (!hasAgentTag(call.args["tags"] ?? fieldValue(call, "System.Tags")))
     problems.push(
@@ -1240,7 +1250,7 @@ function duplicateBug(
   const hit = open.find((b) => sameDefect(b.title, title)) ?? sameFailingTest(call, title, events);
   if (!hit) return;
   return (
-    `#${hit.id} [${hit.state}] already says this: "${hit.title}". This proposal reads as the same ` +
+    `${itemRef(hit.id)} [${hit.state}] already says this: "${hit.title}". This proposal reads as the same ` +
     `defect, so filing it would give one finding two records and split its history.\n` +
     (hit.agent
       ? "That bug was filed by an earlier run of this runtime, which is why it is not in your " +
