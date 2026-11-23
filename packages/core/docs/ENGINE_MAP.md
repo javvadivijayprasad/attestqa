@@ -83,6 +83,8 @@ Grouped by stage, in the order the chain checks them (first match wins).
 
 **Records (trackers):** `duplicateTestCase`, `duplicateBug`, `agentRunReport`, `untaggedTestCase`, `wrongSuiteTarget`
 
+- **Both trackers (audit of 21 Nov 2026, `test/tracker-parity.test.ts`).** Before the chain runs, a Jira bug is shown to the rules as the Azure DevOps bug it amounts to (`asAdoBug`, `governance/bug-view.ts`), so the six bug rules (`unlinkedBug`, `duplicateBug`, `unhealedLocator`, `swallowedFailure`, `unobservedClaim`, `unscopedAccessibilityBug`) refuse a Jira bug where they refuse an Azure DevOps one; the test gives each rule the same situation in both trackers. `duplicateTestCase` and `untaggedTestCase` have nothing to judge on Jira, which has no test-case tool (ADR-004). Known gaps: `unlinkedBug` tells a Jira run to pass `parentId` (the Jira argument is `storyKey`), `duplicateBug` writes a Jira key as "#TOOL-83", and the defect-profile skill reads Azure DevOps only.
+
 **Order of work:** `specBeforeScaffold`, `featureFirst`, `unboundStepsBeforeScaffold` (relaxed 18 Oct: after a second analysis), `scaffoldWouldOverwrite`, `noFramework`, `frameworkOwned`, `notInstalled`, `scratchInTheSuite`, `wrongEpicFile`
 
 **Shared epic feature file:** `rewordsAnotherStory`, `dropsAnotherStory`, `untaggedScenario`, `missingKindTags`, `appendOnlyAfterReroute`, `appendOnlySpec`, `writeOnExecutePath`
