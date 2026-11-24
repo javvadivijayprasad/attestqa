@@ -1,4 +1,4 @@
-import { asAdoBug, itemRef, JIRA_BUG_TOOL } from "../governance/bug-view.js";
+import { fieldValue, itemRef, proposedBug } from "../governance/bug-view.js";
 import { includesId, normId, sameId, storyTagId, type TrackerId } from "../design/ids.js";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -83,12 +83,10 @@ export function storyRefusal(
   // otherwise a healer could drop an assertion through the edit tool that the
   // write tool would have refused.
   call = asWrite(call, events, opts.workspaceDir);
-  // Likewise a Jira bug is judged as the Azure DevOps bug it amounts to, so
-  // every bug rule below applies to both trackers without being copied. What a
-  // refusal SAYS still has to be in the words of the tracker the run is using,
-  // so the one rule that names an argument is told which tracker it is.
-  const jira = call.toolName === JIRA_BUG_TOOL;
-  call = asAdoBug(call);
+  // A bug is judged as a ProposedBug (governance/bug-view.ts): its title, its
+  // steps, its story link and its tags, whichever tracker it is going to. No
+  // bug rule below names a tracker's tool or field, so each applies to every
+  // tracker without being copied.
   return (
     absoluteNavigation(call, events, opts.workspaceDir) ??
     duplicateTestCase(call, events) ??
@@ -104,7 +102,7 @@ export function storyRefusal(
     writesMaskedValue(call, events, opts.workspaceDir) ??
     noChangeWrite(call, events, opts.workspaceDir) ??
     writeChurn(call, events) ??
-    unlinkedBug(call, events, jira) ??
+    unlinkedBug(call, events) ??
     unhealedLocator(call, events) ??
     swallowedFailure(call, events) ??
     fallbackInATest(call, events, opts.workspaceDir) ??
@@ -1186,8 +1184,8 @@ function notInstalled(
  * violation, wrote it up — and lost it, because `parentId` was missing. Checked
  * when the bug is proposed, the agent is told at once and fixes it.
  *
- * The rule reads the call through the shared bug view, where the link is always
- * `parentId`. What it tells the agent to add is named as the agent's own tool
+ * The rule reads the link from the ProposedBug, whatever the tracker calls it.
+ * What it tells the agent to add is named as the agent's own tool
  * names it: `storyKey` for a Jira bug (the tracker parity audit of 21 Nov 2026
  * found a Jira run being told to pass `parentId`, an argument `jira.create_bug`
  * does not have).
@@ -1195,17 +1193,16 @@ function notInstalled(
 function unlinkedBug(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
-  jira = false,
 ): string | undefined {
-  if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
-  if (String(call.args["workItemType"] ?? "") !== "Bug") return;
+  const bug = proposedBug(call);
+  if (!bug) return;
   const story = storyFacts(events)?.story?.id;
   const problems: string[] = [];
-  if (story !== undefined && String(call.args["parentId"] ?? "") !== String(story))
+  if (story !== undefined && String(bug.story ?? "") !== String(story))
     problems.push(
-      `${jira ? `storyKey: "${story}"` : `parentId: ${story}`} — a bug nobody can trace to a story is a bug nobody will act on`,
+      `${bug.tracker === "jira" ? `storyKey: "${story}"` : `parentId: ${story}`} — a bug nobody can trace to a story is a bug nobody will act on`,
     );
-  if (!hasAgentTag(call.args["tags"] ?? fieldValue(call, "System.Tags")))
+  if (!hasAgentTag(bug.tags))
     problems.push(
       'System.Tags: "agentic-qa" — how a later run knows this bug came from a runtime and not from a person',
     );
@@ -1241,13 +1238,14 @@ function duplicateBug(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
 ): string | undefined {
-  if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
-  if (String(call.args["workItemType"] ?? "") !== "Bug") return;
-  const title = String(call.args["title"] ?? fieldValue(call, "System.Title") ?? "").trim();
+  const bug = proposedBug(call);
+  if (!bug) return;
+  const title = bug.title.trim();
   if (!title) return;
   const filed = storyFacts(events)?.filedBugs ?? [];
   const open = filed.filter((b) => !CLOSED.has(b.state.toLowerCase()));
-  const hit = open.find((b) => sameDefect(b.title, title)) ?? sameFailingTest(call, title, events);
+  const hit =
+    open.find((b) => sameDefect(b.title, title)) ?? sameFailingTest(bug.repro, title, events);
   if (!hit) return;
   return (
     `${itemRef(hit.id)} [${hit.state}] already says this: "${hit.title}". This proposal reads as the same ` +
@@ -1273,7 +1271,7 @@ type FiledBug = NonNullable<NonNullable<ReturnType<typeof storyFacts>>["filedBug
  * the way the end-of-run settlement reads it, or from its own repro steps.
  */
 function sameFailingTest(
-  call: { args: Record<string, unknown> },
+  repro: string,
   title: string,
   events: AnyRunEvent[],
 ): FiledBug | undefined {
@@ -1283,7 +1281,7 @@ function sameFailingTest(
     .map((f) => String(asRecord(f)?.["title"] ?? ""))
     .filter(Boolean);
   const flat = (x: string) => x.toLowerCase().replace(/[^a-z0-9]/g, "");
-  const own = flat(`${title} ${fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? ""}`);
+  const own = flat(`${title} ${repro}`);
   for (const t of failing) {
     const name = flat(t.split(" › ").pop() ?? t);
     if (!bugIsAbout(title, t, failing) && !(name.length >= 16 && own.includes(name))) continue;
@@ -1381,8 +1379,8 @@ export function unhealedLocator(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
 ): string | undefined {
-  if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
-  if (String(call.args["workItemType"] ?? "") !== "Bug") return;
+  const bug = proposedBug(call);
+  if (!bug) return;
 
   const healed = new Set(
     successful(completedCalls(events), "aqa.heal_locator").map((c) =>
@@ -1454,8 +1452,8 @@ function swallowedFailure(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
 ): string | undefined {
-  if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
-  if (String(call.args["workItemType"] ?? "") !== "Bug") return;
+  const bug = proposedBug(call);
+  if (!bug) return;
 
   // Every spec this run read or wrote, not just the epic's expected path: the
   // failing test is judged against the file it actually lives in.
@@ -1548,11 +1546,9 @@ function unobservedClaim(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
 ): string | undefined {
-  if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
-  if (String(call.args["workItemType"] ?? "") !== "Bug") return;
-  const text = `${bugTitleOf(call)} ${stripTags(
-    fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "",
-  )}`;
+  const bug = proposedBug(call);
+  if (!bug) return;
+  const text = `${bug.title} ${stripTags(bug.repro)}`;
   if (!text.trim()) return;
 
   const specs = specTextsFromEvents(events);
@@ -1603,8 +1599,8 @@ function unscopedAccessibilityBug(
   call: { toolName: string; args: Record<string, unknown> },
   events: AnyRunEvent[],
 ): string | undefined {
-  if (call.toolName !== "ado.wit_work_item_write" || call.args["action"] !== "create") return;
-  if (String(call.args["workItemType"] ?? "") !== "Bug") return;
+  const bug = proposedBug(call);
+  if (!bug) return;
   const specs = specTextsFromEvents(events);
   for (const f of latestFailures(events)) {
     const body = bodyFor(f.title, specs);
@@ -1614,7 +1610,7 @@ function unscopedAccessibilityBug(
     // Testing the failing test's title as well matched on every bug while the
     // unscoped scan was failing, and refused eighteen proposals about the page
     // buttons with a reason about the scan (20261018T154651Z).
-    if (!/violation|wcag|accessib|\baxe\b/i.test(bugTitleOf(call))) continue;
+    if (!/violation|wcag|accessib|\baxe\b/i.test(bug.title)) continue;
     return (
       `"${f.title}" scans the WHOLE page: its AxeBuilder call has no .include(...), so a violation ` +
       "it finds may belong to the site's header, footer or a storefront widget rather than to this " +
@@ -1723,11 +1719,6 @@ function claimWords(assertion: string): string[] {
 
 function ordinal(n: number): string {
   return n === 1 ? "first" : n === 2 ? "second" : n === 3 ? "third" : `${n}th`;
-}
-
-/** A proposed bug's title, wherever the model put it. */
-function bugTitleOf(call: { args: Record<string, unknown> }): string {
-  return String(call.args["title"] ?? fieldValue(call, "System.Title") ?? "");
 }
 
 function stripTags(html: string): string {
@@ -2314,18 +2305,6 @@ function isComment(line: string): boolean {
 function helperBodies(spec: string): string {
   const firstTest = spec.search(/\btest(?:\.(?:only|skip|fixme|fail|slow))?\s*\(/);
   return firstTest === -1 ? spec : spec.slice(0, firstTest);
-}
-
-function fieldValue(call: { args: Record<string, unknown> }, name: string): string | undefined {
-  const f = call.args["fields"];
-  if (Array.isArray(f)) {
-    for (const e of f) {
-      const r = asRecord(e);
-      if (r?.["name"] === name) return String(r["value"] ?? "");
-    }
-  }
-  const v = asRecord(f)?.[name];
-  return typeof v === "string" ? v : undefined;
 }
 
 /**
