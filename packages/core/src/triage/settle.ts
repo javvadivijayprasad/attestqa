@@ -1,4 +1,4 @@
-import { asAdoBug } from "../governance/bug-view.js";
+import { proposedBug } from "../governance/bug-view.js";
 import { hasStoryTag, normId } from "../design/ids.js";
 import type { AnyRunEvent } from "../types.js";
 import type { ProposedCall } from "../runtime/model.js";
@@ -215,13 +215,13 @@ export function settleBugs(
     // The two requirements the verifier used to check after the fact, checked
     // before a human is asked: an unlinked or unmarked bug is refused, not
     // offered.
-    // Read through the Azure DevOps view: a Jira bug links its story as
-    // `storyKey` and is labelled by the adapter. Reading `parentId` off the
+    // Read from the ProposedBug, not the raw call: a Jira bug links its story
+    // as `storyKey` and is labelled by the adapter. Reading `parentId` off the
     // raw call dropped every Jira bug as "not linked" (20261018T115605Z).
-    const view = asAdoBug(call);
-    const linkedTo = String(view.args["parentId"] ?? "");
+    const bug = proposedBug(call);
+    const linkedTo = String(bug?.story ?? "");
     if (opts.workItem !== undefined && normId(linkedTo) !== normId(opts.workItem)) {
-      const field = call.toolName === view.toolName ? "parentId" : "storyKey";
+      const field = bug?.tracker === "jira" ? "storyKey" : "parentId";
       drop.push({
         call,
         reason: `it is not linked to story ${opts.workItem} (${field} ${
@@ -230,7 +230,7 @@ export function settleBugs(
       });
       continue;
     }
-    if (!hasAgentTag(view.args["tags"] ?? fieldValue(view, "System.Tags"))) {
+    if (!hasAgentTag(bug?.tags)) {
       drop.push({ call, reason: 'it does not carry the "agentic-qa" tag' });
       continue;
     }
@@ -443,8 +443,7 @@ export function falseClaims(
   events: AnyRunEvent[],
   workspaceDir?: string,
 ): string[] {
-  call = asAdoBug(call);
-  const text = stripHtml(fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "");
+  const text = bugText(call);
   if (!text) return [];
   const facts = storyFacts(events);
   const path = facts ? specPathFor(facts) : undefined;
@@ -485,7 +484,7 @@ export function falseClaims(
 
 /** The text of a bug, whichever tracker it is for. */
 function bugText(call: ProposedCall): string {
-  return stripHtml(fieldValue(asAdoBug(call), "Microsoft.VSTS.TCM.ReproSteps") ?? "");
+  return stripHtml(proposedBug(call)?.repro ?? "");
 }
 
 const SAYS_PASSED = /\b(?:pass(?:ed|es|ing)?|succeed(?:ed|s|ing)?)\b/i;
@@ -547,8 +546,7 @@ const DOUBT: Array<[RegExp, string]> = [
 ];
 
 function selfDoubt(call: ProposedCall): string | undefined {
-  call = asAdoBug(call);
-  const text = stripHtml(fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "");
+  const text = bugText(call);
   for (const [re, said] of DOUBT) if (re.test(text)) return said;
   return undefined;
 }
@@ -631,8 +629,7 @@ function testKeyForTitle(title: string, candidates: string[]): string {
 }
 
 export function bugTitle(call: ProposedCall): string {
-  call = asAdoBug(call);
-  return fieldValue(call, "System.Title") ?? String(call.args["title"] ?? "(untitled)");
+  return proposedBug(call)?.title || "(untitled)";
 }
 
 /** Normalised labels: "AC-3b", "ac 3B", "AC3b" all become "AC-3B". */
@@ -652,17 +649,4 @@ function failingTitles(final: Record<string, unknown>): string[] {
   }
   const failures = final["failures"];
   return Array.isArray(failures) ? failures.map((f) => String(asRecord(f)?.["title"] ?? "")) : [];
-}
-
-function fieldValue(call: ProposedCall, name: string): string | undefined {
-  const f = call.args["fields"];
-  if (Array.isArray(f)) {
-    for (const e of f) {
-      const r = asRecord(e);
-      if (r?.["name"] === name && typeof r["value"] === "string") return r["value"];
-    }
-    return undefined;
-  }
-  const v = asRecord(f)?.[name];
-  return typeof v === "string" ? v : undefined;
 }

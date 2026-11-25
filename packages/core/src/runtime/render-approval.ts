@@ -1,4 +1,4 @@
-import { asAdoBug, isBugCreate } from "../governance/bug-view.js";
+import { isBugCreate, proposedBug } from "../governance/bug-view.js";
 import { isJiraKey } from "../design/ids.js";
 import { parseDesign, renderDesign } from "../design/test-design.js";
 import type { ProposedCall } from "./model.js";
@@ -106,7 +106,7 @@ function renderCall(n: number, c: ProposedCall, opts: RenderOptions = {}): strin
     case "test case":
       return renderTestCase(n, c);
     case "BUG":
-      return renderBug(n, asAdoBug(c));
+      return renderBug(n, c);
     case "test design":
       // Stage 2: the design as a tester reads it — one line per test, its type
       // and technique, and what it expects, with where that expectation came from.
@@ -218,28 +218,26 @@ export function parseSteps(steps: string): Step[] {
  * ruled-out paragraph, buried in HTML three thousand characters into the line.
  */
 function renderBug(n: number, c: ProposedCall): string[] {
-  const f = fields(c.args);
-  const out: string[] = wrap(
-    `${n}. BUG  ${f["System.Title"] ?? str(c.args["title"]) ?? "(untitled)"}`,
-    0,
-    3,
-  );
+  // Read as a ProposedBug: the same title, link, tags and steps the rules and
+  // the end-of-run settlement judged, whichever tracker the call is for.
+  const bug = proposedBug(c);
+  const out: string[] = wrap(`${n}. BUG  ${bug?.title || "(untitled)"}`, 0, 3);
 
-  const parent = c.args["parentId"];
+  const parent = bug?.story;
   out.push(
     parent === undefined
       ? "   ⚠ NOT linked to any story"
       : `   linked to story ${
           isJiraKey(parent) ? String(parent) : `AB#${String(parent)}`
-        }${inProject(c.args)}`,
+        }${inProject({ project: bug?.project })}`,
   );
 
-  const tags = f["System.Tags"] ?? str(c.args["tags"]) ?? "";
+  const tags = typeof bug?.tags === "string" ? bug.tags : "";
   if (!tags.split(";").some((t) => t.trim().toLowerCase() === "agentic-qa")) {
     out.push('   ⚠ missing the "agentic-qa" tag — a later run will read this back as fact');
   }
 
-  const repro = stripHtml(f["Microsoft.VSTS.TCM.ReproSteps"] ?? "");
+  const repro = stripHtml(bug?.repro ?? "");
   const confidence = firstMatch(repro, /Confidence:\s*([^.]+)\./i);
   if (confidence) out.push(`   confidence: ${confidence.trim()}`);
 
@@ -254,24 +252,6 @@ function renderBug(n: number, c: ProposedCall): string[] {
 }
 
 // ---------------------------------------------------------------- text utils
-
-function fields(args: Record<string, unknown>): Record<string, string> {
-  const out: Record<string, string> = {};
-  const f = args["fields"];
-  // The tool accepts fields either as [{name, value}] or as a plain object.
-  if (Array.isArray(f)) {
-    for (const e of f) {
-      const name = str(asRecord(e)?.["name"]);
-      const value = asRecord(e)?.["value"];
-      if (name) out[name] = typeof value === "string" ? value : JSON.stringify(value);
-    }
-  } else {
-    const rec = asRecord(f);
-    if (rec)
-      for (const [k, v] of Object.entries(rec)) out[k] = typeof v === "string" ? v : String(v);
-  }
-  return out;
-}
 
 /** HTML to something readable, keeping list items as separate lines. */
 export function stripHtml(html: string): string {
@@ -337,10 +317,6 @@ function wrap(text: string, first: number, rest: number): string[] {
 
 function str(v: unknown): string | undefined {
   return typeof v === "string" && v.length > 0 ? v : undefined;
-}
-
-function asRecord(v: unknown): Record<string, unknown> | undefined {
-  return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : undefined;
 }
 
 /**
