@@ -196,7 +196,9 @@ Usage:
       the request ("AB#1") unless --work-item says otherwise, and must be in
       agent.scope.work_items. defect-profile takes no work item: it reads the
       project's closed bugs and writes .aqa-profile/defects.json in the workspace,
-      which story-to-tests then reads to aim its test design.
+      which story-to-tests then reads to aim its test design. For Jira bugs pass
+      --tracker jira; the project is --project <KEY>, or the one Jira project in
+      agent.scope.work_items. At most 100 Jira bugs are read.
       --tracker: where the story lives. Default: from the work item — a Jira key
       (SHOP-12) means Jira and needs JIRA_BASE_URL with JIRA_EMAIL + JIRA_API_TOKEN
       (Cloud) or JIRA_PAT (Data Center) in .env; a number means Azure DevOps.
@@ -760,18 +762,22 @@ async function live(
     return 1;
   }
   const { tracker, explicitRef, jiraRef } = picked;
-  if (tracker === "jira" && skillName === "defect-profile") {
-    io.err(
-      "aqa run: --skill defect-profile reads Azure DevOps bug history; it has no Jira version yet.\n",
-    );
-    return 1;
-  }
-
   const adoProject = env.azureDevOps?.project;
-  if (skillName === "defect-profile" && !adoProject) {
+  // Whose bugs a profile run reads. Azure DevOps names its project in the
+  // environment. Jira has no such setting, so the key is --project, or the one
+  // Jira project that agent.scope.work_items allows ("SHOP-*").
+  let profileProject = adoProject;
+  if (skillName === "defect-profile" && tracker === "jira") {
+    const named = jiraProfileProject(flag(args, "--project"), config.scope.work_items);
+    if ("error" in named) {
+      io.err(named.error);
+      return 1;
+    }
+    profileProject = named.project;
+  } else if (skillName === "defect-profile" && !adoProject) {
     io.err(
       "aqa run: --skill defect-profile needs AZURE_DEVOPS_ORG_URL and AZURE_DEVOPS_PROJECT " +
-        "in the environment or .env.\n",
+        "in the environment or .env. For a Jira project, pass --tracker jira.\n",
     );
     return 1;
   }
@@ -866,7 +872,10 @@ async function live(
     );
     const skill =
       skillName === "defect-profile"
-        ? defectProfileSkill({ project: adoProject ?? "" })
+        ? defectProfileSkill({
+            project: profileProject ?? "",
+            ...(tracker === "jira" ? { tracker } : {}),
+          })
         : storyToTestsSkill({
             workItem,
             ...(tracker === "jira" ? { tracker } : {}),
@@ -941,12 +950,12 @@ async function live(
       `aqa: skill ${skill.name}, ${
         workItem
           ? `${tracker === "jira" ? "Jira issue" : "work item"} ${workItem}`
-          : `project ${adoProject ?? "?"}`
+          : `project ${profileProject ?? "?"}`
       }, model ${model.model}, approval ${approvalMode}\n`,
     );
     if (skillName === "defect-profile")
       io.err(
-        "aqa: bug reads are scope-checked per work item — ids outside agent.scope.work_items " +
+        `aqa: bug reads are scope-checked per ${tracker === "jira" ? "issue" : "work item"} — ids outside agent.scope.work_items ` +
           "are refused and recorded as out of scope, not classified\n",
       );
     if (skillName === "story-to-tests" && tracker === "jira")
@@ -1354,6 +1363,41 @@ export function pickTracker(
         "(JIRA_EMAIL + JIRA_API_TOKEN for Cloud, or JIRA_PAT for Data Center) in the environment or .env.\n",
     };
   return { tracker, explicitRef, jiraRef };
+}
+
+/**
+ * The Jira project a defect-profile run reads: the one named, or the only one
+ * the scope allows. Two projects in scope and none named is refused rather than
+ * guessed — a profile of the wrong product aims every later test design wrong.
+ */
+export function jiraProfileProject(
+  named: string | undefined,
+  scope: readonly string[],
+): { project: string } | { error: string } {
+  const key = /^[A-Z][A-Z0-9_]+$/;
+  if (named !== undefined) {
+    const project = named.trim().toUpperCase();
+    return key.test(project)
+      ? { project }
+      : { error: `aqa run: --project "${named}" is not a Jira project key (e.g. SHOP).\n` };
+  }
+  const inScope = [
+    ...new Set(
+      scope
+        .map((s) => /^([A-Za-z][A-Za-z0-9_]+)-(?:\*|\d+)$/.exec(s.trim())?.[1]?.toUpperCase())
+        .filter((p): p is string => p !== undefined),
+    ),
+  ];
+  if (inScope.length === 1 && inScope[0] !== undefined) return { project: inScope[0] };
+  return {
+    error:
+      inScope.length === 0
+        ? "aqa run: --skill defect-profile with --tracker jira needs the Jira project: pass " +
+          '--project <KEY>, or allow it in agent.scope.work_items (e.g. "SHOP-*").\n'
+        : `aqa run: agent.scope.work_items allows ${inScope.length} Jira projects (${inScope.join(
+            ", ",
+          )}); say which one to profile with --project <KEY>.\n`,
+  };
 }
 
 /**

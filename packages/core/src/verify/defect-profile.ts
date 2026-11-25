@@ -5,6 +5,7 @@ import { completedCalls, successful } from "./evidence.js";
 import {
   countProfile,
   profileProblems,
+  type BugId,
   PROFILE_DIR,
   PROFILE_FILE,
   type DefectProfile,
@@ -15,6 +16,8 @@ export interface DefectProfileVerifierOptions {
   minRecords?: number;
   /** Override the profile path; defaults to <workspace>/.aqa-profile/defects.json. */
   file?: string;
+  /** Which tracker's bug history the run reads. Default: Azure DevOps. */
+  tracker?: "ado" | "jira";
 }
 
 /**
@@ -28,7 +31,7 @@ export interface DefectProfileVerifierOptions {
  * re-classified on every run, with the wording drifting each time, which is
  * precisely what makes two profiles incomparable.
  *
- *   1. bugs were queried          (a successful ado.wit_query)
+ *   1. bugs were queried          (a successful ado.wit_query, or jira.search for Jira)
  *   2. a profile exists on disk   (whenever it was written)
  *   3. it is in-vocabulary        (Paper F surface + exception type, with evidence)
  *   4. it covers what was queried (no bug returned by the query left unclassified)
@@ -43,11 +46,12 @@ export class DefectProfileVerifier implements Verifier {
     const limitations: string[] = [];
     const calls = completedCalls(input.events);
 
-    const queries = successful(calls, "ado.wit_query");
+    const queryTool = this.opts.tracker === "jira" ? "jira.search" : "ado.wit_query";
+    const queries = successful(calls, queryTool);
     if (queries.length === 0) {
       gaps.push({
         code: "bugs-not-queried",
-        message: "No successful ado.wit_query — the bug history was never read.",
+        message: `No successful ${queryTool} — the bug history was never read.`,
         evidence: { toolsCalled: [...new Set(calls.map((c) => c.toolName))] },
       });
     }
@@ -169,8 +173,15 @@ export class DefectProfileVerifier implements Verifier {
  * The scope entry that would have admitted these ids, so the gap tells the
  * reader what to paste rather than leaving them to work it out from a list.
  */
-function suggestRange(ids: number[]): string {
-  const sorted = [...ids].sort((a, b) => a - b);
+function suggestRange(ids: BugId[]): string {
+  // Jira keys: the scope entry is the project, "SHOP-*", one per project seen.
+  const projects = [
+    ...new Set(
+      ids.filter((id): id is string => typeof id === "string").map((k) => k.replace(/-\d+$/, "")),
+    ),
+  ];
+  if (projects.length > 0) return projects.map((p) => `"${p}-*"`).join(", ");
+  const sorted = ids.filter((id): id is number => typeof id === "number").sort((a, b) => a - b);
   const lo = sorted[0];
   const hi = sorted[sorted.length - 1];
   if (lo === undefined || hi === undefined) return "";
