@@ -401,7 +401,18 @@ aqa run "<request>" --config <file>
 ```
 
 `defect-profile` reads the project's closed bugs once and writes a profile that later story runs use
-to aim their designs.
+to aim their designs. It reads Azure DevOps by default. For Jira:
+
+```bash
+aqa run "build the defect profile" --skill defect-profile --tracker jira --project SHOP \
+        --config ai-quality.config.yaml
+```
+
+`--project` is the Jira project key. It can be left out when `agent.scope.work_items` allows
+exactly one Jira project (`SHOP-*`). The run searches for bugs whose status is in Jira's "Done"
+category, reads each one once, and classifies it; at most 100 bugs are read, because one search
+returns no more. Each read is checked against `agent.scope.work_items`, as it is for Azure DevOps.
+The profile file is the same for both trackers, with the Jira key (`SHOP-12`) as the bug's id.
 
 ---
 

@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { storyRefusal } from "../src/skills/story-rules.js";
 import { proposedBug } from "../src/governance/bug-view.js";
+import { bugTitle, settleBugs } from "../src/triage/settle.js";
+import { renderApproval } from "../src/runtime/render-approval.js";
 import { trackerTools, STORY_TO_TESTS_TOOLS } from "../src/skills/story-to-tests.js";
-import { DEFECT_PROFILE_SOURCES, DEFECT_PROFILE_TOOLS } from "../src/skills/defect-profile.js";
+import {
+  DEFECT_PROFILE_SOURCES,
+  DEFECT_PROFILE_TOOLS,
+  defectProfileSources,
+  defectProfileTools,
+} from "../src/skills/defect-profile.js";
 import type { AnyRunEvent } from "../src/types.js";
 
 /**
@@ -311,7 +318,43 @@ describe("tracker parity: one proposed bug, whichever tracker it is written for"
       repro: REDIRECT_BUG[1],
       story: "TOOL-6",
       tags: "agentic-qa",
+      project: "TOOL",
     });
+  });
+
+  it("gives the settlement and the approval prompt the same bug the rules judged", () => {
+    for (const t of ["ado", "jira"] as const) {
+      const call = bug(t, ...REDIRECT_BUG) as never;
+      expect(bugTitle(call)).toBe(REDIRECT_BUG[0]);
+      const prompt = renderApproval([call]);
+      expect(prompt).toContain(`1. BUG ${REDIRECT_BUG[0]}`);
+      expect(prompt).toContain(t === "jira" ? "linked to story TOOL-6" : "linked to story AB#44");
+      expect(prompt).not.toContain("missing the");
+      const settled = settleBugs([call], ledgerOf([context(t), readSpec(), suite([URL_FAILURE])]), {
+        workItem: String(STORY[t]),
+        runLevel: null,
+      });
+      expect(settled.drop.map((d) => d.reason).join()).not.toMatch(/not linked|tag/);
+    }
+  });
+
+  it("says which argument is wrong when a bug is linked to another story, in each tracker's word", () => {
+    for (const t of ["ado", "jira"] as const) {
+      const call = bug(t, ...REDIRECT_BUG, t === "jira" ? "TOOL-99" : 99) as never;
+      const settled = settleBugs([call], ledgerOf([context(t), readSpec(), suite([URL_FAILURE])]), {
+        workItem: String(STORY[t]),
+        runLevel: null,
+      });
+      expect(settled.drop[0]?.reason).toContain(
+        t === "jira" ? "(storyKey is TOOL-99)" : "(parentId is 99)",
+      );
+    }
+  });
+
+  it("calls a bug with no title untitled, in the prompt and in the settlement", () => {
+    const call = { toolName: "jira.create_bug", args: { projectKey: "TOOL" } } as never;
+    expect(bugTitle(call)).toBe("(untitled)");
+    expect(renderApproval([call])).toContain("1. BUG (untitled)");
   });
 
   it("reads Azure DevOps fields given as a list, and a title given outside them", () => {
@@ -422,10 +465,13 @@ describe("tracker parity: what a Jira run is told", () => {
   });
 });
 
-describe("tracker parity: skills that read one tracker only", () => {
-  it("reads the bug history for a defect profile from Azure DevOps and nowhere else", () => {
+describe("tracker parity: the defect profile reads its own tracker's bug history", () => {
+  it("reads Azure DevOps bugs for an Azure DevOps run and Jira bugs for a Jira run, never both", () => {
+    // The audit found this skill reading Azure DevOps and nowhere else.
     expect(DEFECT_PROFILE_SOURCES.every((x) => x.startsWith("ado."))).toBe(true);
     expect(DEFECT_PROFILE_TOOLS.some((x) => x.startsWith("jira."))).toBe(false);
+    expect(defectProfileSources("jira").every((x) => x.startsWith("jira."))).toBe(true);
+    expect(defectProfileTools("jira").some((x) => x.startsWith("ado."))).toBe(false);
   });
 });
 
@@ -446,8 +492,9 @@ describe("tracker parity: skills that read one tracker only", () => {
  *       The Jira argument is `storyKey`, and the refusal now names it.
  *    b. FIXED in the next change. duplicateBug wrote a Jira key as "#TOOL-83";
  *       it now writes "TOOL-83".
- *    c. OPEN. The defect-profile skill cannot run against Jira at all.
- * 5. Not covered here: the end-of-run settlement (`triage/settle.ts`) and the
- *    verifier, which use the same view and have their own Jira tests
- *    (`jira-tracker.test.ts`, `settle.test.ts`).
+ *    c. FIXED later in 2.5.0. The defect-profile skill could not run against
+ *       Jira at all; it now can (`test/defect-profile-trackers.test.ts`).
+ * 5. The end-of-run settlement (`triage/settle.ts`) and the approval prompt
+ *    read the same `ProposedBug` from the change after that. The verifier is
+ *    not covered here; it has its own Jira tests (`jira-tracker.test.ts`).
  */

@@ -132,9 +132,20 @@ export function isExceptionType(value: unknown): value is ExceptionType {
  * a wrong call rather than as a number — which matters more here than in Paper F,
  * where the diff settles it.
  */
+/** A bug's id as its tracker gives it: a number in Azure DevOps, a key like "SHOP-12" in Jira. */
+export type BugId = number | string;
+
+/** A number, or a Jira issue key. Anything else is not an id a reader can look up. */
+export function isBugId(value: unknown): value is BugId {
+  return (
+    (typeof value === "number" && Number.isFinite(value)) ||
+    (typeof value === "string" && /^[A-Z][A-Z0-9_]+-\d+$/.test(value))
+  );
+}
+
 export interface DefectRecord {
-  /** Azure DevOps work item id. */
-  id: number;
+  /** The bug's id in its tracker: an Azure DevOps work item id, or a Jira key ("SHOP-12"). */
+  id: BugId;
   title: string;
   surface: DefectSurface;
   /**
@@ -164,7 +175,7 @@ export interface DefectProfile {
    */
   vocabulary?: string;
   /** Work items the query returned, including any the run could not classify. */
-  queried: number[];
+  queried: BugId[];
   /**
    * Ids the query returned that the gate refused to let the run read, because
    * they fall outside `scope.work_items`.
@@ -174,7 +185,7 @@ export interface DefectProfile {
    * useful — but a reader must be able to tell a distribution drawn from
    * everything from one drawn from what happened to be in scope.
    */
-  outOfScope?: number[];
+  outOfScope?: BugId[];
   records: DefectRecord[];
 }
 
@@ -245,9 +256,10 @@ export function rankedPairs(
  */
 export function profileProblems(profile: DefectProfile): string[] {
   const problems: string[] = [];
-  const seen = new Set<number>();
+  const seen = new Set<BugId>();
   for (const r of profile.records) {
-    if (typeof r.id !== "number") problems.push("a record has no numeric id");
+    if (!isBugId(r.id))
+      problems.push('a record has no id (a work item number, or a Jira key like "SHOP-12")');
     else if (seen.has(r.id)) problems.push(`work item ${r.id} is classified more than once`);
     else seen.add(r.id);
     if (!isSurface(r.surface))

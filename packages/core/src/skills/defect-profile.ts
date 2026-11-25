@@ -31,6 +31,28 @@ export const DEFECT_PROFILE_TOOLS = [
 /** The bugs themselves are the primary source; trimmed last. */
 export const DEFECT_PROFILE_SOURCES = ["ado.wit_query", "ado.wit_work_item"];
 
+export type ProfileTracker = "ado" | "jira";
+
+/** The two reads of each tracker: the query that lists the bugs, and the read of one. */
+const JIRA_PROFILE_SOURCES = ["jira.search", "jira.get_issue"];
+
+/** What a profile run may see for one tracker. Only the two bug reads differ. */
+export function defectProfileTools(tracker: ProfileTracker): string[] {
+  if (tracker === "ado") return DEFECT_PROFILE_TOOLS;
+  return [...JIRA_PROFILE_SOURCES, ...DEFECT_PROFILE_TOOLS.filter((t) => !t.startsWith("ado."))];
+}
+
+export function defectProfileSources(tracker: ProfileTracker): string[] {
+  return tracker === "ado" ? DEFECT_PROFILE_SOURCES : JIRA_PROFILE_SOURCES;
+}
+
+/**
+ * Jira's search returns at most 100 issues and this runtime does not page it,
+ * and each bug is one read (Jira has no batch read here). So a Jira profile is
+ * capped where an Azure DevOps one is not.
+ */
+export const JIRA_PROFILE_MAX_BUGS = 100;
+
 function vocabulary(): string {
   const surfaces = DEFECT_SURFACES.map((l) => `  - ${l}: ${SURFACE_MEANINGS[l]}`).join("\n");
   const techniques = TEST_TECHNIQUES.map((t) => `  - ${t}: ${TECHNIQUE_MEANINGS[t]}`).join("\n");
@@ -39,7 +61,48 @@ function vocabulary(): string {
   )}\nUse "Other" when the bug names no exception; most bug reports will not.`;
 }
 
-export function defectProfileInstructions(project: string, maxBugs: number): string {
+/** Steps 1 and 2 of the method: how the bugs are found and read. The only part that names a tracker. */
+function readingTheBugs(project: string, maxBugs: number, tracker: ProfileTracker): string {
+  if (tracker === "jira")
+    return `1. Query the closed bugs with jira.search. Something like:
+
+     project = ${project} AND issuetype = Bug AND statusCategory = Done
+      ORDER BY updated DESC
+
+   Pass maxResults ${maxBugs}; the search returns no more than that and is not
+   paged. Take every key it returns. If it returns none, that is a fact about
+   this project, not a failure — write a profile with an empty records array and
+   the keys you queried (none), and stop. Do not invent defects to fill it.
+
+2. Read each bug with jira.get_issue, one key per call — Jira has no batch read
+   here. The search result gives you only the key, status, summary and labels;
+   the description, where the evidence usually is, comes from this read. Do not
+   read comments, sub-tasks or linked issues: one read per bug is the budget.`;
+  return `1. Query the closed bugs with ado.wit_query. Something like:
+
+     SELECT [System.Id] FROM WorkItems
+      WHERE [System.TeamProject] = '${project}'
+        AND [System.WorkItemType] = 'Bug'
+        AND [System.State] IN ('Closed', 'Resolved', 'Done')
+      ORDER BY [System.ChangedDate] DESC
+
+   Take at most ${maxBugs} ids. If the query returns none, that is a fact about
+   this project, not a failure — write a profile with an empty records array and
+   the ids you queried (none), and stop. Do not invent defects to fill it.
+
+2. Read them with ado.wit_work_item using action "get_batch", in batches, asking
+   for the fields you need: System.Id, System.Title, System.Description,
+   Microsoft.VSTS.TCM.ReproSteps, System.Tags, Microsoft.VSTS.Common.ResolvedReason,
+   Microsoft.VSTS.Common.ClosedDate. Reading them in batches rather than one at a
+   time is the difference between a cheap run and an expensive one.`;
+}
+
+export function defectProfileInstructions(
+  project: string,
+  maxBugs: number,
+  tracker: ProfileTracker = "ado",
+): string {
+  const jira = tracker === "jira";
   return `You are building a defect profile for the project "${project}".
 
 GOAL
@@ -86,23 +149,7 @@ called a validator defect and disagree with you if you were wrong.
 
 METHOD
 
-1. Query the closed bugs with ado.wit_query. Something like:
-
-     SELECT [System.Id] FROM WorkItems
-      WHERE [System.TeamProject] = '${project}'
-        AND [System.WorkItemType] = 'Bug'
-        AND [System.State] IN ('Closed', 'Resolved', 'Done')
-      ORDER BY [System.ChangedDate] DESC
-
-   Take at most ${maxBugs} ids. If the query returns none, that is a fact about
-   this project, not a failure — write a profile with an empty records array and
-   the ids you queried (none), and stop. Do not invent defects to fill it.
-
-2. Read them with ado.wit_work_item using action "get_batch", in batches, asking
-   for the fields you need: System.Id, System.Title, System.Description,
-   Microsoft.VSTS.TCM.ReproSteps, System.Tags, Microsoft.VSTS.Common.ResolvedReason,
-   Microsoft.VSTS.Common.ClosedDate. Reading them in batches rather than one at a
-   time is the difference between a cheap run and an expensive one.
+${readingTheBugs(project, maxBugs, tracker)}
 
 3. Classify each bug. Read what the bug actually says; do not classify from the
    title alone when a description is present. Three judgements people get wrong:
@@ -125,24 +172,35 @@ METHOD
 
      {
        "project": "${project}",
-       "query": "<the WIQL you ran>",
+       "query": "<the ${jira ? "JQL" : "WIQL"} you ran>",
        "generatedAt": "<ISO timestamp>",
        "vocabulary": "${VOCABULARY_PROVENANCE}",
        "queried": [<every id the query returned, in order>],
        "records": [
          {
-           "id": 42,
+           "id": ${jira ? `"${project}-42"` : "42"},
            "title": "Login accepts blank password",
            "surface": "validator",
            "technique": "boundary-value-analysis",
            "exceptionType": "Other",
            "httpStatus": 200,
-           "evidence": "\\"POST /login returned 200 with an empty password field\\"",
-           "closedAt": "2026-08-14"
+           "evidence": "\\"POST /login returned 200 with an empty password field\\""${
+             jira
+               ? ""
+               : `,
+           "closedAt": "2026-08-14"`
+           }
          }
        ]
      }
-
+${
+  jira
+    ? `
+   "id" is the Jira key as a string, and "queried" is a list of those keys.
+   Do not record a closed date: the read does not give the date a bug was closed.
+`
+    : ""
+}
    "queried" must list EVERY id the query returned, including any you could not
    classify confidently. The verifier compares the two: a profile that quietly
    drops what it could not classify reports a distribution that is not this
@@ -154,8 +212,8 @@ METHOD
    other than yourself.
 
 WHEN A READ IS REFUSED
-The WIQL query is not scope-checked, but every work item you then READ is. If a
-bug id falls outside agent.scope.work_items the gate refuses it, and no rewording of
+The ${jira ? "search" : "WIQL query"} is not scope-checked, but every ${jira ? "issue" : "work item"} you then READ is. If a
+bug ${jira ? "key" : "id"} falls outside agent.scope.work_items the gate refuses it, and no rewording of
 the call will change that — the refusal is the operator's decision, not an
 error to route around.
 
@@ -184,8 +242,10 @@ WORKING RULES
 }
 
 export interface DefectProfileSkillOptions extends DefectProfileVerifierOptions {
-  /** Azure DevOps project name, for the WIQL and the profile header. */
+  /** The project whose bugs are read: an Azure DevOps project name, or a Jira project key. */
   project: string;
+  /** Which tracker holds the bugs. Default: Azure DevOps. */
+  tracker?: ProfileTracker;
   /**
    * How many bugs to classify at most. A profile is a distribution, not a
    * census: the shape stabilises long before the history is exhausted, and
@@ -195,13 +255,18 @@ export interface DefectProfileSkillOptions extends DefectProfileVerifierOptions 
 }
 
 export function defectProfileSkill(opts: DefectProfileSkillOptions): Skill {
-  const maxBugs = opts.maxBugs ?? 200;
+  const tracker = opts.tracker ?? "ado";
+  const maxBugs =
+    tracker === "jira"
+      ? Math.min(opts.maxBugs ?? JIRA_PROFILE_MAX_BUGS, JIRA_PROFILE_MAX_BUGS)
+      : (opts.maxBugs ?? 200);
   return {
     name: "defect-profile",
-    instructions: defectProfileInstructions(opts.project, maxBugs),
-    allowedTools: DEFECT_PROFILE_TOOLS,
-    sourceTools: DEFECT_PROFILE_SOURCES,
+    instructions: defectProfileInstructions(opts.project, maxBugs, tracker),
+    allowedTools: defectProfileTools(tracker),
+    sourceTools: defectProfileSources(tracker),
     verifier: new DefectProfileVerifier({
+      ...(tracker === "jira" ? { tracker } : {}),
       ...(opts.minRecords !== undefined ? { minRecords: opts.minRecords } : {}),
       ...(opts.file !== undefined ? { file: opts.file } : {}),
     }),

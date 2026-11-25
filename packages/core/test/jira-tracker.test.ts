@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { readJiraEnv, ConfigError } from "../src/config.js";
 import { parseJiraKey, pickTracker } from "../src/cli.js";
-import { asAdoBug, isBugCreate } from "../src/governance/bug-view.js";
+import { isBugCreate, proposedBug } from "../src/governance/bug-view.js";
 import { storyRefusal } from "../src/skills/story-rules.js";
 import { bugTitle } from "../src/triage/settle.js";
 import { storyToTestsSkill, trackerTools } from "../src/skills/story-to-tests.js";
@@ -97,20 +97,16 @@ describe("one view of a proposed bug", () => {
     ).toBe(false);
   });
 
-  it("shows the Jira call to the bug rules in the shape they check, labelled as the adapter will", () => {
-    const v = asAdoBug(JIRA_BUG);
-    expect(v.toolName).toBe("ado.wit_work_item_write");
-    expect(v.args).toMatchObject({
-      action: "create",
-      workItemType: "Bug",
+  it("describes the Jira call to the bug rules as a proposed bug, labelled as the adapter will", () => {
+    expect(proposedBug(JIRA_BUG)).toMatchObject({
+      tracker: "jira",
       title: JIRA_BUG.args.summary,
-      parentId: "SHOP-12",
+      story: "SHOP-12",
       tags: "agentic-qa",
     });
     expect(bugTitle(JIRA_BUG)).toBe(JIRA_BUG.args.summary);
-    // Anything that is not a Jira bug is passed through untouched.
-    const other = { toolName: "fs.write_file", args: { path: "x" } };
-    expect(asAdoBug(other)).toBe(other);
+    // Anything that is not a bug is not described as one.
+    expect(proposedBug({ toolName: "fs.write_file", args: { path: "x" } })).toBeUndefined();
   });
 
   it("refuses a duplicate Jira bug exactly as it refuses a duplicate Azure DevOps bug", () => {

@@ -8,21 +8,19 @@ const AGENT_TAG = "agentic-qa";
  *
  * Every rule about bugs — held until the run ends, never shared with another
  * approval, refused while triage says the environment was down, refused as a
- * duplicate, refused when it claims what its test does not show — was written
- * against `ado.wit_work_item_write` with workItemType "Bug". A Jira bug must
- * meet exactly the same rules, and the safe way to guarantee that is not to
- * copy each rule but to show each rule the Jira call in the shape it already
- * checks: summary as the title, description as the repro steps, storyKey as
- * the parent, and the label the adapter always adds as the tag.
+ * duplicate, refused when it claims what its test does not show — applies to
+ * a bug in any tracker. The safe way to guarantee that is not to copy each
+ * rule per tracker but to give every rule one description of the bug
+ * (`ProposedBug`, below): the title, the repro steps, the story it is linked
+ * to, and the tags the tracker will hold.
  *
  * This is a view for judging the call. It is never what is sent: the gate,
  * the approval and the ledger keep the call the model actually proposed.
  *
- * From 2.5.0 there are two views here. The refusal rules in
- * `skills/story-rules.ts` read `proposedBug`, which names no tracker. The
- * end-of-run settlement and the approval prompt still read `asAdoBug`, the
- * older view that dresses a Jira bug as an Azure DevOps one; they move to
- * `proposedBug` in their own change.
+ * Until 2.5.0 the view was an Azure DevOps call that a Jira bug was dressed up
+ * as (`asAdoBug`), and each reader took the fields out its own way. The
+ * refusal rules, the end-of-run settlement and the approval prompt now all
+ * read `proposedBug`, so the three judge and show the same bug.
  */
 export interface CallLike {
   toolName: string;
@@ -45,9 +43,10 @@ export function isBugCreate(call: CallLike): boolean {
 /**
  * A proposed Bug in words that belong to no tracker.
  *
- * The rules in `skills/story-rules.ts` judge this and nothing else about a bug:
- * they do not name a tool, a work item type or a field. Adding a tracker means
- * adding a branch to `proposedBug`, not reading every rule.
+ * The rules in `skills/story-rules.ts`, the settlement in `triage/settle.ts`
+ * and the approval prompt in `runtime/render-approval.ts` read this and nothing
+ * else about a bug: they do not name a tool, a work item type or a field.
+ * Adding a tracker means adding a branch to `proposedBug`, not reading every rule.
  */
 export interface ProposedBug {
   /** Which tracker the run is writing to, so a refusal can name the agent's own argument. */
@@ -60,6 +59,8 @@ export interface ProposedBug {
   story: unknown;
   /** The tags or labels the tracker will hold, as the call gives them. */
   tags: unknown;
+  /** The tracker project the bug would be filed in, as the call gives it. */
+  project: unknown;
 }
 
 /** One named field of an Azure DevOps write, from either form of `fields` (a list of name/value, or an object). */
@@ -91,6 +92,7 @@ export function proposedBug(call: CallLike): ProposedBug | undefined {
       repro: typeof a["description"] === "string" ? a["description"] : "",
       story: a["storyKey"],
       tags: [...new Set([AGENT_TAG, ...labels])].join("; "),
+      project: a["projectKey"],
     };
   }
   if (call.toolName !== ADO_BUG_TOOL || a["action"] !== "create") return undefined;
@@ -101,6 +103,7 @@ export function proposedBug(call: CallLike): ProposedBug | undefined {
     repro: fieldValue(call, "Microsoft.VSTS.TCM.ReproSteps") ?? "",
     story: a["parentId"],
     tags: a["tags"] ?? fieldValue(call, "System.Tags"),
+    project: a["project"],
   };
 }
 
@@ -111,34 +114,4 @@ export function proposedBug(call: CallLike): ProposedBug | undefined {
  */
 export function itemRef(id: number | string): string {
   return /^\d+$/.test(String(id)) ? `#${id}` : String(id);
-}
-
-/** The call as the Azure DevOps bug rules expect to see it. Non-Jira calls come back unchanged. */
-export function asAdoBug<T extends CallLike>(call: T): T {
-  if (call.toolName !== JIRA_BUG_TOOL) return call;
-  const a = call.args;
-  const title = typeof a["summary"] === "string" ? a["summary"] : "";
-  const repro = typeof a["description"] === "string" ? a["description"] : "";
-  // The adapter adds the label to every Bug it creates, whatever the model
-  // passes — so the view carries it too, and a rule asking "is it tagged?"
-  // gets the answer the tracker will hold.
-  const labels = Array.isArray(a["labels"]) ? a["labels"].map(String) : [];
-  const tags = [...new Set([AGENT_TAG, ...labels])].join("; ");
-  return {
-    ...call,
-    toolName: ADO_BUG_TOOL,
-    args: {
-      action: "create",
-      workItemType: "Bug",
-      title,
-      parentId: a["storyKey"],
-      tags,
-      ...(a["projectKey"] !== undefined ? { project: a["projectKey"] } : {}),
-      fields: {
-        "System.Title": title,
-        "Microsoft.VSTS.TCM.ReproSteps": repro,
-        "System.Tags": tags,
-      },
-    },
-  };
 }
